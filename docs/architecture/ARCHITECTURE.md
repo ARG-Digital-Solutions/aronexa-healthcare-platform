@@ -42,3 +42,6 @@ Web/SaaS, then Windows offline/dedicated, then IPD/pharmacy/lab/IUI/IVF/integrat
 
 ### Scope and review status
 These are architectural requirements, NOT implemented capabilities. Final threat model, data model, precise cloud/offline topology, regulatory applicability and signed clinical requirements remain Phase 00 review gates.
+
+## Optional AI assistance module (P00-T10 proposed)
+An internal provider-neutral module provides authorized, source-backed draft generation, prompt/template versioning, token/cost entitlements, output validation and audit. AI is not the source of truth; structured clinical records and authorized doctor decisions remain authoritative. Never automatically finalize treatment, prescriptions or discharge. AI-IPD-01 is Phase 09 priority; see docs/architecture/AI_ASSISTANCE.md. Existing non-AI workflows always function.
