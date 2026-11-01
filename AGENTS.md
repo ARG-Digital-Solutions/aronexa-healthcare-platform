@@ -23,3 +23,8 @@ Scope: repository-wide. Read this file before every task.
 19. Distinguish IUI versus IVF/ICSI flows; require specialist review, consent, embryology traceability, chain of custody and ART regulatory review.
 20. Every feature phase must report a release classification INTERNAL_FOUNDATION, CUSTOMER_PILOT, PRODUCTION_RELEASE or NOT_READY, and all 16 V3 Section 22 report elements. A phase is never production-ready on compilation alone.
 21. macOS and Android native packaging come last, after the shared platform and specialties; Android cannot reuse the desktop Spring Boot/PostgreSQL installation model unchanged.
+
+## Optional clinical AI rules (P00-T10 proposal; no implementation authorized)
+22. AI may draft documentation but may not autonomously diagnose, prescribe, finalize clinical documents or authorize discharge; authorized clinician review is mandatory.
+23. Enforce tenant/role/encounter scoping, data minimization, clinician-visible source evidence, input/output validation, prompt-injection resistance, model/prompt versions and auditable human edits. Do not send identifiable records to external AI until privacy/legal/provider review is completed.
+24. AI-disabled, offline, failed-provider or cost-limited operation must fall back safely to ordinary workflows. Synthetic-data clinical evaluation and owner approval precede real patient use.
