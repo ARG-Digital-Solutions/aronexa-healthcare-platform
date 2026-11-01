@@ -12,3 +12,14 @@ Scope: repository-wide. Read this file before every task.
 10. Small PRs: one bounded task with requirement IDs, acceptance criteria, review notes, dependency changes, and evidence. No silent broad refactoring.
 11. Phase 00–14 mapping is provisional until checked against the original consolidated roadmap. Do not infer missing requirements.
 12. Every customer-facing release requires applicable clinical review, data protection/security review, rollback/restore rehearsal, and explicit owner approval.
+
+## Contract V3.0 mandatory additions
+13. Master Engineering Contract V3.0 is authoritative for product scope; earlier phase assignments remain provisional where not explicitly specified. Never claim an unexecuted test passed.
+14. Use a database-backed outbox/scheduler; do not add Kafka, Redis, Kubernetes, microservices, workflow engines, or separate databases without documented justification.
+15. Central registry only activates implemented, released, entitled and clinically authorized modules; disabled modules must deny API access and preserve historical records.
+16. Maintain Option A + Option D design, tokens navy #102D54, blue #2563EB, teal #0D9488, background #F5F8FC, white #FFFFFF; consistent role-specific, accessible workflows.
+17. Phase 02 includes reusable clinical digital ink: mouse/touch/stylus, undo/redo, eraser, diagrams, drafts, zoom, device-dependent pressure/palm rejection, printable PDF, versioning and authorization. Structured medication is authoritative; signature images are not assumed to be legal digital signatures.
+18. Separate ONLINE_SAAS, OFFLINE_STANDALONE and DEDICATED_INSTALLATION adapters from common business logic. Offline clinical continuity and signed offline licensing are mandatory; never assume synchronization exists.
+19. Distinguish IUI versus IVF/ICSI flows; require specialist review, consent, embryology traceability, chain of custody and ART regulatory review.
+20. Every feature phase must report a release classification INTERNAL_FOUNDATION, CUSTOMER_PILOT, PRODUCTION_RELEASE or NOT_READY, and all 16 V3 Section 22 report elements. A phase is never production-ready on compilation alone.
+21. macOS and Android native packaging come last, after the shared platform and specialties; Android cannot reuse the desktop Spring Boot/PostgreSQL installation model unchanged.
