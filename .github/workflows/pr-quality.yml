@@ -65,8 +65,6 @@ jobs:
         if: steps.presence.outputs.enabled == 'true'
         with:
           node-version: '22'
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
       - name: Backend build and architecture tests
         if: steps.presence.outputs.enabled == 'true'
         run: mvn -B -f backend/pom.xml verify
