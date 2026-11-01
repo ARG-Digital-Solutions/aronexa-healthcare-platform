@@ -1,0 +1,10 @@
+# Explicit opt-in only: run using --spring.profiles.active=dev.
+# Never commit real passwords or reuse a production database.
+spring:
+  datasource:
+    url: ${ARONEXA_DB_URL:jdbc:postgresql://127.0.0.1:5433/aronexa_dev}
+    username: ${ARONEXA_DB_USERNAME:aronexa_dev}
+    password: ${ARONEXA_DB_PASSWORD}
+    hikari:
+      maximum-pool-size: 5
+      connection-timeout: 5000
