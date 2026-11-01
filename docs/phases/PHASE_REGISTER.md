@@ -1,31 +1,45 @@
-# Phase 00–14 register (provisional)
-Each phase: proposed -> approved -> in progress -> evidence verified -> owner accepted. Never advance automatically.
-| Phase | Scope | Depends on | Complexity |
+# AroNexa Phase 00–14 register — reconciled coverage draft
+
+Status: REVIEW REQUIRED. Phase allocations remain provisional until the complete original consolidated Phase 00–14 prompts are compared line-by-line. Master Engineering Contract — Final is the currently checked functional baseline.
+
+State machine per phase: PROPOSED -> APPROVED -> IN_PROGRESS -> VERIFIED -> OWNER_ACCEPTED. Do not auto-advance, merge or deploy. No application code is authorized by this planning document.
+
+| Phase | Scope and added acceptance gates | Dependencies | Complexity |
 |---|---|---|---|
-| 00 | inspection, ADRs, AGENTS, matrix, acceptance | none | M |
-| 01 | patient, appointment, reception | 00 | L |
-| 02 | OPD, prescription, stylus forms | 01 | L |
-| 03 | finance, followups, reports | 01–02 | L |
-| 04 | messaging, paperless | 03 | M |
-| 05 | pilot security and clinical hardening | 01–04 | L |
-| 06 | SaaS and subscription | 05 | L |
-| 07 | Windows offline and licensing | 05 | L |
-| 08 | dedicated installations | 05 | M |
-| 09 | IPD | 05 | L |
-| 10 | pharmacy, lab, stock | 02,09 as applicable | L |
-| 11 | IVF/IUI | 02,10 as applicable | L |
-| 12 | integrations and analytics | relevant modules | L |
-| 13 | macOS application | 05,07 design | L |
-| 14 | Android application | 05, API readiness | L |
+| 00 | Repository inventory; architecture ADRs; Spring Modulith and module registry; tenant/RLS/RBAC threat model; design system; clinical safety and regulatory register; AGENTS.md; final traceability and task approvals | none | M |
+| 01 | Tenant/facility/branch/roles; patient self/reception registration, duplicate detection; first-login and session controls; appointments, check-in, concurrent booking, minimal patient self-service | 00 accepted | L |
+| 02 | OPD encounters, longitudinal history, allergies/vitals, Smart Rx, templates/autocomplete, clinician-controlled finalization, immutable Rx/amendments, stylus annotation on applicable forms | 01 | L |
+| 03 | Fee catalogue, invoices, partial payments/refunds, expense reports, finance reconciliation, follow-up status and callback queues | 01–02 | L |
+| 04 | Authorized paperless documents, consent-based WhatsApp/SMS/email/manual handoff, outbox/retry/dedupe/webhooks; teleconsultation design/phase assignment to confirm | 01–03 | L |
+| 05 | First customer clinic pilot, E2E Playwright flows, tenant/security tests, clinical UAT, backups/restore, readiness report | 01–04 | L |
+| 06 | SaaS tenant provisioning, subscriptions, module entitlements/registry lifecycle, billing and limits | core registry + 05 | L |
+| 07 | Windows offline, first-run wizard, annual licence, backup/restore and user-friendly installer | 05 + offline risk review | L |
+| 08 | Dedicated hospital installation, isolation, secrets, migration and recovery procedures | 05 | M |
+| 09 | IPD admission, wards, care, clinician forms/stylus, discharge, finances | 02–05 | L |
+| 10 | Pharmacy/inventory and lab order/specimen/result flows, common data, reporting | 02; 09 where relevant | L |
+| 11 | IUI/IVF clinical cycles, lab-linked traceability, chain of custody, regulatory and clinical review | 02,10 | L |
+| 12 | Provider connectors, interoperability and secure analytical reporting, incl specialty reporting | relevant modules | L |
+| 13 | macOS client sharing authorization and clinical semantics | 05; desktop design | L |
+| 14 | Android client with secure sessions and approved role workflows | 05; API readiness | L |
 
-## Phase 00 Codex tasks
-- P00-T01 S: read-only repo access/tree, baseline SHA, branches, existing files and risks.
-- P00-T02 M: compare exact consolidated master prompt; assign stable IDs.
-- P00-T03 M: architecture decisions, Spring Modulith boundaries.
-- P00-T04 L: tenant threat model, RLS, RBAC and clinical integrity.
-- P00-T05 M: design tokens and reception/prescription flows.
-- P00-T06 S: AGENTS.md review.
-- P00-T07 M: task cards and dependencies for phases 01–14.
-- P00-T08 S: documentary validation, review report and draft PR.
+## Dependency gates
+- Module registry and entitlement enforcement design in 00; implement foundational checks in 01 before SaaS portal in 06.
+- OPD Rx and shared medicine catalogue contracts before dispensing; shared encounter/order foundations before IPD, lab and fertility.
+- No tenant context leakage through pooled connections; super admin has no default patient-record access.
+- No external messaging or teleconsultation goes live without reviewed consent, privacy, access, expiry and provider test evidence.
+- Offline and SaaS editions share domain rules but require explicitly reviewed data/storage/synchronization models.
+- Specialty features extend shared patient/doctor/encounter models; no duplicated masters.
 
-Task definition must specify scope, requirement IDs, files, exclusions, independent acceptance tests, baseline, verification command and risk. One task per Codex session for Plus efficiency.
+## Plus-sized Codex task pattern
+Task card: ID; phase; requirement IDs; precise in-scope files; excluded files; dependencies; expected outputs; complexity S/M/L; executable acceptance tests; negative cases; rollback; evidence log; explicit owner approval. One bounded task per Codex run.
+
+### Phase 00 remaining
+- P00-T02: Correct traceability and phase register; validate against master engineering contract (completed draft, awaiting exact phase-series verification).
+- P00-T03/T04: Architecture ADR and full threat-model review; RLS negative test design.
+- P00-T05: Reception and OPD Rx wireframe and accessible design acceptance.
+- P00-T06: AGENTS.md final review and signoff.
+- P00-T07: Detailed execution-ready Phase 01 task cards and later phase gates.
+- P00-T08: Documentation verification, review report, owner acceptance.
+
+## Universal phase acceptance
+No PASS without actual command/evidence; tests may be NOT RUN when code does not exist. Each customer-facing release demands clinical authorization where applicable, real PostgreSQL cross-tenant checks, financial consistency, protected documents, regression, security review, restore rehearsal, known-issues review and explicit release approval.
