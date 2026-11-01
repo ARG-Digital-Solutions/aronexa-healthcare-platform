@@ -65,6 +65,11 @@ jobs:
         if: steps.presence.outputs.enabled == 'true'
         with:
           node-version: '22'
+      - name: Validate local development Docker Compose syntax
+        if: steps.presence.outputs.enabled == 'true'
+        env:
+          ARONEXA_DB_PASSWORD: ci-config-validation-placeholder
+        run: docker compose -f deploy/dev/compose.yml config --quiet
       - name: Verify Docker runtime for PostgreSQL integration tests
         if: steps.presence.outputs.enabled == 'true'
         run: docker info
