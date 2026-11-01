@@ -43,3 +43,26 @@ Task card: ID; phase; requirement IDs; precise in-scope files; excluded files; d
 
 ## Universal phase acceptance
 No PASS without actual command/evidence; tests may be NOT RUN when code does not exist. Each customer-facing release demands clinical authorization where applicable, real PostgreSQL cross-tenant checks, financial consistency, protected documents, regression, security review, restore rehearsal, known-issues review and explicit release approval.
+
+## Version 3.0 authoritative scope clarifications
+Preserve 00–14 numbering. This register remains planning-only. Web/SaaS first; then Windows offline and dedicated; then IPD/pharmacy/lab/fertility/integrations; macOS and Android LAST. No premature platform packaging.
+
+| Phase | Additional V3 acceptance scope |
+|---|---|
+| 00 | Authoritative V3 matrix, ADRs, versioned regulatory register, threat model, approved Option A/D tokens, registry state machine and common/extension entity map |
+| 01 | Day-care/facility presets, role dashboards, secure admin access, patient/guardian identity, cancellation/rescheduling, module-gated APIs |
+| 02 | Full reusable ink engine and tests, supported input fallbacks, clinically safe structured Rx and clinician-authorized amendments |
+| 03 | Separate patient billing from SaaS plans, reconciliation, refund and follow-up reporting |
+| 04 | Outbox/scheduler, consent, verified recipients, no public PHI links and offline fail-safe delivery model; teleconsultation remains provisional |
+| 05 | First customer pilot with actual Playwright, Testcontainers, clinical UAT, recovery and security evidence |
+| 06 | Subscription trials/plans/renewal/change/cancellation/grace/export; module entitlement enforcement |
+| 07 | Windows standalone installer, local clinical continuity, offline print, secure backup, asymmetric signed licence and safe post-expiry record access |
+| 08 | Dedicated cloud/on-prem installation with isolated secrets/storage/DB; independently tested deployment |
+| 09 | Nursing, observation, medication administration, procedure and auditable inpatient forms |
+| 10 | Pharmacy batch/expiry/purchase/return, lab samples/result authorization and financial integration |
+| 11 | Distinct IUI/IVF/ICSI paths, consent, stimulation, gamete/embryology, cryostorage and chain-of-custody tests |
+| 12 | Approved connectors and scoped analytics |
+| 13 | macOS runtime, signing/notarization where required, hardware and lifecycle tests |
+| 14 | Android tablet workflows, mobile security, stylus, device compatibility; do not embed desktop PostgreSQL/Spring unchanged |
+
+All feature phases must be a coherent customer-usable increment only when release gate evidence is satisfied. V3 release classifications: INTERNAL_FOUNDATION, CUSTOMER_PILOT, PRODUCTION_RELEASE, NOT_READY. Every phase must produce the 16-item report in RELEASE_GATE.md. Separate original phase prompts remain outstanding for exact task-by-task comparison.

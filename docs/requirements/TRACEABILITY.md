@@ -55,3 +55,32 @@ Columns: Requirement ID | Scope and objective | Owning module | Planned phase | 
 2. Confirm teleconsultation delivery phase (Phase 04 is a provisional mapping; provider selection and clinical expectations unresolved).
 3. Confirm patient portal MVP depth and offline synchronization semantics before coding.
 4. Review current regulatory obligations and medical/ART applicability with qualified clinical/legal reviewers; do not claim compliance by design alone.
+
+## Master Engineering Contract V3.0 — coverage additions (supersedes earlier assumptions)
+V3.0 is the authoritative product specification (22 sections). Mappings below add explicit coverage; pre-existing requirement IDs and planned phases remain subject to original phase-prompt verification. No build/test evidence exists yet.
+
+| ID | V3 section | Additional requirement | Proposed phase | Evidence/acceptance |
+|---|---|---|---|---|
+| CORE-03 | 2,4 | Day-care facilities; guardian/partner relationships; specialty extension entities and unified longitudinal records | 00 design/01,11 | Facility expansion and identity/consent tests |
+| MOD-01 | 5 | Registry implementation/release/licence/clinical approvals; deny disabled-module APIs, preserve records | 00 design/01,06 | Gate and historical data tests |
+| SEC-04 | 6,7 | Admin support exceptional audited clinical access; file validation, TLS, incident response | 00 design/01+ | Privilege escalation, access log, file security tests |
+| UX-02 | 8 | Approved Option A/D tokens #102D54, #2563EB, #0D9488, #F5F8FC, #FFFFFF; responsive role dashboards | 00/01+ | Design token and accessibility review |
+| FORM-02 | 9 | Digital ink: mouse/finger/stylus, undo/redo, eraser, zoom, draft, diagram overlays, optional pressure/palm rejection, PDF, ink/structured separation | 02 and reusable in 09,11 | Save/reload, export, finalize, amendment, device fallback tests |
+| RX-04 | 10 | Quantity, units, manual medicine entry, hospital templates, supported allergy/duplicate alerts | 02 | Clinical approval and invalid-input tests |
+| APT-02 | 11 | Cancel/reschedule, patient preferences and tokens | 01 | Slot and race-condition acceptance |
+| FIN-02 | 12 | Separate SaaS subscription invoices from patient billing | 03/06 | Reconciliation and data ownership tests |
+| MSG-03 | 13 | Offline graceful degradation; audited delivery failures and explicit data disclosure restrictions | 04/07 | Provider outage, delayed retry, consent tests |
+| IPD-02 | 14 | Nursing observations, medication administration, procedures | 09 | Dose/event audit and nurse authorization tests |
+| PHA-02 | 14 | Batch, expiry, vendor, purchasing, returns and stock reconciliation | 10 | Expired-stock and stock-ledger tests |
+| LAB-02 | 14 | Sample validation and result authorization | 10 | Chain and release tests |
+| FER-02 | 15 | Distinct IUI and IVF/ICSI, fertility partner consent, stimulation, oocyte/semen, embryo/cryopreservation, ART records | 11 | Specialist-reviewed clinical chain-of-custody scenarios |
+| REG-02 | 16 | Pharmacy/lab/facility laws, financial and incident obligations and jurisdiction-specific check | 00, every release | Versioned legal/clinical applicability signoff |
+| SAAS-02 | 17.2 | Trials, monthly/annual plan transitions, payment integration, grace, data export/clinical continuity | 06 | Subscription lifecycle and isolation tests |
+| OFF-02 | 17.3-17.4 | Local standalone operations without internet; printing; secure installer/updates; asymmetric signed offline licence with limits and continuity after expiry | 07 | Tamper, renewal, offline install, expired-license continuity, restore tests |
+| DEP-02 | 17.5-17.6 | Customer-isolated private cloud/on-prem and independent deployment-mode verification; no assumed sync | 08 | Tenant/dedicated install smoke and restore tests |
+| REL-01 | 18,20,22 | Customer-usable increments, release classifications, all relevant tests, 16-field report and explicit approval | all | Actual evidence, customer UAT, signed gate |
+| MAC-02 | 21 | Supported hardware, signing/notarization, installer, backups and licences | 13 | Supported macOS distribution checks |
+| AND-02 | 21 | Tablet-first app, secure device login and stylus; no desktop backend/database reuse; sync only if separately approved | 14 | Mobile security/compatibility and release signing tests |
+
+## V3 coverage control
+Sections 1-7: scope, architecture, shared domains, registry, roles, security. 8-11: design, ink, OPD/Rx, patient/appointments. 12-16: finance, communications, IPD/pharmacy/lab, fertility, regulation. 17-22: SaaS/offline/dedicated, deliverable phases, change control, quality gates, cross-platform and phase report. All sections now have explicit coverage through the original matrix and V3 additions; NOT implementation evidence and NOT a line-by-line comparison with unavailable original separate phase prompts. Teleconsultation was an earlier approved requirement absent from V3 text; retain TEL-01 as pending owner scope decision rather than silently remove.
