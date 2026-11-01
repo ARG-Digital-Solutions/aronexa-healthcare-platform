@@ -1,0 +1,5 @@
+# P01-T02: All database connection details are injected by @ServiceConnection
+# from an ephemeral PostgreSQL Testcontainer. No shared/local dev database.
+spring:
+  main:
+    banner-mode: "off"
