@@ -52,6 +52,11 @@ class AronexaApplicationTests {
     }
 
     @Test
+    void destructiveFlywayCleanIsDisabled() {
+        assertThat(flyway.getConfiguration().isCleanDisabled()).isTrue();
+    }
+
+    @Test
     void repeatMigrationDoesNotReapplyVersionedSql() {
         int migrationsBefore = flyway.info().applied().length;
         flyway.migrate();
