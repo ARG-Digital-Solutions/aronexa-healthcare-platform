@@ -48,11 +48,11 @@ jobs:
         id: presence
         shell: bash
         run: |
-          if [ -f backend/pom.xml ] && [ -f frontend/package.json ] && [ -f frontend/package-lock.json ]; then
+          if [ -f backend/pom.xml ] && [ -f frontend/package.json ]; then
             echo "enabled=true" >> "$GITHUB_OUTPUT"
           else
             echo "enabled=false" >> "$GITHUB_OUTPUT"
-            echo "Complete application scaffold absent: backend/frontend build NOT RUN; partial scaffold requires separate verification" >> "$GITHUB_STEP_SUMMARY"
+            echo "Application scaffold absent: backend/frontend build NOT RUN" >> "$GITHUB_STEP_SUMMARY"
           fi
       - uses: actions/setup-java@v4
         if: steps.presence.outputs.enabled == 'true'
@@ -67,12 +67,16 @@ jobs:
           node-version: '22'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - name: Backend build and unit/integration tests
+      - name: Backend build and architecture tests
         if: steps.presence.outputs.enabled == 'true'
         run: mvn -B -f backend/pom.xml verify
-      - name: Frontend build
+      - name: Frontend build and initial lockfile generation
         if: steps.presence.outputs.enabled == 'true'
         working-directory: frontend
         run: |
-          npm ci
+          if [ ! -f package-lock.json ]; then
+            echo 'P01-T01: generating first lockfile for review; commit it before merge'
+            npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+          fi
+          npm ci --no-audit --no-fund
           npm run build
