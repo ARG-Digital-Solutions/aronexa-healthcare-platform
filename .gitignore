@@ -1,0 +1,18 @@
+# Java/Maven
+target/
+backend/target/
+*.class
+# Node
+node_modules/
+frontend/dist/
+# Secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+# OS/IDE
+.DS_Store
+.idea/
+.vscode/

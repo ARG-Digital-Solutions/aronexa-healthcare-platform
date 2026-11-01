@@ -1,0 +1,5 @@
+spring:
+  application:
+    name: aronexa-backend
+server:
+  port: 8080
