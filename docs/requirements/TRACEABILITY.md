@@ -84,3 +84,6 @@ V3.0 is the authoritative product specification (22 sections). Mappings below ad
 
 ## V3 coverage control
 Sections 1-7: scope, architecture, shared domains, registry, roles, security. 8-11: design, ink, OPD/Rx, patient/appointments. 12-16: finance, communications, IPD/pharmacy/lab, fertility, regulation. 17-22: SaaS/offline/dedicated, deliverable phases, change control, quality gates, cross-platform and phase report. All sections now have explicit coverage through the original matrix and V3 additions; NOT implementation evidence and NOT a line-by-line comparison with unavailable original separate phase prompts. Teleconsultation was an earlier approved requirement absent from V3 text; retain TEL-01 as pending owner scope decision rather than silently remove.
+
+## P00-T10 AI requirements (proposed supplement to V3.0)
+AI-CORE-01 Phase 00 design + first AI feature implementation: shared authorized, auditable optional provider-neutral AI drafting module. AI-OPD-01 and optional AI-RX-01 Phase 02; AI-MSG-01 Phase 04; flagship AI-IPD-01/02 Phase 09; AI-FER-01 Phase 11; AI-OPS-01 Phase 12; AI-CLIENT-01 Phase 13–14. Source references, clinician signoff, PHI controls and manual fallback required. Full acceptance matrix: docs/requirements/AI_ASSISTANCE_REQUIREMENTS.md. This does not constitute automatic approval of new capabilities.

@@ -66,3 +66,6 @@ Preserve 00–14 numbering. This register remains planning-only. Web/SaaS first;
 | 14 | Android tablet workflows, mobile security, stylus, device compatibility; do not embed desktop PostgreSQL/Spring unchanged |
 
 All feature phases must be a coherent customer-usable increment only when release gate evidence is satisfied. V3 release classifications: INTERNAL_FOUNDATION, CUSTOMER_PILOT, PRODUCTION_RELEASE, NOT_READY. Every phase must produce the 16-item report in RELEASE_GATE.md. Separate original phase prompts remain outstanding for exact task-by-task comparison.
+
+## P00-T10 optional AI workstream (review required)
+Phase 00: AI architecture/clinical/privacy requirements only. Phase 02: OPD note drafting and optional clinician-selected Rx wording. Phase 04: patient message drafts. Phase 09: priority IPD discharge summary templates and patient-friendly instructions. Phase 11: fertility documentation summaries. Phase 12: operational analytics. Phases 13–14: reuse previously approved AI; no new early native packaging. Each capability needs its own small Codex task, explicit authorization, privacy/clinical evaluation and manual non-AI fallback. See docs/requirements/AI_ASSISTANCE_REQUIREMENTS.md and docs/qa/AI_ACCEPTANCE.md.
