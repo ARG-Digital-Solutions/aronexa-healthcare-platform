@@ -195,8 +195,10 @@ class AuthenticationIntegrationTests {
     void expiredSessionCannotAccessIdentity() throws Exception {
         Fixture f=fixture();
         String token=login(f,f.password());
-        jdbc.update("UPDATE auth_session SET expires_at=now()-interval '1 second' WHERE membership_id=?",
-                f.memberId());
+        jdbc.update("""
+            UPDATE auth_session SET issued_at=now()-interval '2 hours',
+                   expires_at=now()-interval '1 hour' WHERE membership_id=?
+            """,f.memberId());
         mvc.perform(get("/api/v1/auth/me").header("Authorization","Bearer "+token))
                 .andExpect(status().isUnauthorized());
     }
