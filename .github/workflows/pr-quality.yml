@@ -70,6 +70,7 @@ jobs:
         env:
           ARONEXA_DB_PASSWORD: ci-config-validation-placeholder
           ARONEXA_RUNTIME_DB_PASSWORD: ci-config-runtime-placeholder
+          ARONEXA_AUTH_DB_PASSWORD: ci-config-auth-placeholder
         run: docker compose -f deploy/dev/compose.yml config --quiet
       - name: Verify Docker runtime for PostgreSQL integration tests
         if: steps.presence.outputs.enabled == 'true'
