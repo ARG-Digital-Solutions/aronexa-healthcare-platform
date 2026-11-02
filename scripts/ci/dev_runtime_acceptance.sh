@@ -68,10 +68,10 @@ version="$("${COMPOSE[@]}" exec -T postgres psql -X -At -U aronexa_dev -d aronex
   SELECT version FROM public.flyway_schema_history
   WHERE success ORDER BY installed_rank DESC LIMIT 1;
 ")"
-if [[ "$version" != "6" ]]; then
-  echo "FAIL: unexpected Flyway version (wanted 6)." >&2; exit 1
+if [[ "$version" != "7" ]]; then
+  echo "FAIL: unexpected Flyway version (wanted 7)." >&2; exit 1
 fi
-echo "PASS: Flyway V1-V6 applied"
+echo "PASS: Flyway V1-V7 applied"
 
 # Check role privileges without exposing credentials or data.
 org_auth_select="$("${COMPOSE[@]}" exec -T -e "PGPASSWORD=$ARONEXA_RUNTIME_DB_PASSWORD" postgres \
