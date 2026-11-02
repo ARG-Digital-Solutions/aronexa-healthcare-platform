@@ -14,7 +14,11 @@ public class AuthController {
     public record LoginRequest(String tenantCode, String username, String password) {}
     public record PasswordChangeRequest(String currentPassword, String newPassword) {}
     private final AuthService service;
-    AuthController(AuthService service) { this.service=service; }
+    private final TenantAuthorization tenantAuthorization;
+    AuthController(AuthService service, TenantAuthorization tenantAuthorization) {
+        this.service=service;
+        this.tenantAuthorization=tenantAuthorization;
+    }
 
     @PostMapping("/login")
     public ResponseEntity<AuthService.LoginResult> login(@RequestBody LoginRequest request) {
@@ -23,8 +27,9 @@ public class AuthController {
     }
 
     @GetMapping("/me")
-    public ResponseEntity<AuthPrincipal> me(@AuthenticationPrincipal AuthPrincipal principal) {
-        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(principal);
+    public ResponseEntity<AuthPrincipal> me() {
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+                .body(tenantAuthorization.currentPrincipal());
     }
 
     @PostMapping("/logout")

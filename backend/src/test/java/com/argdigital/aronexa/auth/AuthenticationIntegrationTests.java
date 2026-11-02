@@ -108,6 +108,33 @@ class AuthenticationIntegrationTests {
     }
 
     @Test
+    void ignoresForgedTenantAndBranchHeadersForSessionIdentity() throws Exception {
+        Fixture f=fixture();
+        String token=login(f,f.password());
+        mvc.perform(get("/api/v1/auth/me")
+                .header("Authorization","Bearer "+token)
+                .header("X-Tenant-Id",UUID.randomUUID().toString())
+                .header("X-Branch-Id",UUID.randomUUID().toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.tenantId").value(f.tenantId().toString()))
+                .andExpect(jsonPath("$.membershipId").value(f.memberId().toString()));
+    }
+
+    @Test
+    void unregisteredApplicationRouteIsDeniedAfterPasswordChange() throws Exception {
+        Fixture f=fixture();
+        String token=login(f,f.password());
+        mvc.perform(post("/api/v1/auth/password")
+                .header("Authorization","Bearer "+token).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"currentPassword\":\"TempPassword_123!\",\"newPassword\":\"NewLongPassword_123!\"}"))
+                .andExpect(status().isNoContent());
+        String newToken=loginWithoutFirstPasswordRequirement(f,"NewLongPassword_123!");
+        mvc.perform(get("/api/v1/clinical/future")
+                .header("Authorization","Bearer "+newToken))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
     void logoutRevokesAccessAndWritesAudit() throws Exception {
         Fixture f=fixture(); String token=login(f,f.password());
         mvc.perform(post("/api/v1/auth/logout").header("Authorization","Bearer "+token))

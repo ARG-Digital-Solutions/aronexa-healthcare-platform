@@ -27,7 +27,10 @@ class AuthSecurityConfiguration {
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(a -> a
                         .requestMatchers(HttpMethod.POST,"/api/v1/auth/login").permitAll()
-                        .anyRequest().authenticated())
+                        // Until P01-T05-C explicitly authorizes a resource, deny its HTTP route.
+                        .requestMatchers(HttpMethod.GET,"/api/v1/auth/me").authenticated()
+                        .requestMatchers(HttpMethod.POST,"/api/v1/auth/logout","/api/v1/auth/password").authenticated()
+                        .anyRequest().denyAll())
                 .exceptionHandling(e -> e.authenticationEntryPoint(
                         (req,res,exc) -> res.sendError(401)))
                 .addFilterBefore(new BearerAuthenticationFilter(auth),
