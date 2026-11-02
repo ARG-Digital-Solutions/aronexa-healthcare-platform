@@ -43,7 +43,7 @@ class AronexaApplicationTests {
     @Test
     void freshDatabaseIsMigratedAndMigrationIsValidated() {
         assertThat(flyway.info().current()).isNotNull();
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("2");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("3");
         assertThat(flyway.validateWithResult().validationSuccessful).isTrue();
         assertThat(jdbc.queryForObject(
                 "select count(*) from information_schema.tables " +
@@ -53,6 +53,10 @@ class AronexaApplicationTests {
                 "select count(*) from information_schema.tables " +
                 "where table_schema = 'public' and table_name in ('tenant','facility','branch','department')",
                 Integer.class)).isEqualTo(4);
+        assertThat(jdbc.queryForObject(
+                "select count(*) from information_schema.tables " +
+                "where table_schema = 'public' and table_name in ('app_user','user_tenant_membership', 'auth_role', 'auth_permission', 'auth_session', 'auth_audit_event')",
+                Integer.class)).isEqualTo(6);
     }
 
     @Test
