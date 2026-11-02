@@ -98,10 +98,31 @@ class OrganizationPersistenceTests {
     }
 
     @Test
-    void rejectsUnknownParentsAndDuplicateTenantCodes() {
+    void rejectsDuplicateTenantCodes() {
         Tenant one = tenant("tenant_one");
         assertThatThrownBy(() -> directory.createTenant(
                 new Tenant(UUID.randomUUID(), one.code(), "Duplicate")))
+                .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    void rejectsBranchWithMissingFacility() {
+        Tenant one = tenant("tenant_one");
+        assertThatThrownBy(() -> directory.createBranch(new Branch(
+                UUID.randomUUID(), one.id(), UUID.randomUUID(), "new_branch", "Orphan")))
+                .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    void departmentCodeIsUniqueWithinBranch() {
+        Tenant one = tenant("tenant_one");
+        Facility clinic = facility(one, "clinic");
+        Branch main = branch(one, clinic, "main");
+        directory.createDepartment(new Department(
+                UUID.randomUUID(), one.id(), main.id(), "opd", "Outpatient"));
+
+        assertThatThrownBy(() -> directory.createDepartment(new Department(
+                UUID.randomUUID(), one.id(), main.id(), "opd", "Duplicate")))
                 .isInstanceOf(DataIntegrityViolationException.class);
     }
 
