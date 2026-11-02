@@ -192,6 +192,24 @@ class AuthenticationIntegrationTests {
     }
 
     @Test
+    void expiredSessionCannotAccessIdentity() throws Exception {
+        Fixture f=fixture();
+        String token=login(f,f.password());
+        jdbc.update("UPDATE auth_session SET expires_at=now()-interval '1 second' WHERE membership_id=?",
+                f.memberId());
+        mvc.perform(get("/api/v1/auth/me").header("Authorization","Bearer "+token))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void firstLoginCannotAccessOrdinaryApplicationRoutes() throws Exception {
+        Fixture f=fixture();
+        String token=login(f,f.password());
+        mvc.perform(get("/api/v1/clinical/future").header("Authorization","Bearer "+token))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
     void tokenSessionIsInvalidAfterMembershipDisabled() throws Exception {
         Fixture f=fixture(); String token=login(f,f.password());
         jdbc.update("UPDATE user_tenant_membership SET enabled=FALSE WHERE id=?",f.memberId());
