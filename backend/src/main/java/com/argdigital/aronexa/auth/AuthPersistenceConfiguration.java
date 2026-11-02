@@ -52,7 +52,7 @@ class AuthPersistenceConfiguration {
      * Never activate this test-only alias for normal development.
      */
     @Configuration(proxyBeanMethods = false)
-    @Profile("!dev")
+    @Profile("test")
     static class DefaultAuthDataSource {
         @Bean(name = "authDataSource")
         DataSource authDataSource(@Qualifier("dataSource") DataSource dataSource) {
