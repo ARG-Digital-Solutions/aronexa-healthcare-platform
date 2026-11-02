@@ -236,8 +236,8 @@ class PostgresTenantRlsTests {
                 membershipId,userId,f.tenantA());
         HikariConfig cfg=new HikariConfig();
         cfg.setJdbcUrl(postgres.getJdbcUrl());
-        cfg.setUsername("aronexa_app_runtime");
-        cfg.setPassword(RUNTIME_PASSWORD);
+        cfg.setUsername("aronexa_auth_runtime");
+        cfg.setPassword("only-for-ephemeral-auth-role");
         cfg.setMaximumPoolSize(1);
         try (HikariDataSource runtime=new HikariDataSource(cfg)) {
             AuthService service=new AuthService(new AuthRepository(new JdbcTemplate(runtime)),
