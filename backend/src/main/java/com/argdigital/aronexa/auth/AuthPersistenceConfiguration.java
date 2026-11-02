@@ -2,6 +2,7 @@ package com.argdigital.aronexa.auth;
 
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
+import org.springframework.boot.jdbc.autoconfigure.JdbcConnectionDetails;
 import javax.sql.DataSource;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
@@ -54,6 +55,20 @@ class AuthPersistenceConfiguration {
     @Configuration(proxyBeanMethods = false)
     @Profile("test")
     static class DefaultAuthDataSource {
+        // Two datasource definitions suppress Boot's default DataSource creation.
+        // Obtain the ephemeral container's real URL/credentials from ServiceConnection.
+        @Bean(name = "dataSource", destroyMethod = "close")
+        @Primary
+        DataSource testDataSource(JdbcConnectionDetails details) {
+            HikariConfig config = new HikariConfig();
+            config.setPoolName("aronexa-ephemeral-test");
+            config.setJdbcUrl(details.getJdbcUrl());
+            config.setUsername(details.getUsername());
+            config.setPassword(details.getPassword());
+            config.setMaximumPoolSize(5);
+            return new HikariDataSource(config);
+        }
+
         @Bean(name = "authDataSource")
         DataSource authDataSource(@Qualifier("dataSource") DataSource dataSource) {
             return dataSource;
