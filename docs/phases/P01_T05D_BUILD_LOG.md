@@ -1,8 +1,8 @@
 # P01-T05-D — Adversarial tenant isolation and authentication privilege boundary
 
-**Status:** READY FOR OWNER SECURITY REVIEW — NOT MERGED / NOT DEPLOYED.
+**Historical task outcome:** PR #17 merged into main on 2026-11-02 (per owner confirmation). Not deployed. Local Windows/runtime sign-off remains open.
 **Branch:** `security/p01-t05d-adversarial-auth-isolation`
-**Draft PR:** https://github.com/ARG-Digital-Solutions/aronexa-healthcare-platform/pull/17
+**Merged PR:** https://github.com/ARG-Digital-Solutions/aronexa-healthcare-platform/pull/17
 **CI evidence:** [GitHub Actions run 41431681968](https://github.com/ARG-Digital-Solutions/aronexa-healthcare-platform/actions/runs/41431681968), successful on commit `540644b`, 2026-11-02 UTC.
 **Release classification:** INTERNAL SECURITY FOUNDATION; NOT clinically or production approved.
 
@@ -47,4 +47,7 @@
 - Distributed rate limiting, MFA, verified recovery, session hardening under token theft, emergency/support access, compliance/privacy sign-off, and additional concurrent HTTP authorization attacks remain required before production.
 
 ## Approval gate
-This PR is a targeted **security improvement**, not a claim that P01-T05-D fulfills all original end-to-end privacy/security acceptance criteria. Owner must inspect changes and green CI; obtain security reviewer acceptance of residual privilege risks before merge. No auto-merge, deployment or advancement to next phase. Any changes to V6 after an actual application require a new forward-only migration, not editing an applied version.
+At merge time this PR was a targeted **security improvement**, not a claim that P01-T05-D fulfills all original end-to-end privacy/security acceptance criteria. Owner must inspect changes and green CI; obtain security reviewer acceptance of residual privilege risks before merge. No auto-merge, deployment or advancement to next phase. Any changes to V6 after an actual application require a new forward-only migration, not editing an applied version.
+
+## Post-merge closure cross-reference (2026-11-02)
+PR #17 was merged, as verified in GitHub main. The CI passing evidence remains valid for the test profile. Refer to [Phase 01 Security Closure and Local Runtime Acceptance](P01_SECURITY_CLOSURE_ACCEPTANCE.md) for unresolved Windows runtime acceptance, existing-volume migration evidence, auth privilege risks, and production blockers. This historic build log is not a local-machine acceptance record.
