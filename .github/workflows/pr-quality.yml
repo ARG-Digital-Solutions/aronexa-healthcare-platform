@@ -65,16 +65,20 @@ jobs:
         if: steps.presence.outputs.enabled == 'true'
         with:
           node-version: '22'
-      - name: Backend build and architecture tests
+      - name: Validate local development Docker Compose syntax
+        if: steps.presence.outputs.enabled == 'true'
+        env:
+          ARONEXA_DB_PASSWORD: ci-config-validation-placeholder
+        run: docker compose -f deploy/dev/compose.yml config --quiet
+      - name: Verify Docker runtime for PostgreSQL integration tests
+        if: steps.presence.outputs.enabled == 'true'
+        run: docker info
+      - name: Backend build, Flyway and PostgreSQL Testcontainers integration tests
         if: steps.presence.outputs.enabled == 'true'
         run: mvn -B -f backend/pom.xml verify
-      - name: Frontend build and initial lockfile generation
+      - name: Frontend reproducible build
         if: steps.presence.outputs.enabled == 'true'
         working-directory: frontend
         run: |
-          if [ ! -f package-lock.json ]; then
-            echo 'P01-T01: generating first lockfile for review; commit it before merge'
-            npm install --package-lock-only --ignore-scripts --no-audit --no-fund
-          fi
           npm ci --no-audit --no-fund
           npm run build

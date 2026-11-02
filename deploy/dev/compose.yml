@@ -1,0 +1,21 @@
+# Local development only. Not a production, customer or offline installer.
+name: aronexa-dev
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: "no"
+    environment:
+      POSTGRES_DB: aronexa_dev
+      POSTGRES_USER: aronexa_dev
+      POSTGRES_PASSWORD: ${ARONEXA_DB_PASSWORD:?Set ARONEXA_DB_PASSWORD in deploy/dev/.env}
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - aronexa_dev_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aronexa_dev -d aronexa_dev"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+volumes:
+  aronexa_dev_postgres_data:

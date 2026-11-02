@@ -1,5 +1,13 @@
 spring:
   application:
     name: aronexa-backend
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: false
+    validate-on-migrate: true
+    clean-disabled: true
 server:
   port: 8080
+# No default database credentials or URL: a profile/container must explicitly
+# provide them. This deliberately fails closed outside configured environments.
