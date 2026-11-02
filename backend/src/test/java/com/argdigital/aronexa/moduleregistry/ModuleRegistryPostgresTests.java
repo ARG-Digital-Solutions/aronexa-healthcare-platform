@@ -8,6 +8,7 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
@@ -31,6 +32,12 @@ class ModuleRegistryPostgresTests {
             .withUsername("aronexa_module_test")
             .withPassword("ephemeral-test-only");
     @Autowired JdbcTemplate admin;
+
+    @BeforeEach
+    void resetCatalogForIsolation() {
+        admin.update("DELETE FROM tenant_module_state");
+        admin.update("UPDATE module_registry SET implemented=false, released=false");
+    }
 
     private UUID createTenant() {
         UUID id=UUID.randomUUID();
@@ -161,8 +168,11 @@ class ModuleRegistryPostgresTests {
         assertThatThrownBy(() -> admin.update(
                 "UPDATE module_registry SET released=true WHERE code='LAB'"))
                 .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+        Long existingId=admin.queryForObject(
+                "SELECT min(id) FROM module_configuration_audit",Long.class);
+        assertThat(existingId).isNotNull();
         assertThatThrownBy(() -> admin.update(
-                "DELETE FROM module_configuration_audit WHERE false"))
+                "DELETE FROM module_configuration_audit WHERE id=?",existingId))
                 .isInstanceOf(org.springframework.dao.DataAccessException.class);
     }
 }
