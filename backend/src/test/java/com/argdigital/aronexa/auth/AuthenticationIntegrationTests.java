@@ -78,7 +78,7 @@ class AuthenticationIntegrationTests {
                 .andExpect(jsonPath("$.tokenType").value("Bearer"))
                 .andExpect(jsonPath("$.mustChangePassword").value(true))
                 .andReturn().getResponse().getContentAsString();
-        Matcher match=Pattern.compile("\\"accessToken\\":\\"([^\\"]+)\\"").matcher(json);
+        Matcher match=Pattern.compile("accessToken[^A-Za-z0-9_-]*([A-Za-z0-9_-]{43})").matcher(json);
         assertThat(match.find()).isTrue();
         return match.group(1);
     }
@@ -145,7 +145,7 @@ class AuthenticationIntegrationTests {
                 .content(loginJson(f,password))).andExpect(status().isOk())
                 .andExpect(jsonPath("$.mustChangePassword").value(false))
                 .andReturn().getResponse().getContentAsString();
-        Matcher match=Pattern.compile("\\"accessToken\\":\\"([^\\"]+)\\"").matcher(json);
+        Matcher match=Pattern.compile("accessToken[^A-Za-z0-9_-]*([A-Za-z0-9_-]{43})").matcher(json);
         assertThat(match.find()).isTrue();
         return match.group(1);
     }
