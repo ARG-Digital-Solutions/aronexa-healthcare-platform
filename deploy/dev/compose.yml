@@ -8,10 +8,12 @@ services:
       POSTGRES_DB: aronexa_dev
       POSTGRES_USER: aronexa_dev
       POSTGRES_PASSWORD: ${ARONEXA_DB_PASSWORD:?Set ARONEXA_DB_PASSWORD in deploy/dev/.env}
+      ARONEXA_RUNTIME_DB_PASSWORD: ${ARONEXA_RUNTIME_DB_PASSWORD:?Set ARONEXA_RUNTIME_DB_PASSWORD in deploy/dev/.env}
     ports:
       - "127.0.0.1:5433:5432"
     volumes:
       - aronexa_dev_postgres_data:/var/lib/postgresql/data
+      - ./initdb/10-create-runtime-role.sh:/docker-entrypoint-initdb.d/10-create-runtime-role.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U aronexa_dev -d aronexa_dev"]
       interval: 5s

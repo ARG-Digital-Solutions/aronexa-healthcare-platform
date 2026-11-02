@@ -31,6 +31,7 @@ class AuthenticationIntegrationTests {
     @Container
     @ServiceConnection
     static PostgreSQLContainer postgres = new PostgreSQLContainer("postgres:17-alpine")
+            .withInitScript("db/test/role-bootstrap.sql")
             .withDatabaseName("aronexa_auth_test")
             .withUsername("aronexa_auth_test")
             .withPassword("ephemeral-test-only");

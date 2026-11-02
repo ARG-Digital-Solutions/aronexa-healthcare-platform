@@ -24,6 +24,7 @@ class AronexaApplicationTests {
     @Container
     @ServiceConnection
     static PostgreSQLContainer postgres = new PostgreSQLContainer("postgres:17-alpine")
+            .withInitScript("db/test/role-bootstrap.sql")
             .withDatabaseName("aronexa_test")
             .withUsername("aronexa_test")
             .withPassword("ephemeral-test-only");
@@ -43,7 +44,7 @@ class AronexaApplicationTests {
     @Test
     void freshDatabaseIsMigratedAndMigrationIsValidated() {
         assertThat(flyway.info().current()).isNotNull();
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("3");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("4");
         assertThat(flyway.validateWithResult().validationSuccessful).isTrue();
         assertThat(jdbc.queryForObject(
                 "select count(*) from information_schema.tables " +
