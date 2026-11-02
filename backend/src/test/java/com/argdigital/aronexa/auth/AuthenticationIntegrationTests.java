@@ -126,7 +126,7 @@ class AuthenticationIntegrationTests {
         String token=login(f,f.password());
         mvc.perform(post("/api/v1/auth/password")
                 .header("Authorization","Bearer "+token).contentType(MediaType.APPLICATION_JSON)
-                .content("{\\"currentPassword\\":\\"TempPassword_123!\\",\\"newPassword\\":\\"NewLongPassword_123!\\"}"))
+                .content("{\"currentPassword\":\"TempPassword_123!\",\"newPassword\":\"NewLongPassword_123!\"}"))
                 .andExpect(status().isNoContent());
         String newToken=loginWithoutFirstPasswordRequirement(f,"NewLongPassword_123!");
         mvc.perform(get("/api/v1/clinical/future")
