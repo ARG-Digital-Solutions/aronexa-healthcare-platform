@@ -141,3 +141,15 @@ The new `Dev Runtime Acceptance (Fresh Database)` workflow provisions a fresh is
 The dedicated authentication database role still has global SQL grants over accounts and sessions; physical role separation reduces attack surface but not all cross-tenant auth data risks. Doctor, patient and encounter ownership/IDOR policies require future domain models. MFA, verified recovery, role provisioning, abuse throttling, independent security assessment, backup/restore, and clinical compliance review remain outstanding.
 
 **Closure recommendation:** phase 01 code/CI foundation can be recorded as merged, but do not certify local Windows acceptance or production/clinical readiness until evidence exists and the owner approves it. No merge, deployment or next phase authorization is implied by this review.
+
+
+## Windows local verification addendum — 2026-11-02 (owner-reported)
+
+The earlier statement at the top of this document that local Windows checks are **NOT VERIFIED** reflects the historical position before the owner supplied console evidence. The following local checks have **now been reported as passing**, subject to documentation review and explicit owner acceptance: Docker PostgreSQL healthy; both restricted DB roles present and neither SUPERUSER nor BYPASSRLS; Flyway V1–V6 success; Maven compilation and 53/53 Surefire tests; Spring Boot started; Vite 7.3.7 built; npm audit found zero vulnerabilities; both anonymous /auth/me and invalid /auth/login returned HTTP 401. [PR #19](https://github.com/ARG-Digital-Solutions/aronexa-healthcare-platform/pull/19) merged the Vite security fix and LF line-ending rule.
+
+**Authoritative evidence and risk register for these observed checks:** [P01 Windows Foundation Verification — 2026-11-02](P01_WINDOWS_FOUNDATION_VERIFICATION_2026-11-02.md). This addendum does not imply a full Windows installer test, independently validated existing-volume migration/restore, valid browser login, clinical authorization or production readiness. P01-T06–T10 and remaining clinical/authorization scope are not completed. **Owner approval and independent security review remain pending; no new task, deployment, or full phase sign-off is authorized.**
+
+
+### Formal owner decision on Windows engineering foundation — 2026-11-02
+
+The owner explicitly approved **P01-T01–P01-T05-D local Windows engineering foundation as INTERNAL_FOUNDATION only** and acknowledged all documented open risks. This acceptance concerns the **user-reported, limited local verification evidence**, not full Phase 01 closure, independent security approval, clinical use, live patient data, customer deployment, or production. The owner **explicitly withheld authorization to merge PR #20 and to begin the next development task**. See the [limited formal acceptance and open risk register](P01_WINDOWS_FOUNDATION_VERIFICATION_2026-11-02.md). Historical `NOT VERIFIED` statements above describe the original review state before Windows console evidence was provided; actual Windows smoke checks were later owner-reported as passed. Independent security and incomplete recovery/clinical/feature gates remain open. PR #20 remains an unmerged draft.
