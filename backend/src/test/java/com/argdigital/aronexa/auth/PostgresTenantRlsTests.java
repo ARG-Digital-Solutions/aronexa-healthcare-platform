@@ -290,7 +290,8 @@ class PostgresTenantRlsTests {
     void loginTenantCodeLookupWorksWithoutOpeningTenantTable() throws Exception {
         Fixture f=seed();
         String code=admin.queryForObject("SELECT code FROM tenant WHERE id=?",String.class,f.tenantA());
-        try (Connection c=runtimeConnection()) {
+        try (Connection c=DriverManager.getConnection(postgres.getJdbcUrl(),
+                "aronexa_auth_runtime", "only-for-ephemeral-auth-role")) {
             c.setAutoCommit(false);
             try (PreparedStatement p=c.prepareStatement(
                     "SELECT public.aronexa_login_tenant_id(?)")) {
