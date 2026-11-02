@@ -1,0 +1,38 @@
+name: Dev Runtime Acceptance (Fresh Database)
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - 'deploy/dev/**'
+      - 'scripts/ci/dev_runtime_acceptance.sh'
+      - '.github/workflows/dev-runtime-acceptance.yml'
+      - 'docs/phases/P01_SECURITY_CLOSURE_ACCEPTANCE.md'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  fresh-dev-startup:
+    name: Fresh dev profile startup with three DB roles
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: backend/pom.xml
+      - name: Create isolated development-only credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in ARONEXA_DB_PASSWORD ARONEXA_RUNTIME_DB_PASSWORD ARONEXA_AUTH_DB_PASSWORD; do
+            secret="$(openssl rand -hex 24)"
+            echo "::add-mask::$secret"
+            printf '%s=%s\n' "$name" "$secret" >> "$GITHUB_ENV"
+          done
+      - name: Verify normal dev runtime with fresh PostgreSQL
+        shell: bash
+        run: bash scripts/ci/dev_runtime_acceptance.sh
