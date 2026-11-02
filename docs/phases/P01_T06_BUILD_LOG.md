@@ -61,3 +61,9 @@ Real PostgreSQL tests require Docker Desktop or Linux Docker daemon; test DB use
 - This report records code authoring, **not a verified passing test or customer acceptance**. Owner must inspect PR diff, latest green CI and residual risks and decide whether to approve future merge explicitly.
 
 **Recommendation:** READY FOR CODE REVIEW ONLY, subject to real executed verification; do not merge until appropriate tests pass and owner separately approves merge.
+
+## CI corrective work — 2026-11-03
+
+The initial PR #21 CI runs failed because **historical checks expected Flyway V6** despite the new forward-only V7. Evidence from [Application CI run 41504420170](https://github.com/ARG-Digital-Solutions/aronexa-healthcare-platform/actions/runs/41504420170): 64 tests executed, 63 passed / 1 failed; the sole failure was `AronexaApplicationTests.freshDatabaseIsMigratedAndMigrationIsValidated` (expected 6, actual 7). The **11 new P01-T06 tests passed**, and fresh Testcontainers database reached V7. [Fresh dev run 41504420163](https://github.com/ARG-Digital-Solutions/aronexa-healthcare-platform/actions/runs/41504420163) also reached a healthy PostgreSQL and started Spring Boot, then failed its obsolete 'wanted 6' schema assertion. Neither failure demonstrates a V7 migration failure.
+
+Corrective commits update the existing application migration expectation to V7 (plus verify registry begins locked down) and the fresh CI script's V7 check. Existing V1–V6 files are unchanged. **Do not mark new runs PASS until their actual workflow results are observed.**
