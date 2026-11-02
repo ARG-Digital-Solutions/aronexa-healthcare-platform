@@ -11,6 +11,12 @@ import java.sql.Statement;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
+import java.util.List;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -41,6 +47,7 @@ class PostgresTenantRlsTests {
             .withPassword("ephemeral-admin-test-only");
 
     @Autowired JdbcTemplate admin;
+    @Autowired PasswordEncoder passwordEncoder;
 
     record Fixture(UUID tenantA, UUID tenantB, UUID facilityA, UUID facilityB,
                    UUID branchA, UUID branchB, UUID departmentA, UUID departmentB) {}
@@ -212,6 +219,69 @@ class PostgresTenantRlsTests {
                 c.setAutoCommit(false);
                 assertThat(count(c,"SELECT count(*) FROM facility")).isZero();
                 c.rollback();
+            }
+        }
+    }
+
+    @Test
+    void restrictedRuntimeRoleCanAuthenticateAndRevokeSessions() throws Exception {
+        Fixture f=seed();
+        UUID userId=UUID.randomUUID(), membershipId=UUID.randomUUID();
+        String username="testlogin_"+userId.toString().substring(0,8);
+        String code=admin.queryForObject("SELECT code FROM tenant WHERE id=?",
+                String.class, f.tenantA());
+        admin.update("INSERT INTO app_user(id,username,password_hash) VALUES (?,?,?)",
+                userId,username,passwordEncoder.encode("SyntheticPassword_123!"));
+        admin.update("INSERT INTO user_tenant_membership(id,user_id,tenant_id) VALUES(?,?,?)",
+                membershipId,userId,f.tenantA());
+        HikariConfig cfg=new HikariConfig();
+        cfg.setJdbcUrl(postgres.getJdbcUrl());
+        cfg.setUsername("aronexa_app_runtime");
+        cfg.setPassword(RUNTIME_PASSWORD);
+        cfg.setMaximumPoolSize(1);
+        try (HikariDataSource runtime=new HikariDataSource(cfg)) {
+            AuthService service=new AuthService(new AuthRepository(new JdbcTemplate(runtime)),
+                    passwordEncoder);
+            AuthService.LoginResult result=service.login(code,username,"SyntheticPassword_123!");
+            assertThat(service.authenticate(result.accessToken()).tenantId()).isEqualTo(f.tenantA());
+            AuthPrincipal principal=service.authenticate(result.accessToken());
+            service.logout(principal,result.accessToken());
+            assertThatThrownBy(() -> service.authenticate(result.accessToken()))
+                    .isInstanceOf(AuthenticationRejected.class);
+        }
+    }
+
+    @Test
+    void trustedBinderRequiresTransactionAndDoesNotLeakOnReuse() throws Exception {
+        Fixture f=seed();
+        HikariConfig cfg=new HikariConfig();
+        cfg.setJdbcUrl(postgres.getJdbcUrl());
+        cfg.setUsername("aronexa_app_runtime");
+        cfg.setPassword(RUNTIME_PASSWORD);
+        cfg.setMaximumPoolSize(1);
+        cfg.setMinimumIdle(0);
+        try (HikariDataSource runtime=new HikariDataSource(cfg)) {
+            JdbcTemplate jdbc=new JdbcTemplate(runtime);
+            TenantSqlScope binder=new TenantSqlScope(new TenantAuthorization(),jdbc);
+            AuthPrincipal principal=new AuthPrincipal(UUID.randomUUID(),f.tenantA(),
+                    UUID.randomUUID(),"synthetic",false,List.of("RECEPTION"),List.of("ORG_READ"));
+            try {
+                SecurityContextHolder.getContext().setAuthentication(
+                        new UsernamePasswordAuthenticationToken(principal,null,List.of()));
+                assertThatThrownBy(binder::bindVerifiedTenant)
+                        .isInstanceOf(IllegalStateException.class);
+                TransactionTemplate transaction=new TransactionTemplate(
+                        new DataSourceTransactionManager(runtime));
+                transaction.executeWithoutResult(status -> {
+                    binder.bindVerifiedTenant();
+                    assertThat(jdbc.queryForObject("SELECT count(*) FROM facility",Integer.class))
+                            .isEqualTo(1);
+                });
+                transaction.executeWithoutResult(status ->
+                        assertThat(jdbc.queryForObject("SELECT count(*) FROM facility",Integer.class))
+                                .isZero());
+            } finally {
+                SecurityContextHolder.clearContext();
             }
         }
     }
