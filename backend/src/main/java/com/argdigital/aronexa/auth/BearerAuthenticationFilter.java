@@ -17,7 +17,7 @@ final class BearerAuthenticationFilter extends OncePerRequestFilter {
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
         return request.getMethod().equals("POST") &&
-                request.getServletPath().equals("/api/v1/auth/login");
+                request.getRequestURI().substring(request.getContextPath().length()).equals("/api/v1/auth/login");
     }
 
     @Override
@@ -32,7 +32,7 @@ final class BearerAuthenticationFilter extends OncePerRequestFilter {
                 AuthPrincipal principal = service.authenticate(header.substring(7));
                 // Forced password changes cannot be bypassed for future clinical routes.
                 if (principal.mustChangePassword() &&
-                        !request.getServletPath().startsWith("/api/v1/auth/")) {
+                        !request.getRequestURI().substring(request.getContextPath().length()).startsWith("/api/v1/auth/")) {
                     response.sendError(403); return;
                 }
                 SecurityContextHolder.getContext().setAuthentication(
