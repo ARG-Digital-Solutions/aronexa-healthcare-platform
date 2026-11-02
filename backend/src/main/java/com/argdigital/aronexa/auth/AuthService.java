@@ -79,7 +79,7 @@ public class AuthService {
         repository.audit(principal.userId(),principal.tenantId(),"LOGOUT");
     }
 
-    @Transactional
+    @Transactional(transactionManager = "authTransactionManager")
     public void changePassword(AuthPrincipal principal, String token,
                                String currentPassword,String newPassword) {
         if (currentPassword == null || newPassword == null ||
