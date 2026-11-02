@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Repository;
 
 /** Package-private persistence boundary. Only authentication endpoints are exposed. */
@@ -15,7 +16,7 @@ class AuthRepository {
                         boolean mustChangePassword, int failedLogins, Instant lockedUntil) {}
 
     private final JdbcTemplate jdbc;
-    AuthRepository(JdbcTemplate jdbc) { this.jdbc = jdbc; }
+    AuthRepository(@Qualifier("authJdbcTemplate") JdbcTemplate jdbc) { this.jdbc = jdbc; }
 
     Optional<LoginAccount> lookupForLogin(String tenantCode, String username) {
         return jdbc.query("""

@@ -236,8 +236,8 @@ class PostgresTenantRlsTests {
                 membershipId,userId,f.tenantA());
         HikariConfig cfg=new HikariConfig();
         cfg.setJdbcUrl(postgres.getJdbcUrl());
-        cfg.setUsername("aronexa_app_runtime");
-        cfg.setPassword(RUNTIME_PASSWORD);
+        cfg.setUsername("aronexa_auth_runtime");
+        cfg.setPassword("only-for-ephemeral-auth-role");
         cfg.setMaximumPoolSize(1);
         try (HikariDataSource runtime=new HikariDataSource(cfg)) {
             AuthService service=new AuthService(new AuthRepository(new JdbcTemplate(runtime)),
@@ -290,7 +290,8 @@ class PostgresTenantRlsTests {
     void loginTenantCodeLookupWorksWithoutOpeningTenantTable() throws Exception {
         Fixture f=seed();
         String code=admin.queryForObject("SELECT code FROM tenant WHERE id=?",String.class,f.tenantA());
-        try (Connection c=runtimeConnection()) {
+        try (Connection c=DriverManager.getConnection(postgres.getJdbcUrl(),
+                "aronexa_auth_runtime", "only-for-ephemeral-auth-role")) {
             c.setAutoCommit(false);
             try (PreparedStatement p=c.prepareStatement(
                     "SELECT public.aronexa_login_tenant_id(?)")) {
@@ -300,7 +301,10 @@ class PostgresTenantRlsTests {
                     assertThat(rs.getObject(1,UUID.class)).isEqualTo(f.tenantA());
                 }
             }
-            assertThat(count(c,"SELECT count(*) FROM tenant")).isZero();
+            // Authentication role resolves the code through a narrowly scoped
+            // SECURITY DEFINER function, but has no direct tenant table SELECT.
+            assertThatThrownBy(() -> count(c,"SELECT count(*) FROM tenant"))
+                    .isInstanceOf(SQLException.class);
             c.rollback();
         }
     }

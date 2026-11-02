@@ -32,7 +32,7 @@ public class AuthService {
         this.encoder = encoder;
     }
 
-    @Transactional(noRollbackFor = AuthenticationRejected.class)
+    @Transactional(transactionManager = "authTransactionManager", noRollbackFor = AuthenticationRejected.class)
     public LoginResult login(String tenant, String username, String password) {
         String tenantCode = normalize(tenant), login = normalize(username);
         if (!tenantCode.matches("[a-z][a-z0-9_-]{1,47}") ||
@@ -73,13 +73,13 @@ public class AuthService {
                 .orElseThrow(AuthenticationRejected::new);
     }
 
-    @Transactional
+    @Transactional(transactionManager = "authTransactionManager")
     public void logout(AuthPrincipal principal, String token) {
         repository.revokeSession(sha256(token));
         repository.audit(principal.userId(),principal.tenantId(),"LOGOUT");
     }
 
-    @Transactional
+    @Transactional(transactionManager = "authTransactionManager")
     public void changePassword(AuthPrincipal principal, String token,
                                String currentPassword,String newPassword) {
         if (currentPassword == null || newPassword == null ||
