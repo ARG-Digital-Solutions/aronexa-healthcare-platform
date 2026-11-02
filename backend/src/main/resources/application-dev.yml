@@ -1,10 +1,13 @@
-# Explicit opt-in only: run using --spring.profiles.active=dev.
-# Never commit real passwords or reuse a production database.
+# P01-T05-B: opt-in local development; two distinct DB principals.
+# Never use migration-owner credentials for runtime application SQL.
 spring:
   datasource:
     url: ${ARONEXA_DB_URL:jdbc:postgresql://127.0.0.1:5433/aronexa_dev}
-    username: ${ARONEXA_DB_USERNAME:aronexa_dev}
-    password: ${ARONEXA_DB_PASSWORD}
+    username: aronexa_app_runtime
+    password: ${ARONEXA_RUNTIME_DB_PASSWORD}
     hikari:
       maximum-pool-size: 5
       connection-timeout: 5000
+  flyway:
+    user: ${ARONEXA_DB_USERNAME:aronexa_dev}
+    password: ${ARONEXA_DB_PASSWORD}
