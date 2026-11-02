@@ -24,8 +24,8 @@ class AuthRepository {
                    u.must_change_password, u.failed_logins, u.locked_until
               FROM app_user u
               JOIN user_tenant_membership m ON m.user_id = u.id
-              JOIN tenant t ON t.id = m.tenant_id
-             WHERE t.code = ? AND u.username = ?
+             WHERE m.tenant_id = public.aronexa_login_tenant_id(?)
+               AND u.username = ?
              FOR UPDATE OF u
             """, (rs, i) -> new LoginAccount(
                     rs.getObject("user_id", UUID.class),
