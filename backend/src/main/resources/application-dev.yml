@@ -11,3 +11,11 @@ spring:
   flyway:
     user: ${ARONEXA_DB_USERNAME:aronexa_dev}
     password: ${ARONEXA_DB_PASSWORD}
+
+# Authentication pool is isolated from organization RLS pool.
+aronexa:
+  auth:
+    datasource:
+      url: ${ARONEXA_AUTH_DB_URL:${ARONEXA_DB_URL:jdbc:postgresql://127.0.0.1:5433/aronexa_dev}}
+      username: aronexa_auth_runtime
+      password: ${ARONEXA_AUTH_DB_PASSWORD}
