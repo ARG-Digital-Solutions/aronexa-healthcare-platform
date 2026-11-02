@@ -44,7 +44,7 @@ class AronexaApplicationTests {
     @Test
     void freshDatabaseIsMigratedAndMigrationIsValidated() {
         assertThat(flyway.info().current()).isNotNull();
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("4");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("5");
         assertThat(flyway.validateWithResult().validationSuccessful).isTrue();
         assertThat(jdbc.queryForObject(
                 "select count(*) from information_schema.tables " +
