@@ -1,8 +1,8 @@
 # Phase 01 — Windows Local Engineering Foundation Verification (2026-11-02)
 
-**Decision status:** READY FOR OWNER REVIEW; **formal owner acceptance NOT RECORDED**.  
+**Decision status:** **OWNER ACCEPTED — LIMITED WINDOWS ENGINEERING FOUNDATION ONLY**, as explicitly approved by the owner in ChatGPT on 2026-11-02. **GitHub PR #20 remains DRAFT and UNMERGED**; independent security acceptance, production, clinical use and next-task authorization remain blocked.  
 **Scope:** P01-T01 through P01-T05-D engineering/security foundation only, not the complete Phase 01 functional scope.  
-**Release classification recommended:** INTERNAL_FOUNDATION. **Not** CUSTOMER_PILOT or PRODUCTION_RELEASE. No live patient information, customer deployment, phase closure, next-task approval, or clinical use is authorized.  
+**Release classification accepted by owner:** INTERNAL_FOUNDATION. **Not** CUSTOMER_PILOT or PRODUCTION_RELEASE. No live patient information, customer deployment, phase closure, next-task approval, or clinical use is authorized.  
 **Evidence provenance:** Sanitized Windows PowerShell outputs provided by the repository owner in the ChatGPT support session on 2026-11-02. These commands were run on the owner's machine, **not independently executed** by the reviewer/assistant. Results are recorded as *user-reported local observations*; pre-upgrade states and omitted checks are not inferred.
 
 ## Windows evidence register
@@ -81,19 +81,24 @@
 | 12 | Remaining defects/risks | See SEC-01–SEC-08 and unimplemented P01-T06–T10 functional scope |
 | 13 | Backup/recovery | Not tested; existing development volume preserved, no proven recovery rehearsal |
 | 14 | Customer acceptance | NOT RUN; no patient data, pilot, clinical UAT or customer signoff |
-| 15 | Release classification | INTERNAL_FOUNDATION proposed for owner acceptance only; not CUSTOMER_PILOT / PRODUCTION_RELEASE |
-| 16 | Review recommendation | READY FOR OWNER REVIEW of *limited engineering foundation*; full Phase 01 and deployment NOT READY |
+| 15 | Release classification | Owner accepted INTERNAL_FOUNDATION only; not CUSTOMER_PILOT / PRODUCTION_RELEASE |
+| 16 | Review recommendation | Limited Windows engineering-foundation verification OWNER ACCEPTED; full Phase 01 and deployment NOT READY; independent security review outstanding |
 
-## Formal acceptance gate (approval requested, NOT granted)
+## Formal owner acceptance — LIMITED scope (2026-11-02)
 
-**Request to owner:** Approve only the local Windows P01 engineering/security foundation verification as INTERNAL_FOUNDATION, with SEC-01–SEC-08 explicitly retained as open risks, no customer/clinical/production permission, and no statement that the full Phase 01 roadmap is complete.
+**Owner's explicit decision (received in ChatGPT conversation, reproduced verbatim):**
 
-**Suggested owner approval statement:**  
-> I approve the recorded 2026-11-02 Windows local engineering-foundation verification for AroNexa P01-T01–T05-D as INTERNAL_FOUNDATION only. I acknowledge the open security/recovery/functional gaps. This is not production, patient-data, customer-pilot, full Phase 01, merge, deployment or next-task authorization.
+> I formally approve AroNexa P01-T01 through P01-T05-D Windows engineering foundation as INTERNAL_FOUNDATION only, acknowledge all documented open risks, and do not authorize production, clinical use, merge, or the next development task.
 
-- Owner acceptance status: **PENDING EXPLICIT DECISION**.
-- Independent security reviewer acceptance of residual auth risk: **PENDING**.
-- Next task authorization: **NOT GRANTED**; require a separately scoped, explicitly approved task card even after foundation acceptance.
-- Final phase completion: **NOT CLAIMED**; P01-T06–T10 and remaining T05 clinical scope unresolved.
+**Recorded disposition:** **OWNER ACCEPTED** for the reported Windows local **engineering-foundation verification only**, with SEC-01–SEC-08 preserved as open risks. This is acceptance of the recorded scope and evidence, **not a waiver, remediation or independent validation** of residual security issues.
 
-**Documentation-only PR policy:** This record must be reviewed through a PR; do not auto-merge or advance development.
+- Acceptance source: direct user instruction in ChatGPT on 2026-11-02; recorded on documentation review branch and PR #20, **not** an authenticated GitHub review or main-branch approval.
+- Owner acceptance status: **APPROVED (LIMITED INTERNAL_FOUNDATION)**.
+- Independent security reviewer acceptance of residual auth/data isolation risk: **PENDING**.
+- Full Phase 01: **NOT COMPLETE**. Remaining P01-T06–P01-T10 and clinical-object portion of T05 not authorized/completed by this approval.
+- Production, customer deployment, clinical use and live patient data: **NOT AUTHORIZED**.
+- Documentation PR #20: **REMAIN DRAFT, DO NOT MERGE**, as explicitly instructed by the owner. Recording acceptance in the review branch does not amend `main`.
+- Next development task: **NOT AUTHORIZED**; separate explicit scoped task approval is required.
+- Backup/restore, environment inventory, clean-install proof and other unverified gates stay NOT RUN / PARTIAL; these do not silently become PASS.
+
+**Document control:** Acceptance is recorded in this draft PR for later review. No code, migrations, deployments, merges, or next-phase tasks were executed as part of this acceptance record.
