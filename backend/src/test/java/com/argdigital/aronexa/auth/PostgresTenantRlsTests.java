@@ -301,7 +301,10 @@ class PostgresTenantRlsTests {
                     assertThat(rs.getObject(1,UUID.class)).isEqualTo(f.tenantA());
                 }
             }
-            assertThat(count(c,"SELECT count(*) FROM tenant")).isZero();
+            // Authentication role resolves the code through a narrowly scoped
+            // SECURITY DEFINER function, but has no direct tenant table SELECT.
+            assertThatThrownBy(() -> count(c,"SELECT count(*) FROM tenant"))
+                    .isInstanceOf(SQLException.class);
             c.rollback();
         }
     }
