@@ -11,7 +11,7 @@
 | Authentication + PostgreSQL + RLS regressions | 53/53 Java tests in PR #17 | PASS — test profile |
 | Frontend reproducible build | npm ci and production build in PR #17 | PASS |
 | Independent runtime/auth database roles | V6 SQL and restricted-role tests | PASS within test fixtures |
-| Fresh three-role dev startup | New CI workflow `Dev Runtime Acceptance` | PENDING latest CI result |
+| Fresh three-role dev startup | [Fresh-dev CI run 41436123772](https://github.com/ARG-Digital-Solutions/aronexa-healthcare-platform/actions/runs/41436123772) | PASS — fresh Linux database only |
 | Windows Docker Desktop and backend startup | No access to user's Windows computer | NOT VERIFIED |
 | Existing development database migration from V5 to V6 | No existing-volume smoke evidence | NOT VERIFIED |
 | Real browser sign-in | No login UI or seeded accounts | NOT IMPLEMENTED |
@@ -19,6 +19,12 @@
 | Tenant-safe auth data | Auth DB identity still has broad account/session privileges | SECURITY BLOCKER |
 | MFA, recovery, audit/compliance, backup/restore | Incomplete | NOT ACCEPTED |
 | Production or live patient data | Never authorized | PROHIBITED |
+
+## Fresh PR acceptance evidence (2026-11-02)
+
+- [Dev Runtime Acceptance run 41436123772](https://github.com/ARG-Digital-Solutions/aronexa-healthcare-platform/actions/runs/41436123772): **PASS**. CI generated three noncommitted, CI-only random database passwords; fresh Docker Compose PostgreSQL provisioned both restricted roles; normal Spring Boot `dev` profile started; Flyway V1–V6 applied; unauthorized `/api/v1/auth/me` and invalid synthetic login returned 401; direct cross-role table privilege checks returned false. No customer data.
+- [PR Quality Gates run 41436123712](https://github.com/ARG-Digital-Solutions/aronexa-healthcare-platform/actions/runs/41436123712): **PASS 4/4** jobs; **53 Java tests**, zero failures/errors/skips; `npm ci` and Vite production build passed; documentation, scope and tracked-secret checks passed.
+- These tests do **not** verify a real Windows developer machine, a preexisting named DB volume, valid login with a safely provisioned user, doctor/patient/encounter access, or production security and privacy acceptance.
 
 ## Windows acceptance — safe developer runbook
 
