@@ -28,3 +28,20 @@ Archival completeness remains UNCONFIRMED. The archive is private; no raw backup
 - Broader security gaps and operational recovery-cutover limitations remain as recorded in the closure review.
 
 No application/database changes or runtime tests were performed to record this decision. This file is an additive decision record; historical report/register statements remain snapshots of their earlier review state.
+
+## Archive metadata confirmation — 2026-11-04 (IST)
+
+This dated update supersedes the earlier NOT SUPPLIED/path-count status above.
+
+Owner supplied the output of the read-only archive lookup, which selects a ZIP matching the previously recorded SHA-256:
+
+```text
+Archive: C:\Users\ganes\AroNexa-Backups\P01-T06-Closure-Archive-20261104_015915-5ad77197.zip
+Missing expected reports: 0
+```
+
+Archive SHA-256: 5B7CF138AF72678E54A2B709A579BC59BD6E9B459E936E6BBE9393102C2AF29A.
+
+Status: expected-report archive metadata COMPLETE based on owner-supplied output. All five expected collector reports are reported present. Owner closure approval remains APPROVED for P01-T06 INTERNAL_FOUNDATION only. The assistant has not downloaded the ZIP, independently recomputed its checksum, or checked each archived report's contents. Detailed test XML and screenshot bytes were outside the collector scope and are not represented as archived. Earlier report/traceability archive-pending statements are historical snapshots qualified by this confirmation.
+
+No new test execution, application/database changes, Phase 01 closure, P01-T07 authorization, deployment or clinical/customer release is recorded. This documentation update remains subject to PR review and separate merge approval.
