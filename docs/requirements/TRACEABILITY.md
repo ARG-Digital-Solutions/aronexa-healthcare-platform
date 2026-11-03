@@ -87,3 +87,19 @@ Sections 1-7: scope, architecture, shared domains, registry, roles, security. 8-
 
 ## P00-T10 AI requirements (proposed supplement to V3.0)
 AI-CORE-01 Phase 00 design + first AI feature implementation: shared authorized, auditable optional provider-neutral AI drafting module. AI-OPD-01 and optional AI-RX-01 Phase 02; AI-MSG-01 Phase 04; flagship AI-IPD-01/02 Phase 09; AI-FER-01 Phase 11; AI-OPS-01 Phase 12; AI-CLIENT-01 Phase 13–14. Source references, clinician signoff, PHI controls and manual fallback required. Full acceptance matrix: docs/requirements/AI_ASSISTANCE_REQUIREMENTS.md. This does not constitute automatic approval of new capabilities.
+
+## P01-T06 scoped implementation/evidence addendum — 2026-11-04
+
+The earlier "no implementation/test evidence" text describes the historical planning baseline. This addendum records only P01-T06 evidence reviewed at main adc8e98096ff85e7866b66a4a58838d4b4bfc09c; all original requirement wording and provisional phases remain unchanged. No whole-product requirement is marked complete.
+
+| Existing ID | Current implementation scope | Evidence reviewed | Missing work / acceptance limits |
+|---|---|---|---|
+| CORE-02 | PARTIAL: minimal registry, entitlement/activation flags and audit | V7; ModuleAccessService; disposable checks; Windows Maven/build output | Version/dependency/platform/configuration metadata; provisioning UX; full lifecycle |
+| MOD-01 | Foundation implemented; technical checks PASS within supplied scope | Default deny; clinical gate test code; RLS/grants; synthetic deactivation/history; regression output | Actual future APIs must invoke gate plus role/object authorization; no clinical records/APIs exist |
+| SEC-03 | PARTIAL: module-state RLS and restricted role grants | Two-tenant disposable checks; runtime TCP login; cross-role denial | Broader auth-role exposure/privilege review remains open; no blanket security completion |
+| ARCH-01 | PARTIAL: tested Java 21/PostgreSQL/Flyway/React TS Vite foundation | Windows Preflight and Tests PASS | Supported-version/dependency review and wider architecture scope remain separate |
+| UX-01 / UX-02 | PARTIAL: desktop navy/teal scaffold | Owner screenshot, HTTP 200, visual review | Role landing pages, workflows, tablet/accessibility acceptance; stale Task 01 badge |
+| QA-01 / REL-01 | PARTIAL: internal foundation technical acceptance | Backup/restore rehearsal; V7 validation; runtime and regression results | Raw report archival, customer UAT, deployment-specific gates and owner closure sign-off |
+| SAAS-01 | PARTIAL: reusable entitlement foundation only | Registry flags and denial checks | Tenant onboarding, subscriptions, payments and commercial lifecycle NOT IMPLEMENTED by P01-T06 |
+
+Source: [P01-T06 closure review](../phases/P01_T06_CLOSURE_REVIEW_2026-11-04.md), [evidence archive](../phases/evidence/P01_T06_20261104/EVIDENCE.md). Exact Windows test totals/skips not supplied. Preservation evidence is table-count equality, not row-by-row or clinical-record integrity. Disposable V6 restoration passed; operational post-V7 recovery cutover NOT RUN. No new requirement IDs or phase allocations inferred. Owner closure approval remains pending.

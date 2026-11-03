@@ -69,3 +69,9 @@ All feature phases must be a coherent customer-usable increment only when releas
 
 ## P00-T10 optional AI workstream (review required)
 Phase 00: AI architecture/clinical/privacy requirements only. Phase 02: OPD note drafting and optional clinician-selected Rx wording. Phase 04: patient message drafts. Phase 09: priority IPD discharge summary templates and patient-friendly instructions. Phase 11: fertility documentation summaries. Phase 12: operational analytics. Phases 13–14: reuse previously approved AI; no new early native packaging. Each capability needs its own small Codex task, explicit authorization, privacy/clinical evaluation and manual non-AI fallback. See docs/requirements/AI_ASSISTANCE_REQUIREMENTS.md and docs/qa/AI_ACCEPTANCE.md.
+
+## P01-T06 technical acceptance update — 2026-11-04 (review pending)
+
+Task P01-T06 has owner-supplied passing original V6-to-V7 migration, Windows Preflight/Database/Verify/Tests and desktop scaffold review at main adc8e98096ff85e7866b66a4a58838d4b4bfc09c. Classification: INTERNAL_FOUNDATION only. Technical evidence reviewed; formal owner closure approval PENDING. This does not mark Phase 01 VERIFIED or OWNER_ACCEPTED; patient registration, appointments and reception workflows remain outside this task. P01-T07 requires separate approval.
+
+See [16-field closure review](P01_T06_CLOSURE_REVIEW_2026-11-04.md) and [curated evidence](evidence/P01_T06_20261104/EVIDENCE.md). Raw Windows archive collection remains pending; the private collector is scripts/Collect-P01-T06-ClosureEvidence.ps1. Historical planning sections above are preserved; this dated task update qualifies their evidence statements only for P01-T06.
