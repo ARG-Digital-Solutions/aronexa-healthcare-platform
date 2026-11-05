@@ -51,14 +51,16 @@ class PatientIdentitySchemaTests {
 
     private UUID branch(UUID tenant) {
         UUID facility=UUID.randomUUID(), branch=UUID.randomUUID();
+        String facilityCode="f_"+facility.toString().substring(0,8);
+        String branchCode="b_"+branch.toString().substring(0,8);
         admin.update("""
                 INSERT INTO facility(id,tenant_id,code,display_name,facility_kind)
-                VALUES (?,?, 'clinic', 'Synthetic facility', 'CLINIC')
-                """,facility,tenant);
+                VALUES (?,?, ?, 'Synthetic facility', 'CLINIC')
+                """,facility,tenant,facilityCode);
         admin.update("""
                 INSERT INTO branch(id,tenant_id,facility_id,code,display_name)
-                VALUES (?,?,?, 'main', 'Synthetic branch')
-                """,branch,tenant,facility);
+                VALUES (?,?,?,?, 'Synthetic branch')
+                """,branch,tenant,facility,branchCode);
         return branch;
     }
 
@@ -77,7 +79,8 @@ class PatientIdentitySchemaTests {
         UUID t=tenant(), p=patient(t,"Synthetic Test Person");
         UUID a=branch(t);
         registration(t,p,a,"a".repeat(64));
-        registration(t,p,a,"b".repeat(64));
+        UUID secondBranch=branch(t);
+        registration(t,p,secondBranch,"b".repeat(64));
         UUID identifier=UUID.randomUUID();
         admin.update("""
                 INSERT INTO patient_identifier
