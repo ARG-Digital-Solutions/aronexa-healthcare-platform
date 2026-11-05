@@ -44,7 +44,7 @@ class AronexaApplicationTests {
     @Test
     void freshDatabaseIsMigratedAndMigrationIsValidated() {
         assertThat(flyway.info().current()).isNotNull();
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("7");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("8");
         assertThat(flyway.validateWithResult().validationSuccessful).isTrue();
         assertThat(jdbc.queryForObject(
                 "select count(*) from information_schema.tables " +
@@ -58,6 +58,16 @@ class AronexaApplicationTests {
                 "select count(*) from information_schema.tables " +
                 "where table_schema = 'public' and table_name in ('app_user','user_tenant_membership', 'auth_role', 'auth_permission', 'auth_session', 'auth_audit_event')",
                 Integer.class)).isEqualTo(6);
+    }
+
+    @Test
+    void patientIdentityFoundationIsCreatedWithoutRuntimeProvisioning() {
+        assertThat(jdbc.queryForObject(
+            "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' " +
+            "AND table_name IN ('patient','patient_identifier','patient_contact'," +
+            "'patient_relationship','patient_registration','patient_identity_audit')",
+            Integer.class)).isEqualTo(6);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM patient",Integer.class)).isZero();
     }
 
     @Test
