@@ -68,10 +68,10 @@ version="$("${COMPOSE[@]}" exec -T postgres psql -X -At -U aronexa_dev -d aronex
   SELECT version FROM public.flyway_schema_history
   WHERE success ORDER BY installed_rank DESC LIMIT 1;
 ")"
-if [[ "$version" != "7" ]]; then
-  echo "FAIL: unexpected Flyway version (wanted 7)." >&2; exit 1
+if [[ "$version" != "8" ]]; then
+  echo "FAIL: unexpected Flyway version (wanted 8)." >&2; exit 1
 fi
-echo "PASS: Flyway V1-V7 applied"
+echo "PASS: Flyway V1-V8 applied"
 
 # Check role privileges without exposing credentials or data.
 org_auth_select="$("${COMPOSE[@]}" exec -T -e "PGPASSWORD=$ARONEXA_RUNTIME_DB_PASSWORD" postgres \
@@ -84,6 +84,19 @@ if [[ "$org_auth_select" != "f" || "$auth_org_select" != "f" ]]; then
   echo "FAIL: unexpected cross-role table permissions." >&2; exit 1
 fi
 echo "PASS: organization and authentication database roles separated"
+
+# V8 foundation is deliberately not usable by either runtime identity yet.
+for table in patient patient_identifier patient_contact patient_relationship patient_registration patient_identity_audit; do
+  for role in aronexa_app_runtime aronexa_auth_runtime; do
+    grant="$("${COMPOSE[@]}" exec -T postgres psql -X -At -U aronexa_dev -d aronexa_dev -c "
+      SELECT has_table_privilege('$role', 'public.$table', 'SELECT');")"
+    if [[ "$grant" != "f" ]]; then
+      echo "FAIL: premature patient table access for $role on $table" >&2
+      exit 1
+    fi
+  done
+done
+echo "PASS: V8 patient tables deny both runtime roles"
 
 invalid_login="$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 5 \
   -X POST http://127.0.0.1:8080/api/v1/auth/login \
