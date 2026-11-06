@@ -1,6 +1,6 @@
 # P01-T07-A — V8 technical acceptance and closure review (2026-11-06 IST)
 
-**Review decision: Technical V8 Verify PASS based on owner-supplied Windows evidence. Formal task closure PENDING owner approval.**
+**Current decision (2026-11-06 IST): Technical V8 Verify PASS based on owner-supplied Windows evidence; P01-T07-A INTERNAL_FOUNDATION task closure explicitly OWNER_APPROVED. PR #27 remains DRAFT and unmerged.**
 
 This is a documentation-only record, not a production release or authorization for P01-T07-B.
 
@@ -73,7 +73,7 @@ READY FOR CLOSURE EVIDENCE REVIEW, NOT YET OWNER_ACCEPTED. Merge and formal clos
 | Final read-only Verify report | PASS, owner supplied |
 | Canonical owner-uploaded script archived in Git | COMMITTED; byte-identical text; independent runtime retest NOT RUN; review ongoing |
 | Private evidence archive inventory/hash | PASS per owner output (8 evidence files, 10 ZIP entries, 0 missing; contents not independently audited) |
-| Formal P01-T07-A owner closure approval | PENDING |
+| Formal P01-T07-A owner closure approval | **APPROVED — 2026-11-06 IST; PR #27 remains draft/unmerged** |
 
 **Prohibited scope:** P01-T07-B, new patient API/UI, customer deployment, real patient use, schema/data changes, new migrations and automatic merge.
 ## Post-review evidence addendum — private closure ZIP (2026-11-06 IST)
@@ -91,3 +91,11 @@ Owner-reported private archive basename: `P01-T07A-Closure-Evidence-20261106_072
 **Archive inventory / integrity gate: PASS from owner-reported metadata.** The assistant has not downloaded, inspected or independently rehashed the private ZIP. The original backup is correctly excluded from the closure ZIP and remains privately retained.
 
 **Closure recommendation:** READY FOR EXPLICIT OWNER DECISION on **P01-T07-A INTERNAL_FOUNDATION** only, acknowledging known limitations; `OWNER_ACCEPTED` is **not** recorded. PR #27 remains draft and must not be merged without separate owner approval. The historical Apply manifest-property defect, Mockito JDK future compatibility and npm install-script policy warning remain open. No Phase 01 closure, deployment, customer release, clinical use, new migration, or P01-T07-B is authorized by this record.
+
+## Formal owner decision addendum — 2026-11-06 IST
+
+After the technical acceptance review, the owner explicitly stated: "I explicitly approve formal P01-T07-A closure for INTERNAL_FOUNDATION only, acknowledging the documented limitations. Record owner closure approval in GitHub PR #27. Do not merge PR #27 or start P01-T07-B without separate authorization."
+
+**Decision: OWNER_ACCEPTED for P01-T07-A task-level INTERNAL_FOUNDATION only.** See [owner approval record](P01_T07A_OWNER_APPROVAL_2026-11-06.md). Historical statements of pending approval in previous sections are pre-decision snapshots and are superseded by this dated addendum. No new runtime test or migration was executed to record approval.
+
+**Unchanged restrictions:** PR #27 remains open, draft, unmerged; its merge is separately unauthorized. Phase 01 overall closure, customer release, clinical/patient use, deployment and P01-T07-B are not authorized. Existing Apply, Mockito, npm and broader authorization/clinical review limitations remain as documented.
