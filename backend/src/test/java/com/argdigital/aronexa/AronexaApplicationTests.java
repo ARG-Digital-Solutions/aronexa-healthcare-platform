@@ -44,7 +44,7 @@ class AronexaApplicationTests {
     @Test
     void freshDatabaseIsMigratedAndMigrationIsValidated() {
         assertThat(flyway.info().current()).isNotNull();
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("8");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("9");
         assertThat(flyway.validateWithResult().validationSuccessful).isTrue();
         assertThat(jdbc.queryForObject(
                 "select count(*) from information_schema.tables " +
@@ -68,6 +68,16 @@ class AronexaApplicationTests {
             "'patient_relationship','patient_registration','patient_identity_audit')",
             Integer.class)).isEqualTo(6);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM patient",Integer.class)).isZero();
+    }
+
+    @Test
+    void patientReadBoundaryDefaultsToDisabledCatalogAndNoPatientData() {
+        assertThat(jdbc.queryForObject("""
+                SELECT count(*) FROM module_registry WHERE code='PATIENT_REGISTRATION'
+                    AND NOT implemented AND NOT released
+                """,Integer.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM patient_registration_access_audit",Integer.class)).isZero();
     }
 
     @Test
