@@ -24,7 +24,7 @@
 1. Original Verify was blocked by Mockito inline-mock warning as PowerShell 5.1 native stderr error.
 2. First scoped Maven wrapper correction: `BUILD SUCCESS`; Verify then blocked on `npm warn install-scripts 1 package has install scripts not yet covered by allowScripts:`.
 3. Second scoped npm wrapper correction passed creation/syntax/scope checks; preserves genuine nonzero exit-code blocking, restores error preference; does not approve npm install scripts.
-4. Owner's final successful read-only Verify used the exact locally retained `Invoke-AroNexa-V8-Acceptance.VerifyNpmFixed.ps1`. This final script **has not yet been copied into Git or uploaded here**.
+4. Owner's final successful read-only Verify used the exact locally retained `Invoke-AroNexa-V8-Acceptance.VerifyNpmFixed.ps1`. This script is now included in the draft PR as `scripts/acceptance/p01-t07a/Invoke-AroNexa-V8-Acceptance.ps1` with uploaded SHA-256 `2BCA93D6A83ACAB8F4071541E51B3990F277B103FECF5A5F47B042B49AEEB933`; exact GitHub text was compared against the uploaded file.
 5. Old BLOCKED lines appear in append-only `VERIFY_REPORT.txt` and must not be mistaken for the final attempt.
 
 ## E05 — Backend tests
@@ -59,10 +59,51 @@ Privately retain and hash (do NOT upload backups, credentials, identifiable reco
 - `EVIDENCE_ONLY_FINALIZATION_REPORT_20261106_001741.txt`.
 - `maven-private.log`, `npm-ci-private.log`, `npm-build-private.log` after sensitive-content inspection.
 - Original pre-V8 database dump, separately restricted.
-- Actual final `Invoke-AroNexa-V8-Acceptance.VerifyNpmFixed.ps1` and its SHA-256.
-- Archive ZIP file SHA-256 and inventory status (still unconfirmed).
+- Actual final `Invoke-AroNexa-V8-Acceptance.VerifyNpmFixed.ps1`: RECEIVED and COMMITTED to **draft PR #27** under the canonical path; uploaded SHA-256 `2BCA93D6A83ACAB8F4071541E51B3990F277B103FECF5A5F47B042B49AEEB933`.
+- **Owner local SHA corroboration (2026-11-06 IST):** owner supplied a `Get-FileHash -Algorithm SHA256` result for the final Windows `VerifyNpmFixed.ps1` with the same SHA-256 above. Independently computed upload SHA-256 and GitHub text comparison also match. The backup ZIP and private log checksums remain pending.
+- Private closure ZIP inventory and SHA-256: **owner-confirmed** in E10 below; no independent ZIP content review.
+- Known Apply PSCustomObject `$m.applied_at` assignment bug retained in archival script. No re-execution of Apply is permitted to address it; future repair needs separate authorization and regression review.
 
 ## E08 — Owner approval
 Technical V8 verification: PASS from supplied evidence.
 Formal task closure: **not yet approved**.
 Customer pilot, production, clinical access, full Phase 01 completion and P01-T07-B: **not authorized**.
+
+## E09 — Windows inventory confirmation (owner-reported, 2026-11-06 IST)
+
+Owner ran the read-only private evidence inventory check and supplied:
+
+```text
+EXPECTED_FILES: 9
+MISSING_FILES: 0
+FINAL_STATUS: PRIVATE_EVIDENCE_INVENTORY_CHECKED
+```
+
+Inventory covers the manifest, Prepare/Apply/Verify reports, evidence-only finalization report, Maven/npm private logs and the original pre-V8 backup. **File existence is confirmed by owner output; completeness of contents and a new closure ZIP checksum remain OPEN.** The backup must stay private and must not enter Git.
+
+## E10 — Private closure ZIP archive (owner-reported, 2026-11-06 IST)
+
+The owner completed private evidence archive creation and provided the following exact results:
+
+```text
+ARCHIVE: P01-T07A-Closure-Evidence-20261106_072337.zip
+ARCHIVE_SHA256: B593192A6BFEBBCD84CF243E47F48B22C90095FBEDE9CCEC5B5AA14E3DDFCE5E
+ARCHIVED_EVIDENCE_FILES: 8
+ZIP_TOTAL_ENTRIES: 10
+MISSING_EXPECTED_REPORTS: 0
+ORIGINAL_BACKUP_HASH: PASS
+DATABASE_MODIFIED: NO
+FINAL_STATUS: PRIVATE_CLOSURE_ARCHIVE_CREATED_AND_INVENTORY_VERIFIED
+```
+
+The 10 ZIP entries comprise 8 evidence files plus `SHA256SUMS.txt` and `ARCHIVE_NOTES.txt`. The ninth previously inventoried source file, the original `aronexa_dev_pre_v8.dump`, is intentionally **excluded from the ZIP** and remains separately preserved and hash-checked. The archive remains private on the owner's Windows workstation; neither the ZIP contents nor its SHA-256 were independently recomputed by the assistant. Do **not** commit the ZIP, database dump, .env, manifest contents, or raw private logs to Git.
+
+**Administrative archive gate:** PASS from owner-reported file inventory, ZIP structure and checksum; independent content/privacy audit NOT RUN.
+
+**Technical verification:** PASS (owner-supplied); **formal P01-T07-A owner closure approval:** still PENDING. Retained Apply-manifest defect, Mockito Java-agent warning and npm install-script policy warning remain disclosed.
+
+## E11 — Explicit formal owner closure approval (2026-11-06 IST)
+
+Owner explicitly approved **formal P01-T07-A closure for INTERNAL_FOUNDATION only**, acknowledging documented limitations and instructing that approval be recorded in GitHub PR #27 **without merging PR #27** or starting **P01-T07-B**. Decision recorded in [P01_T07A_OWNER_APPROVAL_2026-11-06.md](../../P01_T07A_OWNER_APPROVAL_2026-11-06.md). This E11 record supersedes the historical PENDING approval state in E08/E10 without changing technical evidence provenance.
+
+**Task-level state: OWNER_ACCEPTED / CLOSED for INTERNAL_FOUNDATION.** PR #27 state: draft and unmerged, separate merge approval required. No Phase 01 overall closure, customer/clinical deployment or patient access authorized. No Apply or migration rerun.

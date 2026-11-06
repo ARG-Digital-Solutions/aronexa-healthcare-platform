@@ -1,6 +1,6 @@
 # P01-T07-A — V8 technical acceptance and closure review (2026-11-06 IST)
 
-**Review decision: Technical V8 Verify PASS based on owner-supplied Windows evidence. Formal task closure PENDING owner approval.**
+**Current decision (2026-11-06 IST): Technical V8 Verify PASS based on owner-supplied Windows evidence; P01-T07-A INTERNAL_FOUNDATION task closure explicitly OWNER_APPROVED. PR #27 remains DRAFT and unmerged.**
 
 This is a documentation-only record, not a production release or authorization for P01-T07-B.
 
@@ -39,10 +39,11 @@ Synthetic development-only acceptance, not Indian healthcare compliance certific
 Verified within owner-supplied Windows development acceptance scope. SaaS production, customer dedicated/on-prem, standalone Windows installer, macOS, Android: NOT RUN.
 
 ## 11. Evidence/artifacts
-See evidence/P01_T07A_20261106/EVIDENCE.md. Original backup, manifest and private build logs remain off Git. Canonical final acceptance script MUST be committed from the exact owner-executed Windows file to scripts/acceptance/p01-t07a/Invoke-AroNexa-V8-Acceptance.ps1. **It is not available in this session and is not yet archived in this PR.** See scripts/acceptance/p01-t07a/README.md.
+See evidence/P01_T07A_20261106/EVIDENCE.md. Original backup, manifest and private build logs remain off Git. Canonical final acceptance script has been committed from the owner-uploaded final VerifyNpmFixed file to `scripts/acceptance/p01-t07a/Invoke-AroNexa-V8-Acceptance.ps1`. Uploaded SHA-256: `2BCA93D6A83ACAB8F4071541E51B3990F277B103FECF5A5F47B042B49AEEB933`. Exact GitHub file text matches the supplied original. See scripts/acceptance/p01-t07a/README.md.
 
 ## 12. Open limitations
-- Final verified PowerShell script bytes, SHA-256, secret/path review and PR commit: OPEN.
+- Final owner-uploaded PowerShell script and SHA-256: COMMITTED TO **draft PR #27**; GitHub content matches the upload. The owner separately executed `Get-FileHash -Algorithm SHA256` on the locally successful `VerifyNpmFixed.ps1` and reported the matching value `2BCA93D6A83ACAB8F4071541E51B3990F277B103FECF5A5F47B042B49AEEB933` on 2026-11-06 IST. Independent checksum of the uploaded file also matches. Static checks found no embedded private key or hardcoded personal absolute Windows path; independent Windows PowerShell 5.1 execution of the Git copy was NOT performed.
+- Historical Apply manifest assignment bug remains present in this exact final acceptance script (`$m.applied_at` property assignment after JSON conversion). It caused the original post-migration evidence failure and is NOT fixed by Maven/npm wrapper changes. **Do not rerun Apply.** A safe generalized fix requires a separately authorized task.
 - Private raw evidence ZIP inventory and SHA-256 attestation: OPEN.
 - Latest GitHub CI status: NOT REVIEWED here.
 - Mockito Java-agent future-JDK issue remains open; PowerShell stderr mitigation is not a Mockito version fix.
@@ -59,7 +60,7 @@ NOT RUN. No patient-facing usable product increment delivered in this task.
 INTERNAL_FOUNDATION. Technical V8 verification: PASS within owner-supplied scope. Owner formal task closure: PENDING. Full Phase 01: IN PROGRESS. Customer/production: NOT READY.
 
 ## 16. Recommendation / formal decision
-READY FOR CLOSURE EVIDENCE REVIEW, NOT YET OWNER_ACCEPTED. Merge and formal closure require actual final script archival and SHA review, sanitized private evidence inventory, known-risk acknowledgement and explicit owner approval. PR creation is not owner closure approval or merge authorization.
+READY FOR CLOSURE EVIDENCE REVIEW, NOT YET OWNER_ACCEPTED. Merge and formal closure require final script review, sanitized private evidence inventory, known-risk acknowledgement and explicit owner approval. PR creation is not owner closure approval or merge authorization.
 
 ## Closure gates
 
@@ -70,8 +71,31 @@ READY FOR CLOSURE EVIDENCE REVIEW, NOT YET OWNER_ACCEPTED. Merge and formal clos
 | 18 preexisting counts / six patient tables / RLS / runtime grants | PASS, owner supplied |
 | 71 backend tests / Maven / npm frontend production build | PASS, owner supplied |
 | Final read-only Verify report | PASS, owner supplied |
-| Canonical actually-executed script stored and reviewed in Git | OPEN |
-| Private evidence archive hashes and completeness | OPEN |
-| Formal P01-T07-A owner closure approval | PENDING |
+| Canonical owner-uploaded script archived in Git | COMMITTED; byte-identical text; independent runtime retest NOT RUN; review ongoing |
+| Private evidence archive inventory/hash | PASS per owner output (8 evidence files, 10 ZIP entries, 0 missing; contents not independently audited) |
+| Formal P01-T07-A owner closure approval | **APPROVED — 2026-11-06 IST; PR #27 remains draft/unmerged** |
 
 **Prohibited scope:** P01-T07-B, new patient API/UI, customer deployment, real patient use, schema/data changes, new migrations and automatic merge.
+## Post-review evidence addendum — private closure ZIP (2026-11-06 IST)
+
+Owner-reported private archive basename: `P01-T07A-Closure-Evidence-20261106_072337.zip`.
+
+- SHA-256: `B593192A6BFEBBCD84CF243E47F48B22C90095FBEDE9CCEC5B5AA14E3DDFCE5E`.
+- Archived evidence files: **8**.
+- ZIP entries: **10** (8 evidence plus checksum inventory and archive notes).
+- Missing expected reports: **0**.
+- Original backup SHA-256: **PASS**, preserved outside ZIP.
+- Database modified by archival activity: **NO**.
+- Final reported status: `PRIVATE_CLOSURE_ARCHIVE_CREATED_AND_INVENTORY_VERIFIED`.
+
+**Archive inventory / integrity gate: PASS from owner-reported metadata.** The assistant has not downloaded, inspected or independently rehashed the private ZIP. The original backup is correctly excluded from the closure ZIP and remains privately retained.
+
+**Closure recommendation:** READY FOR EXPLICIT OWNER DECISION on **P01-T07-A INTERNAL_FOUNDATION** only, acknowledging known limitations; `OWNER_ACCEPTED` is **not** recorded. PR #27 remains draft and must not be merged without separate owner approval. The historical Apply manifest-property defect, Mockito JDK future compatibility and npm install-script policy warning remain open. No Phase 01 closure, deployment, customer release, clinical use, new migration, or P01-T07-B is authorized by this record.
+
+## Formal owner decision addendum — 2026-11-06 IST
+
+After the technical acceptance review, the owner explicitly stated: "I explicitly approve formal P01-T07-A closure for INTERNAL_FOUNDATION only, acknowledging the documented limitations. Record owner closure approval in GitHub PR #27. Do not merge PR #27 or start P01-T07-B without separate authorization."
+
+**Decision: OWNER_ACCEPTED for P01-T07-A task-level INTERNAL_FOUNDATION only.** See [owner approval record](P01_T07A_OWNER_APPROVAL_2026-11-06.md). Historical statements of pending approval in previous sections are pre-decision snapshots and are superseded by this dated addendum. No new runtime test or migration was executed to record approval.
+
+**Unchanged restrictions:** PR #27 remains open, draft, unmerged; its merge is separately unauthorized. Phase 01 overall closure, customer release, clinical/patient use, deployment and P01-T07-B are not authorized. Existing Apply, Mockito, npm and broader authorization/clinical review limitations remain as documented.
