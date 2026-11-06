@@ -117,3 +117,20 @@ If insufficient, require a **new specific authorization** for a distinct one-off
 **W3_E_OWNER_DECISION:** `NO_GO_HOLD_APPROVED_2026-11-06`  
 **W4_ORIGINAL_APPLY:** `BLOCKED`  
 **PR32_MERGE:** `HOLD`
+
+## 8. Subsequent explicit owner authorization — 2026-11-06 IST
+
+The owner separately and explicitly stated:
+
+> I explicitly authorize one W3-H7 W2C synthetic-only verification on the existing isolated disposable V9 environment, subject to the reviewed preflight and evidence-capture safeguards. Do not modify the original V8 database, rerun Flyway, create or delete Docker resources, merge PR #32, or authorize customer release.
+
+The [owner authorization was recorded in Issue #33](https://github.com/ARG-Digital-Solutions/aronexa-healthcare-platform/issues/33#issuecomment-6691516456). This subsequent narrow authorization **supersedes the planning-time NOT_AUTHORIZED field only for one controlled disposable W2C attempt after required safeguards pass**. It does **not** authorize any unreviewed change to Git-tracked scripts, the original V8 database, Flyway, Docker resources or release. Once the SQL fixture begins executing, one authorized attempt is consumed regardless of the outcome; no automatic rerun.
+
+**Pre-execution evidence-capture blocker:** The current reviewed wrapper verifies all 15 individual SQL scenario notices **in memory** but does not preserve raw successful `psql` output to a private evidence file. Capturing only wrapper stdout does not meet the proposed full raw output requirement. Do not start the authorized attempt until an independently reviewed, private, external evidence-capture procedure is prepared and all read-only preflight checks pass. The raw private log must remain outside the Git repository. Any script modifications or other newly scoped actions require separate review and authorization.
+
+**Updated authorization status:** `W3_H7_SINGLE_DISPOSABLE_W2C_ATTEMPT=OWNER_AUTHORIZED_CONDITIONAL`  
+**Execution:** `NOT_STARTED`  
+**Evidence capture readiness:** `PENDING_REVIEW`  
+**W3-E owner NO-GO/HOLD:** `REMAINS_ACTIVE`  
+**W4 original Apply:** `BLOCKED`  
+**PR #32:** `DO_NOT_MERGE`
