@@ -62,7 +62,7 @@ foreach ($row in $rows) {
     Stop-Gate 'Unsafe/duplicate table count evidence'
   }
   $seen[$table]=$true
-  $normalized+=New-Object psobject -Property ([ordered]@{Table=$table;Count=[long]$count})
+  $normalized += [pscustomobject][ordered]@{Table=$table;Count=[long]$count}
 }
 $originalIds=Native 'docker.exe' @('ps','--filter','label=com.docker.compose.project=aronexa-dev',
   '--filter','label=com.docker.compose.service=postgres','--format','{{.ID}}')
@@ -146,11 +146,11 @@ $report=@(
 $normalized | Sort-Object Table | Export-Csv -LiteralPath $counts -NoTypeInformation -Encoding UTF8
 $entries=@()
 foreach ($file in @($summary,$counts)) {
-  $entries+=New-Object psobject -Property ([ordered]@{
-    Filename=[IO.Path]::GetFileName($file);
-    Bytes=[long](Get-Item -LiteralPath $file).Length;
+  $entries += [pscustomobject][ordered]@{
+    Filename=[IO.Path]::GetFileName($file)
+    Bytes=[long](Get-Item -LiteralPath $file).Length
     SHA256=(Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToUpperInvariant()
-  })
+  }
 }
 $entries | Export-Csv -LiteralPath $manifest -NoTypeInformation -Encoding UTF8
 Compress-Archive -LiteralPath @($summary,$counts,$manifest) -DestinationPath $zipPath -CompressionLevel Optimal -ErrorAction Stop
@@ -161,7 +161,7 @@ $archive=[IO.Compression.ZipFile]::OpenRead($zipPath)
 try {
   $archiveFiles=@($archive.Entries | Where-Object { $_.Name -ne '' })
   $names=@($archiveFiles | ForEach-Object { $_.Name } | Sort-Object)
-  $expectedNames=@('01_W2D_SANITIZED_SUMMARY.txt','02_V8_TABLE_COUNTS_SANITIZED.csv','03_SHA256_EVIDENCE_MANIFEST.csv' | Sort-Object)
+  $expectedNames=@('01_W2D_SANITIZED_SUMMARY.txt','02_V8_TABLE_COUNTS_SANITIZED.csv','03_SHA256_EVIDENCE_MANIFEST.csv')
   if ($archiveFiles.Count -ne 3) { Stop-Gate 'Unexpected ZIP entries' }
   if (($names -join '|') -cne ($expectedNames -join '|')) { Stop-Gate 'ZIP includes an unapproved file' }
   foreach ($e in $archiveFiles) {
