@@ -192,7 +192,7 @@ try {
     if ($module -ne 't') { Stop-Gate 'Patient registration module enabled or missing' }
     $authPermissionCount=Query "SELECT count(*) FROM public.auth_permission WHERE code IN ('PATIENT_REGISTER','PATIENT_REGISTRATION_READ','PATIENT_CANDIDATE_SEARCH','PATIENT_LINK_EXISTING','PATIENT_CONTACT_VERIFY','PATIENT_GUARDIAN_REVIEW')"
     if ($authPermissionCount -ne '6') { Stop-Gate 'Six B2 permission codes missing' }
-    $grantedCodes=Query "SELECT count(*) FROM public.auth_role_permission arp JOIN public.auth_permission p ON p.id = arp.permission_id WHERE p.code IN ('PATIENT_REGISTER','PATIENT_REGISTRATION_READ','PATIENT_CANDIDATE_SEARCH','PATIENT_LINK_EXISTING','PATIENT_CONTACT_VERIFY','PATIENT_GUARDIAN_REVIEW')"
+    $grantedCodes=Query "SELECT count(*) FROM public.auth_role_permission WHERE permission_code IN ('PATIENT_REGISTER','PATIENT_REGISTRATION_READ','PATIENT_CANDIDATE_SEARCH','PATIENT_LINK_EXISTING','PATIENT_CONTACT_VERIFY','PATIENT_GUARDIAN_REVIEW')"
     if ($grantedCodes -ne '0') { Stop-Gate 'Premature patient staff permissions detected' }
 
     $rls=Query "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relname IN ('patient_registration','org_membership_branch_scope','tenant_module_state','patient_registration_access_audit') AND c.relrowsecurity"
