@@ -4,6 +4,11 @@ CREATE ROLE aronexa_app_runtime LOGIN
     PASSWORD 'only-for-ephemeral-test-container'
     NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
 
+-- Dedicated read-only patient-registration runtime (synthetic containers ONLY).
+CREATE ROLE aronexa_patient_runtime LOGIN
+    PASSWORD 'only-for-ephemeral-patient-role'
+    NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS;
+
 -- Separate restricted runtime identity for authentication SQL.
 CREATE ROLE aronexa_auth_runtime LOGIN
     PASSWORD 'only-for-ephemeral-auth-role'
