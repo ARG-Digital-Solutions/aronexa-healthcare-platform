@@ -19,3 +19,8 @@ aronexa:
       url: ${ARONEXA_AUTH_DB_URL:${ARONEXA_DB_URL:jdbc:postgresql://127.0.0.1:5433/aronexa_dev}}
       username: aronexa_auth_runtime
       password: ${ARONEXA_AUTH_DB_PASSWORD}
+  patient:
+    datasource:
+      url: ${ARONEXA_PATIENT_DB_URL:${ARONEXA_DB_URL:jdbc:postgresql://127.0.0.1:5433/aronexa_dev}}
+      username: aronexa_patient_runtime
+      password: ${ARONEXA_PATIENT_DB_PASSWORD}

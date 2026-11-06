@@ -29,6 +29,11 @@ class AuthPersistenceConfiguration {
         return new JdbcTemplate(dataSource);
     }
 
+    @Bean(name = "patientJdbcTemplate")
+    JdbcTemplate patientJdbcTemplate(@Qualifier("patientDataSource") DataSource dataSource) {
+        return new JdbcTemplate(dataSource);
+    }
+
     @Bean(name = "authJdbcTemplate")
     JdbcTemplate authJdbcTemplate(@Qualifier("authDataSource") DataSource dataSource) {
         return new JdbcTemplate(dataSource);
@@ -38,6 +43,12 @@ class AuthPersistenceConfiguration {
     @Primary
     PlatformTransactionManager applicationTransactionManager(
             @Qualifier("dataSource") DataSource dataSource) {
+        return new DataSourceTransactionManager(dataSource);
+    }
+
+    @Bean(name = "patientTransactionManager")
+    PlatformTransactionManager patientTransactionManager(
+            @Qualifier("patientDataSource") DataSource dataSource) {
         return new DataSourceTransactionManager(dataSource);
     }
 
@@ -73,6 +84,17 @@ class AuthPersistenceConfiguration {
         DataSource authDataSource(@Qualifier("dataSource") DataSource dataSource) {
             return dataSource;
         }
+
+        @Bean(name = "patientDataSource", destroyMethod = "close")
+        DataSource patientDataSource(JdbcConnectionDetails details) {
+            HikariConfig config = new HikariConfig();
+            config.setPoolName("aronexa-ephemeral-patient-test");
+            config.setJdbcUrl(details.getJdbcUrl());
+            config.setUsername("aronexa_patient_runtime");
+            config.setPassword("only-for-ephemeral-patient-role");
+            config.setMaximumPoolSize(3);
+            return new HikariDataSource(config);
+        }
     }
 
     @Configuration(proxyBeanMethods = false)
@@ -85,6 +107,14 @@ class AuthPersistenceConfiguration {
                 @Value("${spring.datasource.username}") String username,
                 @Value("${spring.datasource.password}") String password) {
             return pool("aronexa-organization", url, username, password);
+        }
+
+        @Bean(name = "patientDataSource", destroyMethod = "close")
+        DataSource patientDataSource(
+                @Value("${aronexa.patient.datasource.url}") String url,
+                @Value("${aronexa.patient.datasource.username}") String username,
+                @Value("${aronexa.patient.datasource.password}") String password) {
+            return pool("aronexa-patient", url, username, password);
         }
 
         @Bean(name = "authDataSource", destroyMethod = "close")
