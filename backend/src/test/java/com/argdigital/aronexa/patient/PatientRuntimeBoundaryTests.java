@@ -143,7 +143,6 @@ class PatientRuntimeBoundaryTests {
                     "patient_relationship","patient_identity_audit","app_user","auth_session",
                     "patient_registration_access_audit")) {
                 assertThatThrownBy(() -> count(c,table)).isInstanceOf(SQLException.class);
-                c.rollback();
             }
             for(String table:List.of("patient_registration","module_registry",
                     "tenant_module_state","org_membership_branch_scope")) {
