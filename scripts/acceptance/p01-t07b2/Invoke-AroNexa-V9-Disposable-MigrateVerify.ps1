@@ -14,8 +14,8 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 function Stop-Gate([string]$msg) { throw "STOP: $msg" }
-function External([string]$exe,[string[]]$args) {
-    $result=& $exe @args
+function External([string]$exe,[string[]]$arguments) {
+    $result=& $exe @arguments
     if ($LASTEXITCODE -ne 0) { Stop-Gate ("Native operation failed: " + $exe) }
     return (($result | Out-String).Trim())
 }
@@ -96,10 +96,10 @@ if ($sourceVersion -ne '8') { Stop-Gate 'Original source unexpectedly changed fr
 $beforeVersion=Query 'SELECT version FROM public.flyway_schema_history WHERE success ORDER BY installed_rank DESC LIMIT 1'
 if ($beforeVersion -ne '8') { Stop-Gate 'Disposable restore not at V8' }
 $historyBefore=Query "SELECT version||':'||checksum::text FROM public.flyway_schema_history WHERE success ORDER BY installed_rank"
-if (Query 'SELECT count(*) FROM public.flyway_schema_history WHERE NOT success' -ne '0') {
+if ((Query 'SELECT count(*) FROM public.flyway_schema_history WHERE NOT success') -ne '0') {
     Stop-Gate 'Failed Flyway history found'
 }
-if (Query "SELECT count(*) FROM pg_catalog.pg_tables WHERE schemaname='public'" -ne '25') {
+if ((Query "SELECT count(*) FROM pg_catalog.pg_tables WHERE schemaname='public'") -ne '25') {
     Stop-Gate 'Original V8 table count unexpected'
 }
 foreach ($t in ($expected.Keys | Sort-Object)) {
@@ -108,7 +108,7 @@ foreach ($t in ($expected.Keys | Sort-Object)) {
         Stop-Gate ('Pre-V9 restore row count mismatch for '+$t)
     }
 }
-if (Query "SELECT count(*) FROM pg_roles WHERE rolname='aronexa_patient_runtime'" -ne '0') {
+if ((Query "SELECT count(*) FROM pg_roles WHERE rolname='aronexa_patient_runtime'") -ne '0') {
     Stop-Gate 'Patient runtime role already exists; do not rerun V9'
 }
 
@@ -173,7 +173,7 @@ try {
     if ($failures -ne '0') { Stop-Gate 'Failed Flyway migrations' }
     $historyAfter=Query "SELECT version||':'||checksum::text FROM public.flyway_schema_history WHERE success AND version <> '9' ORDER BY installed_rank"
     if ($historyBefore -ne $historyAfter) { Stop-Gate 'V1-V8 Flyway history changed' }
-    if (Query "SELECT count(*) FROM pg_catalog.pg_tables WHERE schemaname='public'" -ne '26') {
+    if ((Query "SELECT count(*) FROM pg_catalog.pg_tables WHERE schemaname='public'") -ne '26') {
         Stop-Gate 'Expected 26 tables after new V9 access audit'
     }
     foreach ($t in ($expected.Keys | Sort-Object)) {
@@ -185,7 +185,7 @@ try {
             Stop-Gate ('Unexpected V9 table-count change for '+$t)
         }
     }
-    if (Query 'SELECT count(*) FROM public.patient_registration_access_audit' -ne '0') {
+    if ((Query 'SELECT count(*) FROM public.patient_registration_access_audit') -ne '0') {
         Stop-Gate 'New registration-access audit not empty'
     }
     $module=Query "SELECT CASE WHEN count(*)=1 AND bool_and(NOT implemented AND NOT released) THEN 't' ELSE 'f' END FROM public.module_registry WHERE code='PATIENT_REGISTRATION'"
@@ -218,23 +218,23 @@ try {
     }
     $restricted=@('patient','patient_identifier','patient_contact','patient_relationship','patient_identity_audit')
     foreach ($table in $restricted) {
-        if (Query ("SELECT has_table_privilege('aronexa_patient_runtime','public."+$table+"','SELECT')") -ne 'f') {
+        if ((Query ("SELECT has_table_privilege('aronexa_patient_runtime','public."+$table+"','SELECT')")) -ne 'f') {
             Stop-Gate ('Patient role has forbidden identity read: '+$table)
         }
     }
     foreach ($privilege in @('INSERT','UPDATE','DELETE')) {
-        if (Query ("SELECT has_table_privilege('aronexa_patient_runtime','public.patient_registration','"+$privilege+"')") -ne 'f') {
+        if ((Query ("SELECT has_table_privilege('aronexa_patient_runtime','public.patient_registration','"+$privilege+"')")) -ne 'f') {
             Stop-Gate ('Patient role has forbidden registration mutation: '+$privilege)
         }
     }
     foreach ($privilege in @('SELECT','UPDATE','DELETE','TRUNCATE')) {
-        if (Query ("SELECT has_table_privilege('aronexa_patient_runtime','public.patient_registration_access_audit','"+$privilege+"')") -ne 'f') {
+        if ((Query ("SELECT has_table_privilege('aronexa_patient_runtime','public.patient_registration_access_audit','"+$privilege+"')")) -ne 'f') {
             Stop-Gate ('Patient role has forbidden audit privilege: '+$privilege)
         }
     }
     foreach ($role in @('aronexa_app_runtime','aronexa_auth_runtime')) {
         foreach ($table in (@('patient_registration','patient_registration_access_audit')+$restricted)) {
-            if (Query ("SELECT has_table_privilege('"+$role+"','public."+$table+"','SELECT')") -ne 'f') {
+            if ((Query ("SELECT has_table_privilege('"+$role+"','public."+$table+"','SELECT')")) -ne 'f') {
                 Stop-Gate ('App/auth role leaked patient read access: '+$role+'/'+$table)
             }
         }
