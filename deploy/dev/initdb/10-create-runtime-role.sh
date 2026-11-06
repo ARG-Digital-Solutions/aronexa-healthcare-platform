@@ -4,6 +4,7 @@
 set -eu
 : "${ARONEXA_RUNTIME_DB_PASSWORD:?Set a strong runtime role password}"
 : "${ARONEXA_AUTH_DB_PASSWORD:?Set a different auth-only role password}"
+: "${ARONEXA_PATIENT_DB_PASSWORD:?Set a distinct patient-only role password}"
 psql -X -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
     -v runtime_password="$ARONEXA_RUNTIME_DB_PASSWORD" <<'SQL'
 SELECT format(
