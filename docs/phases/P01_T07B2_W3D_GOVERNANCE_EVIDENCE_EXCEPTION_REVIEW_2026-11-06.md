@@ -120,3 +120,14 @@ Existing threats from the B2 security review remain: direct patient runtime cred
 **W3_D_OWNER_EXCEPTION_ACCEPTANCE:** `NOT_GRANTED`  
 **W3_E_OWNER_SIGNOFF:** `PENDING`  
 **W4_ORIGINAL_APPLY:** `BLOCKED`
+
+## G. Subsequent W3-E owner decision — NO-GO/HOLD approved 2026-11-06 IST
+
+Following the W3-D assessment, the owner **explicitly approved W3-E NO-GO/HOLD** and acknowledged all W3-D evidence exceptions and the accidental PR #30 merge. The statement was transcribed verbatim in [issue #31, comment 6690270572](https://github.com/ARG-Digital-Solutions/aronexa-healthcare-platform/issues/31#issuecomment-6690270572) and incorporated into the [formal W3-E decision record](P01_T07B2_W3E_OWNER_DECISION_RECORD_2026-11-06.md).
+
+**This changes the W3-E owner choice from PENDING to formally APPROVED NO-GO/HOLD.** It does **not** close, waive or fully accept W3-D exceptions EX-01 through EX-05. The owner did **not** approve permanent PR #30 retention, W4 original V8→V9 Apply, PR #32 merge, deletion of evidence, or customer/real-patient release. All those separate gates remain as previously documented.
+
+**W3_E_OWNER_DECISION:** `NO_GO_HOLD_APPROVED_2026-11-06`  
+**W3_OWNER_GO:** `NOT_GRANTED`  
+**W4_ORIGINAL_APPLY:** `BLOCKED`  
+**PR32_MERGE:** `HOLD`
