@@ -42,7 +42,8 @@ if (-not (Test-Path -LiteralPath $postCheck -PathType Leaf)) { Stop-Gate 'W2B ve
 if (-not (Test-Path -LiteralPath $BackupFile -PathType Leaf)) { Stop-Gate 'Verified backup missing' }
 if (-not (Test-Path -LiteralPath $CountsFile -PathType Leaf)) { Stop-Gate 'Original 25-table inventory missing' }
 Equal 'Original backup bytes' ([string](Get-Item -LiteralPath $BackupFile).Length) '92567'
-Equal 'Original backup SHA256' (Get-FileHash -LiteralPath $BackupFile -Algorithm SHA256).Hash.ToUpperInvariant() '153842CCC811A64729F2DBA0743515A6C24E5A20AFB1D054AF054FECB36C3CAB'
+$actualBackupHash=(Get-FileHash -LiteralPath $BackupFile -Algorithm SHA256).Hash.ToUpperInvariant()
+Equal 'Original backup SHA256' $actualBackupHash '153842CCC811A64729F2DBA0743515A6C24E5A20AFB1D054AF054FECB36C3CAB'
 if (@(Import-Csv -LiteralPath $CountsFile).Count -ne 25) { Stop-Gate 'Baseline table inventory count differs' }
 $ids=Exec 'docker.exe' @('ps','--filter','label=com.docker.compose.project=aronexa-dev',
   '--filter','label=com.docker.compose.service=postgres','--format','{{.ID}}')
