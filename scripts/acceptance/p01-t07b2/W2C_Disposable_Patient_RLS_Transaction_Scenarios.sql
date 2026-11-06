@@ -171,6 +171,30 @@ BEGIN
   END;
 END $denied$;
 
+-- Confirm that separate app/auth roles really receive permission-denied
+-- on registration SELECT under the restored-V9 database, not only catalog flags.
+SET LOCAL ROLE aronexa_app_runtime;
+DO $denied$
+BEGIN
+  BEGIN
+    PERFORM 1 FROM public.patient_registration LIMIT 1;
+    RAISE EXCEPTION 'STOP_W2C_APP_RUNTIME_PATIENT_READ_ALLOWED' USING ERRCODE='P0001';
+  EXCEPTION WHEN insufficient_privilege THEN
+    RAISE NOTICE 'PASS: W2C_APP_RUNTIME_PATIENT_READ_DENIED';
+  END;
+END $denied$;
+
+SET LOCAL ROLE aronexa_auth_runtime;
+DO $denied$
+BEGIN
+  BEGIN
+    PERFORM 1 FROM public.patient_registration LIMIT 1;
+    RAISE EXCEPTION 'STOP_W2C_AUTH_RUNTIME_PATIENT_READ_ALLOWED' USING ERRCODE='P0001';
+  EXCEPTION WHEN insufficient_privilege THEN
+    RAISE NOTICE 'PASS: W2C_AUTH_RUNTIME_PATIENT_READ_DENIED';
+  END;
+END $denied$;
+
 -- Restore migrator identity and ensure that no synthetic fixture is retained.
 SET LOCAL ROLE aronexa_dev;
 ROLLBACK;
