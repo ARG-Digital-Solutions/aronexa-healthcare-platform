@@ -124,16 +124,16 @@ class PatientAccessServiceIntegrationTests {
     private void activateSyntheticRegistrationModule(UUID tenant) {
         // Tests intentionally emulate a future reviewed module catalog change;
         // no catalog row or entitlement is added by B2 to any real database.
+        // V9 ships an unreleased catalog entry; enable it ONLY in this
+        // disposable synthetic Testcontainer's migration-owner fixtures.
         admin.update("""
-                INSERT INTO module_registry
-                  (code,display_name,implemented,released,requires_clinical_authorization)
-                VALUES ('PATIENT_REGISTRATION','Synthetic patient registration',TRUE,TRUE,FALSE)
-                ON CONFLICT (code) DO NOTHING
+                UPDATE module_registry SET implemented=TRUE, released=TRUE
+                WHERE code='PATIENT_REGISTRATION'
                 """);
         admin.update("""
                 INSERT INTO tenant_module_state
                   (tenant_id,module_code,entitled,activated,clinically_authorized)
-                VALUES (?,'PATIENT_REGISTRATION',TRUE,TRUE,FALSE)
+                VALUES (?,'PATIENT_REGISTRATION',TRUE,TRUE,TRUE)
                 """, tenant);
     }
 
@@ -169,6 +169,10 @@ class PatientAccessServiceIntegrationTests {
         assertThat(found).isPresent();
         assertThat(found.orElseThrow().patientId()).isEqualTo(f.patientA());
         assertThat(found.orElseThrow().registrationId()).isEqualTo(f.registrationA());
+        assertThat(admin.queryForObject("""
+                SELECT count(*) FROM patient_registration_access_audit
+                WHERE tenant_id=? AND registration_id=? AND membership_id=?
+                """, Integer.class,f.tenantA(),f.registrationA(),f.memberA())).isEqualTo(1);
         assertThat(access.findReadableRegistration(f.branchA(),f.registrationOther())).isEmpty();
         assertThat(access.findReadableRegistration(f.branchOther(),f.registrationOther())).isEmpty();
         assertThat(access.findReadableRegistration(f.branchB(),f.registrationB())).isEmpty();
