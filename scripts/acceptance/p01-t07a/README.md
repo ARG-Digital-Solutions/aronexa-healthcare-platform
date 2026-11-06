@@ -1,8 +1,8 @@
 # P01-T07-A — Canonical Windows V8 acceptance script archival
 
-**Status: FINAL SCRIPT NOT YET COMMITTED.** This directory currently documents safe archival. The actual Windows file used in the passing Verify has not been provided to this session or GitHub; a reconstructed file must not be substituted.
+**Status: OWNER-UPLOADED FINAL SCRIPT COMMITTED IN DRAFT PR #26.** The owner-uploaded final VerifyNpmFixed source has been stored here, and its GitHub text was compared to the original uploaded text without modifications. SHA-256 of uploaded script: `2BCA93D6A83ACAB8F4071541E51B3990F277B103FECF5A5F47B042B49AEEB933`. The following copy instructions are retained as a reproducible alternative but are no longer required for this draft PR.
 
-## Required file
+## Canonical script and provenance
 
 Source (owner's Windows system):
 
@@ -14,9 +14,9 @@ Desired canonical repository path:
 
 Import **the exact successfully executed script**, retaining its Prepare/Apply/Verify stage behavior, backup/manifest guards, migration protections, scoped Maven and npm stderr handling, genuine nonzero exit-code checks and preference restoration. No fresh reconstruction, installation policy bypass or script refactor is authorized.
 
-## Controlled local archival procedure (do not execute migrations)
+## Optional local archival verification (do not execute migrations)
 
-From the owner's repository root, **after** checking out the draft PR branch `docs/p01-t07a-v8-closure-evidence-20261106` with a clean working tree, run this complete read-only-and-copy PowerShell block:
+**The canonical script already exists on this branch. Do not run the copy block below against this branch: it intentionally stops when the destination exists.** The block is preserved for future use only when importing to a new clean repository checkout where the target is not yet present. To confirm identity today, compare `Get-FileHash -Algorithm SHA256` of the locally executed final script and the tracked canonical file; expect `2BCA93D6A83ACAB8F4071541E51B3990F277B103FECF5A5F47B042B49AEEB933` when the same file bytes are used.
 
 ```powershell
 $ErrorActionPreference = 'Stop'
@@ -57,7 +57,7 @@ This performs **no execution of the acceptance script itself**, no Maven/npm cal
 
 - `-Stage Verify` was already reported PASS by the owner using the locally executed final script; **do not rerun Verify, Apply or Flyway merely to archive files**.
 - No broad npm install-script approvals, no Mockito-agent dependency change, no production settings or application source changes are authorized.
-- Documentation PR must remain DRAFT and unmerged until actual final script is safely imported and reviewed, private evidence archive inventory and SHA confirmed, and owner explicitly approves task closure and PR merge.
+- Documentation PR must remain DRAFT and unmerged until code review of the committed exact final script (including historical Apply manifest-property bug), private evidence archive inventory and SHA confirmed, and owner explicitly approves task closure and PR merge.
 - This is INTERNAL_FOUNDATION only. P01-T07-B, full Phase 01 approval, customer use and deployment are NOT authorized.
 
 See [closure review](../../../docs/phases/P01_T07A_CLOSURE_REVIEW_2026-11-06.md) and [evidence index](../../../docs/phases/evidence/P01_T07A_20261106/EVIDENCE.md).
