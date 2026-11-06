@@ -2,27 +2,22 @@ package com.argdigital.aronexa.patient;
 
 import com.argdigital.aronexa.auth.AuthPrincipal;
 import com.argdigital.aronexa.auth.TenantAuthorization;
-import com.argdigital.aronexa.auth.TenantSqlScope;
-import com.argdigital.aronexa.moduleregistry.ModuleAccessService;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * P01-T07-B2 internal-only patient authorization boundary.
+ * B2 internal-only patient registration authorization and restricted read path.
+ * No public HTTP route, no patient creation, no demographics/contacts read.
  *
- * This is NOT a patient API and is NOT a write service. V8 intentionally grants
- * neither runtime account access to patient tables; successful persistence awaits
- * a separately reviewed, forward-only least-privilege migration.
- *
- * Authorization requires the validated staff membership from Spring Security,
- * a precise permission, an enabled dedicated registration module and an assigned
- * branch. A patient registration is visible only at the requested, assigned branch.
- * Unassigned and unknown registration IDs are indistinguishable to callers.
+ * The patient account is a separate nonowner SQL role, and each operation
+ * binds the trusted principal's tenant+membership on its own patient JDBC
+ * transaction. V9 denies writes to patient identity/registration tables.
  */
 @Service
 public class PatientAccessService {
@@ -31,35 +26,24 @@ public class PatientAccessService {
     static final String READ_PERMISSION = "PATIENT_REGISTRATION_READ";
 
     private final TenantAuthorization authorization;
-    private final TenantSqlScope sqlScope;
-    private final ModuleAccessService modules;
-    private final JdbcTemplate jdbc;
+    private final PatientSqlScope sqlScope;
+    private final JdbcTemplate patientJdbc;
 
     public PatientAccessService(TenantAuthorization authorization,
-                                TenantSqlScope sqlScope,
-                                ModuleAccessService modules,
-                                JdbcTemplate jdbc) {
+                                PatientSqlScope sqlScope,
+                                @Qualifier("patientJdbcTemplate") JdbcTemplate patientJdbc) {
         this.authorization = authorization;
         this.sqlScope = sqlScope;
-        this.modules = modules;
-        this.jdbc = jdbc;
+        this.patientJdbc = patientJdbc;
     }
 
-    /**
-     * Internal precondition for a future staff registration transaction.
-     * This method alone does NOT authorize an actual patient INSERT.
-     *
-     * An authorized caller must re-check this scope and the module state
-     * inside the eventual write transaction, not reuse an earlier result.
-     */
-    @Transactional(readOnly = true)
+    /** Design-time B3 precondition only: NOT a transferable authorization token. */
+    @Transactional(transactionManager = "patientTransactionManager", readOnly = true)
     public AuthorizedBranch requireReceptionBranch(UUID branchId) {
-        AuthPrincipal principal = verifiedFor(REGISTER_PERMISSION);
-        if (branchId == null) {
-            throw new AccessDeniedException("Patient scope denied");
-        }
-        modules.requireEnabled(REGISTRATION_MODULE);
-        sqlScope.bindVerifiedTenant();
+        AuthPrincipal principal = authorization.requirePermission(REGISTER_PERMISSION);
+        if (branchId == null) throw new AccessDeniedException("Patient scope denied");
+        sqlScope.bindVerifiedStaff();
+        requireEnabledModule(principal);
         if (!assignedBranch(principal, branchId)) {
             throw new AccessDeniedException("Patient scope denied");
         }
@@ -67,21 +51,22 @@ public class PatientAccessService {
     }
 
     /**
-     * Internal read authorization and minimal patient-registration lookup.
-     * Returns IDs only (no clinical or demographic fields).
-     * No cross-branch lookup or client-provided tenant selector is accepted.
+     * Read only the registration/patient UUID mapping after authorization.
+     * An actor-attributed append-only audit entry is inserted inside the same
+     * patient SQL transaction for successful reads. Unknown/forbidden IDs have
+     * the same empty result, and no patient demographics are selected.
      */
-    @Transactional(readOnly = true)
+    @Transactional(transactionManager = "patientTransactionManager")
     public Optional<AuthorizedRegistration> findReadableRegistration(
             UUID branchId, UUID registrationId) {
-        AuthPrincipal principal = verifiedFor(READ_PERMISSION);
-        if (branchId == null || registrationId == null) {
-            return Optional.empty();
-        }
-        modules.requireEnabled(REGISTRATION_MODULE);
-        sqlScope.bindVerifiedTenant();
+        AuthPrincipal principal = authorization.requirePermission(READ_PERMISSION);
+        if (branchId == null || registrationId == null) return Optional.empty();
+        sqlScope.bindVerifiedStaff();
+        requireEnabledModule(principal);
 
-        return jdbc.query("""
+        // Policy on patient_registration also enforces tenant, membership and
+        // assigned branch directly in PostgreSQL (not merely this join).
+        Optional<AuthorizedRegistration> result = patientJdbc.query("""
                 SELECT r.id, r.patient_id
                   FROM public.patient_registration r
                   JOIN public.org_membership_branch_scope s
@@ -97,31 +82,42 @@ public class PatientAccessService {
                     rs.getObject("patient_id", UUID.class)),
                 principal.membershipId(), principal.tenantId(), branchId, registrationId)
                 .stream().findFirst();
+
+        result.ifPresent(found -> patientJdbc.update("""
+                INSERT INTO public.patient_registration_access_audit
+                    (id,tenant_id,membership_id,branch_id,registration_id,action)
+                VALUES (?,?,?,?,?,'READ')
+                """, UUID.randomUUID(), principal.tenantId(), principal.membershipId(),
+                branchId, found.registrationId()));
+        return result;
     }
 
-    private AuthPrincipal verifiedFor(String permission) {
-        // Exact permissions rather than role labels; forced password change denies.
-        // The AuthPrincipal can only originate from the validated bearer filter.
-        return authorization.requirePermission(permission);
+    private void requireEnabledModule(AuthPrincipal principal) {
+        List<Integer> enabled = patientJdbc.queryForList("""
+                SELECT 1
+                  FROM public.tenant_module_state s
+                  JOIN public.module_registry r ON r.code = s.module_code
+                 WHERE s.tenant_id = ? AND s.module_code = ?
+                   AND r.implemented AND r.released
+                   AND s.entitled AND s.activated
+                   AND (NOT r.requires_clinical_authorization OR s.clinically_authorized)
+                """, Integer.class, principal.tenantId(), REGISTRATION_MODULE);
+        if (enabled.isEmpty()) throw new AccessDeniedException("Patient module disabled");
     }
 
     private boolean assignedBranch(AuthPrincipal principal, UUID branchId) {
-        List<Integer> matches = jdbc.queryForList("""
+        List<Integer> allowed = patientJdbc.queryForList("""
                 SELECT 1
                   FROM public.org_membership_branch_scope s
-                  JOIN public.branch b
-                    ON b.tenant_id = s.tenant_id AND b.id = s.branch_id
-                 WHERE s.tenant_id = ?
-                   AND s.membership_id = ?
-                   AND s.branch_id = ?
+                 WHERE s.tenant_id = ? AND s.membership_id = ? AND s.branch_id = ?
                 """, Integer.class, principal.tenantId(), principal.membershipId(), branchId);
-        return !matches.isEmpty();
+        return !allowed.isEmpty();
     }
 
-    /** Trusted internal-only context; not a transferable capability or HTTP DTO. */
+    /** Trusted internal-only context; not an HTTP DTO or reusable permission. */
     public record AuthorizedBranch(UUID tenantId, UUID membershipId, UUID branchId) {}
 
-    /** Only IDs from an authorized branch; no patient demographics or contacts. */
+    /** No patient demographics, names, DOB, phones or clinical details. */
     public record AuthorizedRegistration(UUID tenantId, UUID membershipId,
                                          UUID branchId, UUID registrationId, UUID patientId) {}
 }
