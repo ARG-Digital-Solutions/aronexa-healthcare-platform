@@ -7,7 +7,7 @@ if [[ -z "${GITHUB_ACTIONS:-}" ]]; then
   echo "REFUSED: this script is CI-only. Use docs/phases/P01_SECURITY_CLOSURE_ACCEPTANCE.md for local read-only preflight." >&2
   exit 2
 fi
-for key in ARONEXA_DB_PASSWORD ARONEXA_RUNTIME_DB_PASSWORD ARONEXA_AUTH_DB_PASSWORD; do
+for key in ARONEXA_DB_PASSWORD ARONEXA_RUNTIME_DB_PASSWORD ARONEXA_AUTH_DB_PASSWORD ARONEXA_PATIENT_DB_PASSWORD; do
   if [[ -z "${!key:-}" ]]; then echo "Missing required CI credential: $key" >&2; exit 2; fi
 done
 
@@ -35,10 +35,10 @@ docker info >/dev/null
 # These identities MUST have been provisioned during fresh initdb.
 roles="$("${COMPOSE[@]}" exec -T postgres psql -X -At -U aronexa_dev -d aronexa_dev -c "
   SELECT count(*) FROM pg_catalog.pg_roles
-  WHERE rolname IN ('aronexa_app_runtime','aronexa_auth_runtime');
+  WHERE rolname IN ('aronexa_app_runtime','aronexa_auth_runtime','aronexa_patient_runtime');
 ")"
-if [[ "$roles" != "2" ]]; then
-  echo "FAIL: fresh PostgreSQL did not bootstrap both restricted roles." >&2
+if [[ "$roles" != "3" ]]; then
+  echo "FAIL: fresh PostgreSQL did not bootstrap all three restricted roles." >&2
   exit 1
 fi
 echo "PASS: isolated PostgreSQL and restricted role creation"
@@ -68,10 +68,10 @@ version="$("${COMPOSE[@]}" exec -T postgres psql -X -At -U aronexa_dev -d aronex
   SELECT version FROM public.flyway_schema_history
   WHERE success ORDER BY installed_rank DESC LIMIT 1;
 ")"
-if [[ "$version" != "8" ]]; then
-  echo "FAIL: unexpected Flyway version (wanted 8)." >&2; exit 1
+if [[ "$version" != "9" ]]; then
+  echo "FAIL: unexpected Flyway version (wanted 9)." >&2; exit 1
 fi
-echo "PASS: Flyway V1-V8 applied"
+echo "PASS: Flyway V1-V9 applied"
 
 # Check role privileges without exposing credentials or data.
 org_auth_select="$("${COMPOSE[@]}" exec -T -e "PGPASSWORD=$ARONEXA_RUNTIME_DB_PASSWORD" postgres \
@@ -96,7 +96,27 @@ for table in patient patient_identifier patient_contact patient_relationship pat
     fi
   done
 done
-echo "PASS: V8 patient tables deny both runtime roles"
+echo "PASS: patient identity tables deny app/auth runtime roles"
+
+# The patient runtime gets scoped SELECT of branch registration IDs, and
+# INSERT-only access to audit rows; never blanket master identity access.
+for table in patient patient_identifier patient_contact patient_relationship patient_identity_audit; do
+  access="$("${COMPOSE[@]}" exec -T postgres psql -X -At -U aronexa_dev -d aronexa_dev -c "
+    SELECT has_table_privilege('aronexa_patient_runtime', 'public.$table', 'SELECT');")"
+  if [[ "$access" != "f" ]]; then
+    echo "FAIL: patient runtime can see restricted $table" >&2; exit 1
+  fi
+done
+patient_read="$("${COMPOSE[@]}" exec -T postgres psql -X -At -U aronexa_dev -d aronexa_dev -c "
+  SELECT has_table_privilege('aronexa_patient_runtime','public.patient_registration','SELECT');")"
+patient_write="$("${COMPOSE[@]}" exec -T postgres psql -X -At -U aronexa_dev -d aronexa_dev -c "
+  SELECT has_table_privilege('aronexa_patient_runtime','public.patient_registration','INSERT');")"
+patient_audit="$("${COMPOSE[@]}" exec -T postgres psql -X -At -U aronexa_dev -d aronexa_dev -c "
+  SELECT has_table_privilege('aronexa_patient_runtime','public.patient_registration_access_audit','INSERT');")"
+if [[ "$patient_read" != "t" || "$patient_write" != "f" || "$patient_audit" != "t" ]]; then
+  echo "FAIL: patient runtime privilege boundary is incorrect" >&2; exit 1
+fi
+echo "PASS: patient role has bounded read and append-only audit write privileges"
 
 invalid_login="$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 5 \
   -X POST http://127.0.0.1:8080/api/v1/auth/login \
