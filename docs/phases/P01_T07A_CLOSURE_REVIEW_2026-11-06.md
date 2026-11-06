@@ -72,7 +72,22 @@ READY FOR CLOSURE EVIDENCE REVIEW, NOT YET OWNER_ACCEPTED. Merge and formal clos
 | 71 backend tests / Maven / npm frontend production build | PASS, owner supplied |
 | Final read-only Verify report | PASS, owner supplied |
 | Canonical owner-uploaded script archived in Git | COMMITTED; byte-identical text; independent runtime retest NOT RUN; review ongoing |
-| Private evidence archive hashes and completeness | OPEN |
+| Private evidence archive inventory/hash | PASS per owner output (8 evidence files, 10 ZIP entries, 0 missing; contents not independently audited) |
 | Formal P01-T07-A owner closure approval | PENDING |
 
 **Prohibited scope:** P01-T07-B, new patient API/UI, customer deployment, real patient use, schema/data changes, new migrations and automatic merge.
+## Post-review evidence addendum — private closure ZIP (2026-11-06 IST)
+
+Owner-reported private archive basename: `P01-T07A-Closure-Evidence-20261106_072337.zip`.
+
+- SHA-256: `B593192A6BFEBBCD84CF243E47F48B22C90095FBEDE9CCEC5B5AA14E3DDFCE5E`.
+- Archived evidence files: **8**.
+- ZIP entries: **10** (8 evidence plus checksum inventory and archive notes).
+- Missing expected reports: **0**.
+- Original backup SHA-256: **PASS**, preserved outside ZIP.
+- Database modified by archival activity: **NO**.
+- Final reported status: `PRIVATE_CLOSURE_ARCHIVE_CREATED_AND_INVENTORY_VERIFIED`.
+
+**Archive inventory / integrity gate: PASS from owner-reported metadata.** The assistant has not downloaded, inspected or independently rehashed the private ZIP. The original backup is correctly excluded from the closure ZIP and remains privately retained.
+
+**Closure recommendation:** READY FOR EXPLICIT OWNER DECISION on **P01-T07-A INTERNAL_FOUNDATION** only, acknowledging known limitations; `OWNER_ACCEPTED` is **not** recorded. PR #27 remains draft and must not be merged without separate owner approval. The historical Apply manifest-property defect, Mockito JDK future compatibility and npm install-script policy warning remain open. No Phase 01 closure, deployment, customer release, clinical use, new migration, or P01-T07-B is authorized by this record.
