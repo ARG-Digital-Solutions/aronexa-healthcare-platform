@@ -101,3 +101,9 @@ The 10 ZIP entries comprise 8 evidence files plus `SHA256SUMS.txt` and `ARCHIVE_
 **Administrative archive gate:** PASS from owner-reported file inventory, ZIP structure and checksum; independent content/privacy audit NOT RUN.
 
 **Technical verification:** PASS (owner-supplied); **formal P01-T07-A owner closure approval:** still PENDING. Retained Apply-manifest defect, Mockito Java-agent warning and npm install-script policy warning remain disclosed.
+
+## E11 — Explicit formal owner closure approval (2026-11-06 IST)
+
+Owner explicitly approved **formal P01-T07-A closure for INTERNAL_FOUNDATION only**, acknowledging documented limitations and instructing that approval be recorded in GitHub PR #27 **without merging PR #27** or starting **P01-T07-B**. Decision recorded in [P01_T07A_OWNER_APPROVAL_2026-11-06.md](../../P01_T07A_OWNER_APPROVAL_2026-11-06.md). This E11 record supersedes the historical PENDING approval state in E08/E10 without changing technical evidence provenance.
+
+**Task-level state: OWNER_ACCEPTED / CLOSED for INTERNAL_FOUNDATION.** PR #27 state: draft and unmerged, separate merge approval required. No Phase 01 overall closure, customer/clinical deployment or patient access authorized. No Apply or migration rerun.
