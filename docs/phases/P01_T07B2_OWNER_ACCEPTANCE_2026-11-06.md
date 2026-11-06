@@ -62,3 +62,7 @@ These are GitHub CI results, not independently conducted local Windows trials.
 | Full Phase 01 closure, customer deployment, real-patient use | **BLOCKED** |
 
 Owner-directed task acceptance is an engineering milestone only. A change in these restrictions requires separate explicit owner approval and supporting evidence.
+
+## 6. Separate migration authorization record
+
+The independent controlled-migration authorization is tracked at [issue #31](https://github.com/ARG-Digital-Solutions/aronexa-healthcare-platform/issues/31), with the [Windows W0–W5 runbook](P01_T07B2_WINDOWS_V8_TO_V9_CONTROLLED_MIGRATION_RUNBOOK.md) and read-only preflight helper under scripts/acceptance/p01-t07b2. This task-level acceptance **does not record** any existing-volume backup, disposable rehearsal or original V9 migration as completed. Only W0–W2 are cleared for execution; W4 remains blocked until W3 evidence and explicit GO.
