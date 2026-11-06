@@ -68,3 +68,15 @@ Privately retain and hash (do NOT upload backups, credentials, identifiable reco
 Technical V8 verification: PASS from supplied evidence.
 Formal task closure: **not yet approved**.
 Customer pilot, production, clinical access, full Phase 01 completion and P01-T07-B: **not authorized**.
+
+## E09 — Windows inventory confirmation (owner-reported, 2026-11-06 IST)
+
+Owner ran the read-only private evidence inventory check and supplied:
+
+```text
+EXPECTED_FILES: 9
+MISSING_FILES: 0
+FINAL_STATUS: PRIVATE_EVIDENCE_INVENTORY_CHECKED
+```
+
+Inventory covers the manifest, Prepare/Apply/Verify reports, evidence-only finalization report, Maven/npm private logs and the original pre-V8 backup. **File existence is confirmed by owner output; completeness of contents and a new closure ZIP checksum remain OPEN.** The backup must stay private and must not enter Git.
