@@ -1,6 +1,6 @@
 # P01-T07-A — Canonical Windows V8 acceptance script archival
 
-**Status: OWNER-UPLOADED FINAL SCRIPT COMMITTED IN DRAFT PR #26.** The owner-uploaded final VerifyNpmFixed source has been stored here, and its GitHub text was compared to the original uploaded text without modifications. SHA-256 of uploaded script: `2BCA93D6A83ACAB8F4071541E51B3990F277B103FECF5A5F47B042B49AEEB933`. The following copy instructions are retained as a reproducible alternative but are no longer required for this draft PR.
+**Status: OWNER-UPLOADED FINAL SCRIPT COMMITTED IN DRAFT PR #27; LOCAL WINDOWS SHA MATCH CONFIRMED.** The owner-uploaded final VerifyNpmFixed source has been stored here, and its GitHub text was compared to the original uploaded text without modifications. SHA-256 of uploaded script: `2BCA93D6A83ACAB8F4071541E51B3990F277B103FECF5A5F47B042B49AEEB933`. The following copy instructions are retained as a reproducible alternative but are no longer required for this draft PR.
 
 ## Canonical script and provenance
 
