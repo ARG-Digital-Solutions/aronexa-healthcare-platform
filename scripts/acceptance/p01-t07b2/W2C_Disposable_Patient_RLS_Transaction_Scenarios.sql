@@ -78,9 +78,11 @@ END $check$;
 
 -- Correct tenant + assigned membership: exactly one A branch registration.
 SELECT set_config('aronexa.membership_id',:'ma',true);
+SELECT set_config('w2c.expected_registration',:'ra',true);
 DO $check$
 BEGIN
-  IF (SELECT count(*) FROM public.patient_registration) <> 1 THEN
+  IF (SELECT count(*) FROM public.patient_registration) <> 1 OR
+     (SELECT count(*) FROM public.patient_registration WHERE id=current_setting('w2c.expected_registration')::uuid) <> 1 THEN
     RAISE EXCEPTION 'STOP_W2C_ASSIGNED_BRANCH_NOT_SCOPED';
   END IF;
   RAISE NOTICE 'PASS: W2C_ASSIGNED_BRANCH_VISIBLE';
@@ -89,9 +91,12 @@ END $check$;
 -- Same tenant, different assigned membership: A-other branch visible,
 -- A-first branch must be denied.
 SELECT set_config('aronexa.membership_id',:'ma2',true);
+SELECT set_config('w2c.other_registration',:'ra2',true);
 DO $check$
 BEGIN
-  IF (SELECT count(*) FROM public.patient_registration) <> 1 THEN
+  IF (SELECT count(*) FROM public.patient_registration) <> 1 OR
+     (SELECT count(*) FROM public.patient_registration WHERE id=current_setting('w2c.expected_registration')::uuid) <> 0 OR
+     (SELECT count(*) FROM public.patient_registration WHERE id=current_setting('w2c.other_registration')::uuid) <> 1 THEN
     RAISE EXCEPTION 'STOP_W2C_WRONG_MEMBERSHIP_SCOPE';
   END IF;
   RAISE NOTICE 'PASS: W2C_OTHER_MEMBERSHIP_ISOLATED';
@@ -119,9 +124,12 @@ END $check$;
 
 -- Legitimate tenant B+membership B sees only tenant B registration.
 SELECT set_config('aronexa.tenant_id',:'tb',true);
+SELECT set_config('w2c.tenant_b_registration',:'rb',true);
 DO $check$
 BEGIN
-  IF (SELECT count(*) FROM public.patient_registration) <> 1 THEN
+  IF (SELECT count(*) FROM public.patient_registration) <> 1 OR
+     (SELECT count(*) FROM public.patient_registration WHERE id=current_setting('w2c.tenant_b_registration')::uuid) <> 1 OR
+     (SELECT count(*) FROM public.patient_registration WHERE id=current_setting('w2c.expected_registration')::uuid) <> 0 THEN
     RAISE EXCEPTION 'STOP_W2C_TENANT_B_SCOPE_INVALID';
   END IF;
   RAISE NOTICE 'PASS: W2C_TENANT_B_ISOLATED';
@@ -179,4 +187,5 @@ BEGIN
   RAISE NOTICE 'PASS: W2C_SAME_CONNECTION_NEXT_TRANSACTION_CONTEXT_CLEARED';
 END $pool$;
 ROLLBACK;
+\set QUIET off
 \echo FINAL_STATUS: W2C_SYNTHETIC_POLICY_TRANSACTION_ROLLBACK_PASS
