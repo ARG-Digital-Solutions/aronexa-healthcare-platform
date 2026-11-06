@@ -24,7 +24,7 @@
 1. Original Verify was blocked by Mockito inline-mock warning as PowerShell 5.1 native stderr error.
 2. First scoped Maven wrapper correction: `BUILD SUCCESS`; Verify then blocked on `npm warn install-scripts 1 package has install scripts not yet covered by allowScripts:`.
 3. Second scoped npm wrapper correction passed creation/syntax/scope checks; preserves genuine nonzero exit-code blocking, restores error preference; does not approve npm install scripts.
-4. Owner's final successful read-only Verify used the exact locally retained `Invoke-AroNexa-V8-Acceptance.VerifyNpmFixed.ps1`. This final script **has not yet been copied into Git or uploaded here**.
+4. Owner's final successful read-only Verify used the exact locally retained `Invoke-AroNexa-V8-Acceptance.VerifyNpmFixed.ps1`. This script is now included in the draft PR as `scripts/acceptance/p01-t07a/Invoke-AroNexa-V8-Acceptance.ps1` with uploaded SHA-256 `2BCA93D6A83ACAB8F4071541E51B3990F277B103FECF5A5F47B042B49AEEB933`; exact GitHub text was compared against the uploaded file.
 5. Old BLOCKED lines appear in append-only `VERIFY_REPORT.txt` and must not be mistaken for the final attempt.
 
 ## E05 — Backend tests
@@ -59,8 +59,9 @@ Privately retain and hash (do NOT upload backups, credentials, identifiable reco
 - `EVIDENCE_ONLY_FINALIZATION_REPORT_20261106_001741.txt`.
 - `maven-private.log`, `npm-ci-private.log`, `npm-build-private.log` after sensitive-content inspection.
 - Original pre-V8 database dump, separately restricted.
-- Actual final `Invoke-AroNexa-V8-Acceptance.VerifyNpmFixed.ps1` and its SHA-256.
+- Actual final `Invoke-AroNexa-V8-Acceptance.VerifyNpmFixed.ps1`: RECEIVED and COMMITTED to draft PR #26 under the canonical path; uploaded SHA-256 `2BCA93D6A83ACAB8F4071541E51B3990F277B103FECF5A5F47B042B49AEEB933`.
 - Archive ZIP file SHA-256 and inventory status (still unconfirmed).
+- Known Apply PSCustomObject `$m.applied_at` assignment bug retained in archival script. No re-execution of Apply is permitted to address it; future repair needs separate authorization and regression review.
 
 ## E08 — Owner approval
 Technical V8 verification: PASS from supplied evidence.
