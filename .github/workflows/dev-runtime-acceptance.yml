@@ -13,7 +13,7 @@ permissions:
   contents: read
 jobs:
   fresh-dev-startup:
-    name: Fresh dev profile startup with three DB roles
+    name: Fresh dev profile startup with four DB roles
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -28,7 +28,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for name in ARONEXA_DB_PASSWORD ARONEXA_RUNTIME_DB_PASSWORD ARONEXA_AUTH_DB_PASSWORD; do
+          for name in ARONEXA_DB_PASSWORD ARONEXA_RUNTIME_DB_PASSWORD ARONEXA_AUTH_DB_PASSWORD ARONEXA_PATIENT_DB_PASSWORD; do
             secret="$(openssl rand -hex 24)"
             echo "::add-mask::$secret"
             printf '%s=%s\n' "$name" "$secret" >> "$GITHUB_ENV"
