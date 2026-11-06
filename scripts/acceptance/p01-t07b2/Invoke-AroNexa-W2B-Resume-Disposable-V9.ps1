@@ -166,6 +166,7 @@ try {
         $delta=[long]0
         if ($t -eq 'module_registry') { $delta=1 }
         if ($t -eq 'auth_permission') { $delta=6 }
+        if ($t -eq 'flyway_schema_history') { $delta=1 }
         $actual=Query ('SELECT count(*) FROM public.'+$t)
         if ($actual -notmatch '^\d+$' -or [long]$actual -ne ($expected[$t]+$delta)) {
             Stop-Gate ('Unexpected V9 table-count change for '+$t)
