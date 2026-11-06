@@ -9,7 +9,7 @@
 | Decision field | Status |
 |---|---|
 | Technical reviewer recommendation | **NO-GO / HOLD** for W4 original Flyway V8→V9 Apply |
-| **Actual owner-signed W3-E GO/NO-GO** | **PENDING — no explicit owner choice was provided for W3-E** |
+| **Actual owner-authorized W3-E GO/NO-GO** | **NO-GO/HOLD APPROVED on 2026-11-06 IST**; owner decision transcribed from project conversation to [issue #31](https://github.com/ARG-Digital-Solutions/aronexa-healthcare-platform/issues/31#issuecomment-6690270572) |
 | Evidence sufficiency for unconditional W4 GO | **NOT ESTABLISHED** |
 | W4 original Apply | **BLOCKED — no migration authorization** |
 | W5 original acceptance | NOT STARTED |
@@ -18,7 +18,7 @@
 | Customer/real patient release | STRICTLY BLOCKED |
 | Scope of previously accepted B2 task | INTERNAL_FOUNDATION ONLY; remains limited task acceptance |
 
-**Important:** This record **does not impersonate an owner signature, silently choose NO-GO for the owner, or grant W4 GO**. The status is a documented **reviewer recommendation of NO-GO**, with the actual **owner W3-E decision still pending**. Pending approval means operational HOLD. The owner must make a separate, explicit signed choice in issue #31; absence of a response is not approval.
+**Owner decision provenance:** On 2026-11-06 IST, the owner explicitly selected **W3-E NO-GO/HOLD** in the project conversation. The statement was transcribed **verbatim** into [issue #31](https://github.com/ARG-Digital-Solutions/aronexa-healthcare-platform/issues/31#issuecomment-6690270572). This is an affirmative owner NO-GO/HOLD, **not a W3 GO or W4 authorization**, nor a waiver of any unresolved W3-D exception.
 
 ## 2. Evidence considered
 
@@ -59,21 +59,19 @@ The specific V9 SQL migration Git blob reviewed in W3 was `3a1e2b717576ccd84f0de
 - [ ] Independent reviewer records a W3 readiness conclusion consistent with the **limited synthetic-only** scope.
 - [ ] Owner issues explicit, separately dated **W3-E GO** referencing issue #31, exact evidence hashes and the signed accepted exceptions. W3-E GO is a new authorization event; **this preparation is not GO**.
 
-## 5. Owner decision section — unsigned
+## 5. Formal W3-E owner decision — approved NO-GO/HOLD
 
-**W3-E owner decision:** `PENDING`  
-**Recommended choice:** `NO-GO / HOLD` until the above gaps are addressed  
-**Owner's explicit choice:** `NOT PROVIDED`  
-**Decision timestamp:** `NOT PROVIDED`  
-**Owner comment URL:** `NOT PROVIDED`
+**Owner's explicit choice:** `NO-GO / HOLD`  
+**Decision date:** `2026-11-06 IST`  
+**Approval provenance:** The owner explicitly wrote the following in the project conversation; it was transcribed verbatim in [GitHub issue #31, comment 6690270572](https://github.com/ARG-Digital-Solutions/aronexa-healthcare-platform/issues/31#issuecomment-6690270572).  
+**W3 GO:** `NOT GRANTED`  
+**W4 original V8→V9 Apply:** `BLOCKED`
 
-If the owner wishes to formalize the present conservative decision **without authorizing W4**, the owner should post the following separately in [issue #31](https://github.com/ARG-Digital-Solutions/aronexa-healthcare-platform/issues/31):
+> I explicitly approve W3-E NO-GO/HOLD for P01-T07-B2-MIG. I acknowledge the W3-D evidence exceptions and the accidental PR #30 merge. Do not execute W4, merge PR #32, or authorize customer release without separate approval.
 
-> **I explicitly decide W3-E NO-GO / HOLD for P01-T07-B2-MIG as of 2026-11-06. I acknowledge W3-B/W3-C read-only PASS, the W2D archive integrity reports, unresolved W3-D evidence exceptions EX-01 through EX-05 and my accidental PR #30 merge. I do not authorize W4 migration of the original Windows V8 database, PR #32 merge, patient/customer release, or deletion of private evidence. A new GO requires a separate documented review and authorization.**
+**Interpretation:** This is the owner's actual documented selection of **NO-GO/HOLD**, not a draft/template, inferred response, technical authorization, or approval to retain the accidentally merged PR #30 permanently. W3-D exceptions remain open; no historical logs have been fabricated or retroactively accepted. W3-B/W3-C owner-reported PASS results are retained for future review, but do not override this decision. All further work requiring explicit authorization must receive it separately.
 
-**This text is a proposed owner declaration, not an actual owner statement. Do not post it as if the owner signed it.**
-
-Any future affirmative GO must be explicitly requested and evaluated anew; do not infer it from this record or an earlier B2 INTERNAL_FOUNDATION acceptance.
+**Decision is formally recorded. The migration hold is in force.** A fresh W3 GO would require separate owner direction and review of updated evidence; it cannot be inferred from this issue comment or any previous B2 task acceptance.
 
 ## 6. Current safety constraints
 
@@ -83,7 +81,7 @@ Any future affirmative GO must be explicitly requested and evaluated anew; do no
 - Do not merge PR #32 or deploy; no customer or real-patient data.
 
 **W3_E_REVIEW_RECOMMENDATION:** `NO_GO_HOLD`  
-**W3_E_OWNER_DECISION:** `PENDING_EXPLICIT_OWNER_SIGNOFF`  
+**W3_E_OWNER_DECISION:** `NO_GO_HOLD_APPROVED_2026-11-06`  
 **W3_OWNER_GO:** `NOT_GRANTED`  
 **W4_ORIGINAL_APPLY:** `BLOCKED`  
 **PR32_MERGE:** `HOLD`  
