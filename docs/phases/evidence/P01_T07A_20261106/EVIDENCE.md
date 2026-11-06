@@ -59,7 +59,8 @@ Privately retain and hash (do NOT upload backups, credentials, identifiable reco
 - `EVIDENCE_ONLY_FINALIZATION_REPORT_20261106_001741.txt`.
 - `maven-private.log`, `npm-ci-private.log`, `npm-build-private.log` after sensitive-content inspection.
 - Original pre-V8 database dump, separately restricted.
-- Actual final `Invoke-AroNexa-V8-Acceptance.VerifyNpmFixed.ps1`: RECEIVED and COMMITTED to draft PR #26 under the canonical path; uploaded SHA-256 `2BCA93D6A83ACAB8F4071541E51B3990F277B103FECF5A5F47B042B49AEEB933`.
+- Actual final `Invoke-AroNexa-V8-Acceptance.VerifyNpmFixed.ps1`: RECEIVED and COMMITTED to **draft PR #27** under the canonical path; uploaded SHA-256 `2BCA93D6A83ACAB8F4071541E51B3990F277B103FECF5A5F47B042B49AEEB933`.
+- **Owner local SHA corroboration (2026-11-06 IST):** owner supplied a `Get-FileHash -Algorithm SHA256` result for the final Windows `VerifyNpmFixed.ps1` with the same SHA-256 above. Independently computed upload SHA-256 and GitHub text comparison also match. The backup ZIP and private log checksums remain pending.
 - Archive ZIP file SHA-256 and inventory status (still unconfirmed).
 - Known Apply PSCustomObject `$m.applied_at` assignment bug retained in archival script. No re-execution of Apply is permitted to address it; future repair needs separate authorization and regression review.
 
