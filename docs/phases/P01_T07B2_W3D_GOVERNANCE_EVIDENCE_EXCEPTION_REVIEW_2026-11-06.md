@@ -94,4 +94,29 @@ Existing threats from the B2 security review remain: direct patient runtime cred
 **W3_D_HISTORIC_TRANSCRIPTS:** NOT LOCATED  
 **W3_OWNER_GO:** NOT GRANTED  
 **W4_ORIGINAL_MIGRATION:** BLOCKED  
-**PR32_MERGE:** HOLD  
+**PR32_MERGE:** HOLD
+
+## F. W3-D exception disposition and W3-E handoff — 2026-11-06 IST
+
+**W3-D work completed:** review of known 19-file private inventory, 25-table normalized W3-B baseline comparison, W3-C read-only integrity report owner-provided PASS, retained W3-C SHA-256 recheck PASS, repository review of the W2C scenario source, PR #30 merge history, and manual merge checklist proposed on draft PR #32.
+
+| Exception | Disposition | Closure state |
+|---|---|---|
+| EX-01 — W0/W1/W2A source/back-up/restore execution receipts | Reviewed available summaries; original source/host hash command evidence not independently available | **OPEN** |
+| EX-02 — Original Flyway W2B migrate/validate transcript | Later W3-C read-only PASS is retrospective and does not recreate original migration transcript | **OPEN** |
+| EX-03 — W2C individual RLS/rollback scenario transcript | GitHub's W2C wrapper source asserts **15** named synthetic SQL PASS markers, rollback/reset and W2B postcheck, but no original console output was located in the reviewed archive inventory | **OPEN** |
+| EX-04 — PR #30 merge without separate approval | Owner confirmed **accidental merge**; no auto-revert, final retention/branch-protection decision not yet authorized | **PARTIAL — OPEN** |
+| EX-05 — independent security/customer acceptance | Not part of limited synthetic-only migration acceptance; blocks real-patient/customer release | **OPEN FOR RELEASE** |
+
+**Ruleset limitation confirmed by owner-supplied GitHub screenshot:** `Protect-main` is shown Active with PR/status check settings, but a yellow banner states private organization rulesets **will not be enforced without GitHub Team**. A template in a branch is also merely guidance, not a lock. Whether the user clicked Save Changes and whether any other branch protection is effective have not been independently verified.
+
+**Report retention:** W3-C private report operator-attested SHA-256 `134A13AF651151391DF86F138C772ECF079FFDDE785A9679D721A7DDB3841A01` was owner-reported rehashed successfully; no raw content or sensitive backup has been uploaded.
+
+**W3-D review outcome:** `EVIDENCE_AND_EXCEPTION_CLASSIFICATION_COMPLETE_WITH_OPEN_EXCEPTIONS`. This is **not** formal closure or owner acceptance of the exceptions. Historical execution transcripts must not be fabricated. The lack of transcripts from the examined directory does not prove they do not exist elsewhere.
+
+**W3-E decision handoff:** [Formal W3-E owner GO/NO-GO record](P01_T07B2_W3E_OWNER_DECISION_RECORD_2026-11-06.md). Reviewer recommendation **NO-GO/HOLD for W4**; **owner's actual decision remains PENDING**, because no explicit W3-E GO/NO-GO choice was provided. W4 original Apply and PR #32 merge remain prohibited.
+
+**W3_D_REVIEW:** `COMPLETE_WITH_EXCEPTIONS`  
+**W3_D_OWNER_EXCEPTION_ACCEPTANCE:** `NOT_GRANTED`  
+**W3_E_OWNER_SIGNOFF:** `PENDING`  
+**W4_ORIGINAL_APPLY:** `BLOCKED`
