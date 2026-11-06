@@ -3,7 +3,7 @@
 **Review date:** 2026-11-06 IST  
 **Task:** P01-T07-B2-MIG, issue #31, preparation of a formal W3 owner decision  
 **Classification:** INTERNAL_FOUNDATION / SYNTHETIC DEVELOPMENT ONLY  
-**Review outcome:** **PARTIAL — evidence inventory classified; governance and approval exceptions remain OPEN**  
+**Review outcome:** **PARTIAL — evidence inventory classified; owner acknowledged accidental merge; disposition and controls remain OPEN**  
 **Owner W3 GO:** NOT GRANTED  
 **Original persistent V8→V9 Apply (W4):** BLOCKED  
 **PR #32:** DRAFT / UNMERGED; no merge authorization
@@ -27,8 +27,10 @@ This report reviews repository/PR activity and the operator's already-supplied l
 | Merge message | `Merge pull request #30 from ARG-Digital-Solutions/feature/p01-t07b-patient-onboarding` |
 | PR review submissions | 0 returned by GitHub review API |
 | PR #30 instruction/owner-acceptance record | Explicit **DRAFT / DO NOT MERGE** without separate authorization |
-| Separate owner approval to merge PR #30 | **Not found in reviewed records** |
-| Corrective action | Approval provenance unresolved; no automatic revert |
+| Separate owner approval to merge PR #30 | **Not given before merge; owner subsequently confirmed it was accidental** |
+| Corrective action | Accidental merge acknowledged; decide retention/control remediation separately; no automatic revert |
+
+**Owner acknowledgment (2026-11-06 IST):** The owner explicitly confirmed in the project conversation that PR #30 was **merged by mistake**. Record this as an acknowledged process error and confirmation that the prior merge was **not intentionally authorized under the required separate approval gate**. The acknowledgment does **not** constitute retroactive approval of the merge, consent to retain it permanently, W3 GO, original W4 migration approval, or authorization to merge PR #32. The owner has **not yet decided** whether to retain the merged change with compensating signoff; that disposition and effective branch protection/bypass review remain open.
 
 **Interpretation:** Commit author/committer metadata identifies the account associated with the merge commit and GitHub's web-flow committer; it does **not conclusively identify the human/API actor who initiated the merge, whether an approved delegation existed or the branch-rule bypass path**. GitHub activity/organization audit events and repo ruleset/branch protection settings were not accessible through the available connector read operations. The discrepancy must be reconciled by an owner-accessible GitHub Activity/audit and permissions review. Do **not** label it malicious or retroactively authorized.
 
@@ -40,7 +42,8 @@ The merged PR includes application runtime, V9 migration, tests, workflow, docum
 
 ### Actions still required for governance closure
 
-- [ ] Owner examines GitHub PR #30 Activity/timeline and any organization audit event for `merged`, actor, integration, authorization and timestamp; reconciles with `argsolutions2017` / `web-flow` commit metadata.
+- [x] Owner acknowledged PR #30 was **merged accidentally** (not intentionally approved).
+- [ ] Owner reviews GitHub PR #30 Activity/timeline and any organization audit event for `merged`, actor, integration and timestamp; reconcile technical actor attribution with `argsolutions2017` / `web-flow` commit metadata.
 - [ ] Owner reviews effective branch rulesets, required reviews, bypass allowances, permissions/tokens, and whether draft PR merge was permitted after an unrecorded ready-for-review transition.
 - [ ] Owner decides whether to retain the already-merged code with documented compensating approval, or commission a separately reviewed non-destructive correction. **No automatic revert.**
 - [ ] Owner documents the decision in issue #31 and updates stale PR #30/B2 acceptance records. Link issue #28 remediation for PR #27.
@@ -66,7 +69,7 @@ The extended 19-file inventory yielded 14 files in earlier P01-T07-A acceptance 
 - **EX-01 — Original W0/W1/W2A execution receipts not independently available.** Compensating controls: retained backup re-hash, matching 25-table baseline and successful restored-original acceptance; source-vs-host original backup hash *event* still requires separately attested provenance.
 - **EX-02 — Contemporaneous W2B migrate/validate transcript not independently available.** Compensating controls: restored-original disposable V9 currently validated by reported W2B and later W3-C read-only scripts, Flyway V1–V8 checksums and exact expected V9 row changes; cannot retrospectively recreate the original command timeline.
 - **EX-03 — Contemporaneous W2C per-scenario transcript not independently available.** Owner-reported exit 0 and final marker were provided; inspect any independently retained session log if available. If no transcript exists, note uncertainty and seek explicit owner decision on whether a **separately authorized** fresh synthetic-only rollback scenario run with private sanitized capture is needed; never rerun Flyway.
-- **EX-04 — PR #30 governance deviation unresolved.** No prior separate merge approval found; account/committer metadata is suggestive but not conclusive human/action attribution. Owner audit review and explicit reconciliation required.
+- **EX-04 — PR #30 accidental merge acknowledged, disposition unresolved.** Owner confirmed the merge happened by mistake, not as intentionally authorized. Account/committer metadata does not conclusively identify the initiating action; owner must still review branch controls and explicitly decide retain-vs-correct (no automatic revert).
 - **EX-05 — No independent adversarial security assessment or customer-release gates.** Accepted limited INTERNAL_FOUNDATION implementation and synthetic rehearsal must not be presented as secure real-patient release.
 
 ## D. Proposed evidence disposition and remaining closure gates
@@ -87,7 +90,7 @@ Existing threats from the B2 security review remain: direct patient runtime cred
 **NO changes made to original Windows PostgreSQL. NO W4 Flyway migrate, role provisioning, Docker teardown/restore, cleanup, PR #32 merge, launch, patient/customer data or security signoff.**
 
 **W3_D_EVIDENCE_CLASSIFICATION:** COMPLETE  
-**W3_D_GOVERNANCE_RECONCILIATION:** PENDING OWNER AUDIT  
+**W3_D_GOVERNANCE_RECONCILIATION:** ACCIDENT ACKNOWLEDGED; RETENTION DECISION AND CONTROL REVIEW PENDING  
 **W3_D_HISTORIC_TRANSCRIPTS:** NOT LOCATED  
 **W3_OWNER_GO:** NOT GRANTED  
 **W4_ORIGINAL_MIGRATION:** BLOCKED  
