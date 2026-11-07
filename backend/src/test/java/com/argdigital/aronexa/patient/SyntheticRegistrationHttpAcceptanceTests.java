@@ -259,4 +259,156 @@ class SyntheticRegistrationHttpAcceptanceTests {
     }
 
 
+    /** C12 uses disposable Testcontainers state; no persistent database writes. */
+    private void assertNoRegistrationSideEffects(Staff... identities) {
+        for (Staff staff : identities) {
+            for (String table : new String[]{"patient", "patient_registration",
+                    "patient_registration_write_audit", "patient_registration_proof_nonce",
+                    "patient_registration_idempotency"}) {
+                assertThat(admin.queryForObject("SELECT count(*) FROM public."+table+
+                        " WHERE tenant_id=?", Integer.class,staff.tenant()))
+                        .as("No denied-request records in "+table).isZero();
+            }
+        }
+    }
+
+    @Test void expiredSessionDisabledAccountAndDisabledMembershipAllRejectRegistration()
+            throws Exception {
+        Staff expired=staff(true,false), disabled=staff(true,false),
+                inactiveMembership=staff(true,false);
+        admin.update("UPDATE auth_session SET expires_at=now()-interval '1 minute' "+
+                "WHERE membership_id=?",expired.membership());
+        admin.update("UPDATE app_user SET enabled=false WHERE id=?",disabled.user());
+        admin.update("UPDATE user_tenant_membership SET enabled=false WHERE id=?",
+                inactiveMembership.membership());
+
+        mvc.perform(request(expired,expired.branch(),idem(),intake("Synthetic Expired Session")))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(request(disabled,disabled.branch(),idem(),intake("Synthetic Disabled User")))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(request(inactiveMembership,inactiveMembership.branch(),idem(),
+                        intake("Synthetic Disabled Membership")))
+                .andExpect(status().isUnauthorized());
+        assertNoRegistrationSideEffects(expired,disabled,inactiveMembership);
+    }
+
+    @Test void malformedJsonInvalidClinicalFieldsAndUnsupportedContentTypeNeverWrite()
+            throws Exception {
+        Staff f=staff(true,false);
+        String[] badBodies={
+                "{",
+                "[]",
+                "{\"displayName\":null,\"birthDatePrecision\":\"UNKNOWN\",\"dateOfBirth\":null}",
+                "{\"displayName\":\"<script>alert(1)</script>\",\"birthDatePrecision\":\"UNKNOWN\",\"dateOfBirth\":null}",
+                intake("Synthetic "+"x".repeat(200)),
+                "{\"displayName\":\"Synthetic Control\\u0000 Name\",\"birthDatePrecision\":\"UNKNOWN\",\"dateOfBirth\":null}",
+                "{\"displayName\":\"Synthetic Invalid Precision\",\"birthDatePrecision\":\"FUTURE\",\"dateOfBirth\":null}",
+                "{\"displayName\":\"Synthetic Unknown Date\",\"birthDatePrecision\":\"UNKNOWN\",\"dateOfBirth\":\"2020-01-01\"}"
+        };
+        for (String body : badBodies) {
+            mvc.perform(request(f,f.branch(),idem(),body))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("INVALID_REGISTRATION_REQUEST"));
+        }
+        mvc.perform(post(route(f.branch()))
+                        .header("Authorization","Bearer "+f.token())
+                        .header("Idempotency-Key",idem())
+                        .contentType(MediaType.TEXT_PLAIN)
+                        .content(intake("Synthetic Unsupported Media")))
+                .andExpect(status().isUnsupportedMediaType());
+        assertNoRegistrationSideEffects(f);
+    }
+
+    @Test void rejectedIdempotencyKeysCannotReserveNonceOrCreateAudit() throws Exception {
+        Staff f=staff(true,false);
+        String[] invalid={
+                "too-short",
+                "x".repeat(129),
+                "Synthetic Idempotency With Spaces",
+                "Synthetic_Idempotency/Slash",
+                "Synthetic_Idempotency?Query"
+        };
+        for (String key : invalid) {
+            mvc.perform(request(f,f.branch(),key,intake("Synthetic Invalid Idempotency")))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("INVALID_REGISTRATION_REQUEST"));
+        }
+        assertNoRegistrationSideEffects(f);
+    }
+
+    @Test void forgedTenantHeadersAndSharedIdempotencyKeyCannotCrossTenantBoundary()
+            throws Exception {
+        Staff a=staff(true,false), b=staff(true,false);
+        String sharedKey=idem();
+        String aReceipt=mvc.perform(request(a,a.branch(),sharedKey,
+                        intake("Synthetic Tenant Bound A"))
+                        .header("X-Tenant-Id",b.tenant().toString())
+                        .header("X-Branch-Id",b.branch().toString()))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.replayed").value(false))
+                .andReturn().getResponse().getContentAsString();
+        assertThat(aReceipt).doesNotContain(b.tenant().toString(),b.branch().toString());
+        assertThat(admin.queryForObject(
+                "SELECT count(*) FROM public.patient WHERE tenant_id=?",
+                Integer.class,b.tenant())).isZero();
+        mvc.perform(request(b,b.branch(),sharedKey,intake("Synthetic Tenant Bound B")))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.replayed").value(false));
+        assertThat(admin.queryForObject(
+                "SELECT count(*) FROM public.patient WHERE tenant_id=?",
+                Integer.class,a.tenant())).isEqualTo(1);
+        assertThat(admin.queryForObject(
+                "SELECT count(*) FROM public.patient WHERE tenant_id=?",
+                Integer.class,b.tenant())).isEqualTo(1);
+        for (Staff identity : new Staff[]{a,b}) {
+            assertThat(admin.queryForObject("""
+                    SELECT count(*) FROM public.patient_registration_write_audit
+                    WHERE tenant_id=? AND actor_membership_id=?
+                    """,Integer.class,identity.tenant(),identity.membership())).isEqualTo(1);
+        }
+    }
+
+    @Test void untrustedExtraJsonFieldsCannotChoosePatientIdentityOrTenant()
+            throws Exception {
+        Staff a=staff(true,false), unrelated=staff(true,false);
+        UUID injectedPatient=UUID.randomUUID(), forgedSession=UUID.randomUUID();
+        String injectedMrn="PAT-AAAAAAAAAAAA";
+        String body=String.format(java.util.Locale.ROOT,
+                "{\"displayName\":\"Synthetic Mass Assignment\",\"birthDatePrecision\":\"UNKNOWN\","+
+                "\"dateOfBirth\":null,\"patientId\":\"%s\",\"tenantId\":\"%s\","+
+                "\"branchId\":\"%s\",\"mrn\":\"%s\",\"sessionId\":\"%s\","+
+                "\"permission\":\"PATIENT_REGISTER\",\"role\":\"PLATFORM_ADMIN\"}",
+                injectedPatient,unrelated.tenant(),unrelated.branch(),injectedMrn,forgedSession);
+        var response=mvc.perform(request(a,a.branch(),idem(),body))
+                .andReturn().getResponse();
+        // Unknown input fields may be explicitly rejected or safely ignored.
+        // In either policy the caller must NEVER choose identity or tenant.
+        assertThat(response.getStatus()).isIn(201,400);
+        assertThat(response.getContentAsString()).doesNotContain(
+                injectedPatient.toString(),unrelated.tenant().toString(),
+                unrelated.branch().toString(),injectedMrn,forgedSession.toString());
+        assertThat(admin.queryForObject("SELECT count(*) FROM public.patient WHERE id=?",
+                Integer.class,injectedPatient)).isZero();
+        assertThat(admin.queryForObject("SELECT count(*) FROM public.patient WHERE tenant_id=?",
+                Integer.class,unrelated.tenant())).isZero();
+        assertThat(admin.queryForObject("SELECT count(*) FROM public.patient WHERE tenant_id=?",
+                Integer.class,a.tenant())).isEqualTo(response.getStatus()==201?1:0);
+    }
+
+    @Test void unsupportedWriteMethodsAndMalformedBearerCannotModifyPatients()
+            throws Exception {
+        Staff f=staff(true,false);
+        mvc.perform(delete(route(f.branch())).header("Authorization","Bearer "+f.token()))
+                .andExpect(status().isForbidden());
+        mvc.perform(put(route(f.branch())).header("Authorization","Bearer "+f.token())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(intake("Synthetic Put Attempt")))
+                .andExpect(status().isForbidden());
+        mvc.perform(request(f,f.branch(),idem(),intake("Synthetic Basic Attempt"))
+                        .header("Authorization","Basic YWJjOmRlZg=="))
+                .andExpect(status().isUnauthorized());
+        assertNoRegistrationSideEffects(f);
+    }
+
+
 }
