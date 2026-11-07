@@ -58,7 +58,7 @@ class AuthRepository {
     Optional<AuthPrincipal> lookupSession(String digest, Instant now) {
         var accounts = jdbc.query("""
             SELECT u.id AS user_id, u.username, u.must_change_password,
-                   m.tenant_id, m.id AS membership_id
+                   m.tenant_id, m.id AS membership_id, s.id AS session_id
             FROM auth_session s
             JOIN user_tenant_membership m ON m.id=s.membership_id AND m.tenant_id=s.tenant_id
             JOIN app_user u ON u.id=m.user_id
@@ -67,7 +67,7 @@ class AuthRepository {
             """, (rs,i) -> new Object[] {
                 rs.getObject("user_id", UUID.class), rs.getObject("tenant_id", UUID.class),
                 rs.getObject("membership_id", UUID.class), rs.getString("username"),
-                rs.getBoolean("must_change_password")
+                rs.getBoolean("must_change_password"), rs.getObject("session_id",UUID.class)
             }, digest, java.sql.Timestamp.from(now));
         if (accounts.isEmpty()) return Optional.empty();
         Object[] a=accounts.getFirst();
@@ -83,7 +83,7 @@ class AuthRepository {
             WHERE mr.tenant_id=? AND mr.membership_id=? ORDER BY rp.permission_code
             """, String.class, tenantId, membershipId);
         return Optional.of(new AuthPrincipal((UUID)a[0],tenantId,membershipId,(String)a[3],
-                (Boolean)a[4],roles,permissions));
+                (Boolean)a[4],roles,permissions,(UUID)a[5]));
     }
     void revokeSession(String digest) {
         jdbc.update("UPDATE auth_session SET revoked_at=now() WHERE token_sha256=? AND revoked_at IS NULL", digest);
