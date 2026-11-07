@@ -986,7 +986,12 @@ class SyntheticRegistrationIntegrationTests {
         globalChangeBeforeRegistration("CATALOG");
     }
 
-    @Test void syntheticGlobalGuardBlocksOtherwiseIndependentTenantRegistration() throws Exception {
+    /**
+     * The C6 global mutex used to time out tenant B while A's registration was
+     * in-flight. With the C7 shared-module + distinct tenant/user locks, tenant
+     * B MUST succeed and commit while tenant A is still uncommitted.
+     */
+    @Test void scopedAuthorizationLocksAllowUnrelatedTenantRegistrationToCommit() throws Exception {
         Fixture a=fixture(), b=fixture();
         String mrn="PAT-0123456789AB";
         long expiry=java.time.Instant.now().plusSeconds(30).getEpochSecond();
@@ -1005,32 +1010,86 @@ class SyntheticRegistrationIntegrationTests {
             second.setAutoCommit(false);
             bindSqlRoleContext(second,b);
             try(Statement timeout=second.createStatement()) {
-                timeout.execute("SET LOCAL lock_timeout = '400ms'");
+                timeout.execute("SET LOCAL lock_timeout = '1500ms'");
             }
             UUID secondNonce=UUID.randomUUID();
             try(var call=proofCall(second,b,"Synthetic Tenant Two",mrn,secondNonce,expiry,
-                    syntheticProof(b,"Synthetic Tenant Two",mrn,secondNonce,expiry))) {
-                assertThatThrownBy(call::executeQuery)
-                        .as("global lock serializes independent tenants: known throughput limitation")
-                        .isInstanceOf(java.sql.SQLException.class)
-                        .hasMessageContaining("canceling statement due to lock timeout");
-            }
-            second.rollback();
-            first.commit();
-            second.setAutoCommit(false);
-            bindSqlRoleContext(second,b);
-            UUID fresh=UUID.randomUUID();
-            try(var call=proofCall(second,b,"Synthetic Tenant Two",mrn,fresh,expiry,
-                    syntheticProof(b,"Synthetic Tenant Two",mrn,fresh,expiry));
+                    syntheticProof(b,"Synthetic Tenant Two",mrn,secondNonce,expiry));
                 var row=call.executeQuery()) {
-                assertThat(row.next()).isTrue();
+                assertThat(row.next())
+                        .as("tenant B must not wait on unrelated tenant A").isTrue();
             }
+            // Proves B commits even while A still has uncommitted identity data.
             second.commit();
+            assertThat(admin.queryForObject(
+                    "SELECT count(*) FROM public.patient WHERE tenant_id=?",
+                    Integer.class,b.tenant())).isEqualTo(1);
+            assertThat(admin.queryForObject(
+                    "SELECT count(*) FROM public.patient WHERE tenant_id=?",
+                    Integer.class,a.tenant())).isZero();
+            first.commit();
         }
         assertThat(admin.queryForObject("SELECT count(*) FROM public.patient WHERE tenant_id=?",
                 Integer.class,a.tenant())).isEqualTo(1);
         assertThat(admin.queryForObject("SELECT count(*) FROM public.patient WHERE tenant_id=?",
                 Integer.class,b.tenant())).isEqualTo(1);
+    }
+
+    /**
+     * Characterize an unresolved administrative deadlock: two privileged
+     * transactions modify tenant authorizations in inconsistent order.
+     * PostgreSQL must detect the cycle (40P01); this test is NOT a claim
+     * that cross-tenant admin batches or operational retries are safe.
+     */
+    @Test void opposingMultiTenantAdminLockOrderIsDetectedAsDeadlock() throws Exception {
+        Fixture a=fixture(), b=fixture();
+        java.util.concurrent.ExecutorService workers=
+                java.util.concurrent.Executors.newSingleThreadExecutor();
+        try(Connection left=DriverManager.getConnection(postgres.getJdbcUrl(),
+                postgres.getUsername(),postgres.getPassword());
+            Connection right=DriverManager.getConnection(postgres.getJdbcUrl(),
+                postgres.getUsername(),postgres.getPassword())) {
+            left.setAutoCommit(false);
+            right.setAutoCommit(false);
+            String sql="UPDATE public.tenant_module_state SET clinically_authorized=clinically_authorized "+
+                    "WHERE tenant_id=? AND module_code='PATIENT_REGISTRATION'";
+            try(var leftFirst=left.prepareStatement(sql);
+                var rightFirst=right.prepareStatement(sql)) {
+                leftFirst.setObject(1,a.tenant());
+                rightFirst.setObject(1,b.tenant());
+                assertThat(leftFirst.executeUpdate()).isEqualTo(1);
+                assertThat(rightFirst.executeUpdate()).isEqualTo(1);
+            }
+            // Each owns a distinct tenant lock. Opposite second updates form
+            // a genuine cycle; PostgreSQL aborts one transaction to recover.
+            java.util.concurrent.Future<String> leftOutcome=workers.submit(() -> {
+                try(var update=left.prepareStatement(sql)) {
+                    update.setObject(1,b.tenant());
+                    update.executeUpdate();
+                    left.commit();
+                    return "OK";
+                } catch(java.sql.SQLException ex) {
+                    String code=ex.getSQLState();
+                    left.rollback();
+                    return code;
+                }
+            });
+            String rightOutcome;
+            try(var update=right.prepareStatement(sql)) {
+                update.setObject(1,a.tenant());
+                update.executeUpdate();
+                right.commit();
+                rightOutcome="OK";
+            } catch(java.sql.SQLException ex) {
+                rightOutcome=ex.getSQLState();
+                right.rollback();
+            }
+            String other=leftOutcome.get(12,java.util.concurrent.TimeUnit.SECONDS);
+            assertThat(java.util.List.of(rightOutcome,other))
+                    .containsExactlyInAnyOrder("40P01","OK");
+        } finally {
+            workers.shutdownNow();
+        }
     }
 
     @Test void missingContextCannotInvokeFunctionDirectly() throws Exception {
