@@ -187,6 +187,80 @@ class SyntheticRegistrationIntegrationTests {
                 Integer.class,f.tenant())).isZero();
     }
 
+
+    @Test void concurrentSameKeyProducesOnePatientAndStableReceipt() throws Exception {
+        Fixture f=fixture();
+        String idem=key();
+        var executor=java.util.concurrent.Executors.newFixedThreadPool(2);
+        var ready=new java.util.concurrent.CountDownLatch(2);
+        var go=new java.util.concurrent.CountDownLatch(1);
+        try {
+            java.util.List<java.util.concurrent.Future<SyntheticRegistrationService.Receipt>> results =
+                    new java.util.ArrayList<>();
+            for(int i=0;i<2;i++) {
+                results.add(executor.submit(() -> {
+                    as(f,f.member(),false,"PATIENT_REGISTER");
+                    try {
+                        ready.countDown();
+                        if(!go.await(10,java.util.concurrent.TimeUnit.SECONDS))
+                            throw new IllegalStateException("Concurrent start timed out");
+                        return service.register(f.branch(),intake("Synthetic Parallel Same Key"),idem);
+                    } finally { SecurityContextHolder.clearContext(); }
+                }));
+            }
+            assertThat(ready.await(10,java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            go.countDown();
+            var a=results.get(0).get(20,java.util.concurrent.TimeUnit.SECONDS);
+            var b=results.get(1).get(20,java.util.concurrent.TimeUnit.SECONDS);
+            assertThat(a.patientId()).isEqualTo(b.patientId());
+            assertThat(a.registrationId()).isEqualTo(b.registrationId());
+            assertThat(a.mrn()).isEqualTo(b.mrn());
+            assertThat(a.replayed() || b.replayed()).isTrue();
+            assertThat(admin.queryForObject("SELECT count(*) FROM patient WHERE tenant_id=? AND display_name='Synthetic Parallel Same Key'",
+                    Integer.class,f.tenant())).isEqualTo(1);
+        } finally {
+            go.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test void concurrentDifferentKeysSameNameNeverAutoMergeOrDoubleRegister() throws Exception {
+        Fixture f=fixture();
+        var executor=java.util.concurrent.Executors.newFixedThreadPool(2);
+        var ready=new java.util.concurrent.CountDownLatch(2);
+        var go=new java.util.concurrent.CountDownLatch(1);
+        try {
+            java.util.List<java.util.concurrent.Future<String>> results=new java.util.ArrayList<>();
+            for(int i=0;i<2;i++) {
+                String idem=key();
+                results.add(executor.submit(() -> {
+                    as(f,f.member(),false,"PATIENT_REGISTER");
+                    try {
+                        ready.countDown();
+                        if(!go.await(10,java.util.concurrent.TimeUnit.SECONDS))
+                            throw new IllegalStateException("Concurrent start timed out");
+                        try {
+                            service.register(f.branch(),intake("Synthetic Parallel Distinct Keys"),idem);
+                            return "CREATED";
+                        } catch(SyntheticRegistrationService.RegistrationRejected rejected) {
+                            return rejected.code();
+                        }
+                    } finally { SecurityContextHolder.clearContext(); }
+                }));
+            }
+            assertThat(ready.await(10,java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            go.countDown();
+            String a=results.get(0).get(20,java.util.concurrent.TimeUnit.SECONDS);
+            String b=results.get(1).get(20,java.util.concurrent.TimeUnit.SECONDS);
+            assertThat(java.util.List.of(a,b)).containsExactlyInAnyOrder("CREATED","DUPLICATE_REVIEW_REQUIRED");
+            assertThat(admin.queryForObject("SELECT count(*) FROM patient WHERE tenant_id=? AND display_name='Synthetic Parallel Distinct Keys'",
+                    Integer.class,f.tenant())).isEqualTo(1);
+        } finally {
+            go.countDown();
+            executor.shutdownNow();
+        }
+    }
+
     @Test void missingContextCannotInvokeFunctionDirectly() throws Exception {
         try(Connection c=DriverManager.getConnection(postgres.getJdbcUrl(),
                 "aronexa_patient_runtime","only-for-ephemeral-patient-role")) {
