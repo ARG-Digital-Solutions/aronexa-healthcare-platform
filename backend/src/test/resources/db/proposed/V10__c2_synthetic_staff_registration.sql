@@ -166,6 +166,42 @@ CREATE POLICY c2_writer_audit_insert ON public.patient_registration_write_audit
 GRANT INSERT ON public.patient_registration_write_audit
     TO aronexa_registration_writer;
 
+-- C5 synthetic revocation linearization: a tenant-scoped transaction
+-- advisory lock is shared by the registration function and BEFORE row triggers
+-- on all listed authorization-changing tables. No UPDATE permission is granted
+-- to the NOLOGIN registration writer for these authorization tables.
+-- This prototype is NOT comprehensive for app_user or global module_registry.
+CREATE FUNCTION public.aronexa_c2_authz_change_guard()
+RETURNS trigger LANGUAGE plpgsql VOLATILE
+SET search_path=pg_catalog,public,pg_temp
+AS $c2_guard$
+BEGIN
+  -- One key per tenant makes an earlier registration commit before revocation,
+  -- or forces a later registration to observe the committed revocation.
+  PERFORM pg_catalog.pg_advisory_xact_lock(
+      pg_catalog.hashtextextended(
+          'ARONEXA-C2-AUTHZ-TENANT:' || OLD.tenant_id::text, 0));
+  IF TG_OP='DELETE' THEN RETURN OLD; END IF;
+  RETURN NEW;
+END
+$c2_guard$;
+REVOKE ALL ON FUNCTION public.aronexa_c2_authz_change_guard() FROM PUBLIC;
+CREATE TRIGGER c2_auth_membership_role_revocation_guard
+    BEFORE UPDATE OR DELETE ON public.auth_membership_role
+    FOR EACH ROW EXECUTE FUNCTION public.aronexa_c2_authz_change_guard();
+CREATE TRIGGER c2_auth_role_permission_revocation_guard
+    BEFORE UPDATE OR DELETE ON public.auth_role_permission
+    FOR EACH ROW EXECUTE FUNCTION public.aronexa_c2_authz_change_guard();
+CREATE TRIGGER c2_branch_scope_revocation_guard
+    BEFORE UPDATE OR DELETE ON public.org_membership_branch_scope
+    FOR EACH ROW EXECUTE FUNCTION public.aronexa_c2_authz_change_guard();
+CREATE TRIGGER c2_tenant_module_revocation_guard
+    BEFORE UPDATE OR DELETE ON public.tenant_module_state
+    FOR EACH ROW EXECUTE FUNCTION public.aronexa_c2_authz_change_guard();
+CREATE TRIGGER c2_membership_disable_guard
+    BEFORE UPDATE OR DELETE ON public.user_tenant_membership
+    FOR EACH ROW EXECUTE FUNCTION public.aronexa_c2_authz_change_guard();
+
 -- pg_catalog and explicit public-qualified references avoid search-path hijacking.
 -- This is deliberately restricted to synthetic, staff-assisted CREATE_NEW only.
 CREATE FUNCTION public.aronexa_c2_register_patient(
@@ -233,6 +269,13 @@ BEGIN
       v_proof_secret,'sha256'),'hex') IS DISTINCT FROM p_proof THEN
     RAISE EXCEPTION 'C2_PROOF_DENIED';
   END IF;
+  -- C5: acquire the tenant's authorization commit-order lock before all
+  -- session/permission/branch/module reads; hold it through COMMIT/ROLLBACK.
+  -- All covered revocation UPDATE/DELETE paths acquire this SAME lock in a
+  -- BEFORE ROW trigger, so committed revocations cannot overtake the write.
+  PERFORM pg_catalog.pg_advisory_xact_lock(
+      pg_catalog.hashtextextended(
+          'ARONEXA-C2-AUTHZ-TENANT:' || v_tenant::text, 0));
   -- Recheck the exact bearer session at SQL execution, not just at HTTP
   -- filter entry. FOR SHARE prevents logout/password revocation UPDATE from
   -- committing before this registration transaction completes. Conversely,
