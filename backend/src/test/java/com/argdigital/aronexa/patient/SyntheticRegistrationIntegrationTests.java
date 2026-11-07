@@ -1169,8 +1169,8 @@ class SyntheticRegistrationIntegrationTests {
         // The database, not Java, raises the SQLSTATE, exercising actual JDBC
         // rollback and the fresh-transaction retry branch.
         try (var statement=connection.createStatement()) {
-            statement.execute("DO $ BEGIN RAISE EXCEPTION 'synthetic abort' USING ERRCODE='"
-                    +sqlState+"'; END $");
+            statement.execute("DO $c8$ BEGIN RAISE EXCEPTION 'synthetic abort' USING ERRCODE='"
+                    +sqlState+"'; END $c8$");
         }
     }
 
