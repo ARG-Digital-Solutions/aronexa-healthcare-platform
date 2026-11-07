@@ -17,7 +17,7 @@ import javax.crypto.spec.SecretKeySpec;
  * independent staff/session/permission/tenant/branch checks at execution.
  */
 public final class SyntheticRegistrationProof {
-    private static final String VERSION = "ARONEXA-C2-PROOF-V2";
+    private static final String VERSION = "ARONEXA-C2-PROOF-V3";
     private SyntheticRegistrationProof() {}
 
     /** Compatibility helper for isolated test key #1. The MAC still binds key ID 1. */
@@ -25,17 +25,27 @@ public final class SyntheticRegistrationProof {
                               String normalizedName, String precision, LocalDate dateOfBirth,
                               String idempotencyHash, String payloadHash, String mrn,
                               UUID nonce, long expiresAtEpochSeconds) {
-        return sign(secret, 1, tenant, membership, branch, normalizedName, precision,
-                dateOfBirth, idempotencyHash, payloadHash, mrn, nonce, expiresAtEpochSeconds);
+        return sign(secret, 1, tenant, membership, new UUID(0L,0L), branch, normalizedName,
+                precision, dateOfBirth, idempotencyHash, payloadHash, mrn, nonce, expiresAtEpochSeconds);
     }
 
-    /** Synthetic key ID is authenticated, never taken from a browser request. */
+    /** Compatibility for existing non-HTTP cryptographic unit tests only. */
     public static String sign(byte[] secret, int keyId,
                               UUID tenant, UUID membership, UUID branch,
                               String normalizedName, String precision, LocalDate dateOfBirth,
                               String idempotencyHash, String payloadHash, String mrn,
                               UUID nonce, long expiresAtEpochSeconds) {
-        if (keyId <= 0 || secret == null || secret.length < 32 || tenant == null || membership == null
+        return sign(secret,keyId,tenant,membership,new UUID(0L,0L),branch,normalizedName,
+                precision,dateOfBirth,idempotencyHash,payloadHash,mrn,nonce,expiresAtEpochSeconds);
+    }
+
+    /** The validated bearer session ID is authenticated inside every SQL request. */
+    public static String sign(byte[] secret, int keyId,
+                              UUID tenant, UUID membership, UUID sessionId, UUID branch,
+                              String normalizedName, String precision, LocalDate dateOfBirth,
+                              String idempotencyHash, String payloadHash, String mrn,
+                              UUID nonce, long expiresAtEpochSeconds) {
+        if (keyId <= 0 || secret == null || secret.length < 32 || tenant == null || membership == null || sessionId == null
                 || branch == null || normalizedName == null || precision == null
                 || idempotencyHash == null || payloadHash == null || mrn == null || nonce == null
                 || expiresAtEpochSeconds <= 0
@@ -43,7 +53,8 @@ public final class SyntheticRegistrationProof {
             throw new IllegalArgumentException("Invalid synthetic registration proof");
         }
         String canonical = String.join("\n",
-                VERSION, Integer.toString(keyId), tenant.toString(), membership.toString(), branch.toString(),
+                VERSION, Integer.toString(keyId), tenant.toString(), membership.toString(),
+                sessionId.toString(), branch.toString(),
                 HexFormat.of().formatHex(normalizedName.getBytes(StandardCharsets.UTF_8)),
                 precision, dateOfBirth == null ? "-" : dateOfBirth.toString(),
                 idempotencyHash, payloadHash, mrn, nonce.toString(),
