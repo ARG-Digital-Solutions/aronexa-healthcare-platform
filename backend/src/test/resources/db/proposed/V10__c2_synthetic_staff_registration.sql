@@ -166,22 +166,19 @@ CREATE POLICY c2_writer_audit_insert ON public.patient_registration_write_audit
 GRANT INSERT ON public.patient_registration_write_audit
     TO aronexa_registration_writer;
 
--- C5 synthetic revocation linearization: a tenant-scoped transaction
--- advisory lock is shared by the registration function and BEFORE row triggers
--- on all listed authorization-changing tables. No UPDATE permission is granted
--- to the NOLOGIN registration writer for these authorization tables.
--- This prototype is NOT comprehensive for app_user or global module_registry.
+-- C7 synthetic revocation linearization: independently scoped tenant/user/
+-- module locks. No new UPDATE privileges for the NOLOGIN writer. Global
+-- module catalogue UPDATE uses an exclusive module lock while registrations
+-- use a shared module lock, permitting unrelated tenants to register in
+-- parallel. For changes spanning multiple scopes, admin transactions MUST
+-- obey an agreed total ordering to avoid PostgreSQL deadlocks.
 CREATE FUNCTION public.aronexa_c2_authz_change_guard()
 RETURNS trigger LANGUAGE plpgsql VOLATILE
 SET search_path=pg_catalog,public,pg_temp
 AS $c2_guard$
 BEGIN
-  -- One key per tenant makes an earlier registration commit before revocation,
-  -- or forces a later registration to observe the committed revocation.
-  -- C6 synthetic-only global-before-tenant ordering. This is deliberately
-  -- coarse and serializes unrelated tenants: NOT a production performance design.
-  PERFORM pg_catalog.pg_advisory_xact_lock(
-      pg_catalog.hashtextextended('ARONEXA-C2-AUTHZ-GLOBAL', 0));
+  -- Only this tenant's protected membership, role, branch or entitlement
+  -- changes are serialized with registration transactions for that tenant.
   PERFORM pg_catalog.pg_advisory_xact_lock(
       pg_catalog.hashtextextended(
           'ARONEXA-C2-AUTHZ-TENANT:' || OLD.tenant_id::text, 0));
@@ -206,16 +203,26 @@ CREATE TRIGGER c2_membership_disable_guard
     BEFORE UPDATE OR DELETE ON public.user_tenant_membership
     FOR EACH ROW EXECUTE FUNCTION public.aronexa_c2_authz_change_guard();
 
--- C6: Global account-level and module catalog mutations lack a tenant_id.
--- Share the global transaction advisory lock with registration and C5 guards.
--- This proof-of-concept favors safe ordering over global throughput.
+-- C7: These global tables have distinct identifiers, not tenant_id. Lock only
+-- the affected user or catalogue module; the registration transaction obtains
+-- a shared module lock, tenant lock and user lock before its authority reads.
+-- UPDATE account -> USER exclusive. UPDATE module -> MODULE exclusive.
 CREATE FUNCTION public.aronexa_c2_global_authz_change_guard()
 RETURNS trigger LANGUAGE plpgsql VOLATILE
 SET search_path=pg_catalog,public,pg_temp
 AS $c2_global$
 BEGIN
-  PERFORM pg_catalog.pg_advisory_xact_lock(
-      pg_catalog.hashtextextended('ARONEXA-C2-AUTHZ-GLOBAL', 0));
+  IF TG_TABLE_NAME='app_user' THEN
+    PERFORM pg_catalog.pg_advisory_xact_lock(
+        pg_catalog.hashtextextended(
+            'ARONEXA-C2-AUTHZ-USER:' || OLD.id::text, 0));
+  ELSIF TG_TABLE_NAME='module_registry' THEN
+    PERFORM pg_catalog.pg_advisory_xact_lock(
+        pg_catalog.hashtextextended(
+            'ARONEXA-C2-AUTHZ-MODULE:' || OLD.code::text, 0));
+  ELSE
+    RAISE EXCEPTION 'C2_UNEXPECTED_AUTHZ_CHANGE';
+  END IF;
   IF TG_OP='DELETE' THEN RETURN OLD; END IF;
   RETURN NEW;
 END
@@ -253,6 +260,7 @@ DECLARE
   v_proof_input text;
   v_now bigint;
   v_constraint text;
+  v_user uuid;
 BEGIN
   v_tenant := public.aronexa_current_tenant_id();
   v_actor := public.aronexa_current_patient_membership();
@@ -296,17 +304,25 @@ BEGIN
       v_proof_secret,'sha256'),'hex') IS DISTINCT FROM p_proof THEN
     RAISE EXCEPTION 'C2_PROOF_DENIED';
   END IF;
-  -- C6: the same global guard must be taken FIRST, before the C5 tenant
-  -- guard, to serialize global account/catalog updates with registration.
-  PERFORM pg_catalog.pg_advisory_xact_lock(
-      pg_catalog.hashtextextended('ARONEXA-C2-AUTHZ-GLOBAL', 0));
-  -- C5: acquire the tenant's authorization commit-order lock before all
-  -- session/permission/branch/module reads; hold it through COMMIT/ROLLBACK.
-  -- All covered revocation UPDATE/DELETE paths acquire this SAME lock in a
-  -- BEFORE ROW trigger, so committed revocations cannot overtake the write.
+  -- C7 lock hierarchy for this isolated transaction:
+  -- 1) SHARED module lock: many unrelated tenant registrations can proceed;
+  --    a catalogue mutation takes EXCLUSIVE module lock until its commit.
+  -- 2) EXCLUSIVE tenant lock: guards membership/role/branch/tenant-module.
+  -- 3) EXCLUSIVE user lock: guards app_user enabled/password-required changes.
+  -- Membership user_id is fetched only after the tenant lock to prevent
+  -- concurrent membership reassignment from changing the account under us.
+  PERFORM pg_catalog.pg_advisory_xact_lock_shared(
+      pg_catalog.hashtextextended(
+          'ARONEXA-C2-AUTHZ-MODULE:PATIENT_REGISTRATION', 0));
   PERFORM pg_catalog.pg_advisory_xact_lock(
       pg_catalog.hashtextextended(
           'ARONEXA-C2-AUTHZ-TENANT:' || v_tenant::text, 0));
+  SELECT m.user_id INTO v_user FROM public.user_tenant_membership m
+    WHERE m.tenant_id=v_tenant AND m.id=v_actor;
+  IF v_user IS NULL THEN RAISE EXCEPTION 'C2_ACCESS_DENIED'; END IF;
+  PERFORM pg_catalog.pg_advisory_xact_lock(
+      pg_catalog.hashtextextended(
+          'ARONEXA-C2-AUTHZ-USER:' || v_user::text, 0));
   -- Recheck the exact bearer session at SQL execution, not just at HTTP
   -- filter entry. FOR SHARE prevents logout/password revocation UPDATE from
   -- committing before this registration transaction completes. Conversely,
