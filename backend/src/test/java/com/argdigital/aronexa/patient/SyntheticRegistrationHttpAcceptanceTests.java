@@ -246,4 +246,17 @@ class SyntheticRegistrationHttpAcceptanceTests {
                 .andExpect(status().isBadRequest());
     }
 
+    @Test void authenticatedMeResponseNeverExposesInternalSessionId() throws Exception {
+        Staff f=staff(true,false);
+        mvc.perform(get("/api/v1/auth/me")
+                        .header("Authorization","Bearer "+f.token()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.userId").isString())
+                .andExpect(jsonPath("$.membershipId").isString())
+                .andExpect(jsonPath("$.sessionId").doesNotExist())
+                .andExpect(header().string("Cache-Control",
+                        org.hamcrest.Matchers.containsString("no-store")));
+    }
+
+
 }
