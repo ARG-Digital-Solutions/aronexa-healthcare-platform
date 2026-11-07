@@ -18,6 +18,12 @@ class SyntheticRegistrationProofTests {
         String proof= SyntheticRegistrationProof.sign(SECRET,tenant,actor,branch,name,precision,
                 dob,key,payload,mrn,nonce,expiry);
         assertThat(proof).matches("[0-9a-f]{64}");
+        String secondKeyProof=SyntheticRegistrationProof.sign(SECRET,2,tenant,actor,
+                branch,name,precision,dob,key,payload,mrn,nonce,expiry);
+        assertThat(secondKeyProof).matches("[0-9a-f]{64}").isNotEqualTo(proof);
+        assertThatThrownBy(()->SyntheticRegistrationProof.sign(SECRET,0,tenant,actor,
+                branch,name,precision,dob,key,payload,mrn,nonce,expiry))
+                .isInstanceOf(IllegalArgumentException.class);
         assertThat(SyntheticRegistrationProof.sign(SECRET,tenant,actor,branch,name,precision,
                 dob,key,payload,mrn,nonce,expiry)).isEqualTo(proof);
         assertThat(SyntheticRegistrationProof.sign(SECRET,UUID.randomUUID(),actor,branch,name,precision,
