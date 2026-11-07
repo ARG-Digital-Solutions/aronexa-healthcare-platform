@@ -597,6 +597,123 @@ class SyntheticRegistrationIntegrationTests {
         }
     }
 
+
+    /**
+     * C2-S2-C1: registration obtains FOR SHARE on the authentic bearer session.
+     * The real auth LOGIN must wait to revoke until that registration commits.
+     * PostgreSQL lock_timeout makes the test bounded and deterministic; the
+     * test does not sleep or depend on thread interleaving.
+     */
+    @Test void registrationSessionLockSerializesCompetingLogoutThenRevokedTokenCannotWrite() throws Exception {
+        Fixture f=fixture();
+        String name="Synthetic Registration First";
+        String mrn="PAT-0123456789AB";
+        UUID nonce=UUID.randomUUID();
+        long expiry=java.time.Instant.now().plusSeconds(30).getEpochSecond();
+        try(Connection patient=DriverManager.getConnection(postgres.getJdbcUrl(),
+                "aronexa_patient_runtime","only-for-ephemeral-patient-role");
+            Connection auth=DriverManager.getConnection(postgres.getJdbcUrl(),
+                "aronexa_auth_runtime","only-for-ephemeral-auth-role")) {
+            patient.setAutoCommit(false);
+            bindSqlRoleContext(patient,f);
+            try(var ps=proofCall(patient,f,name,mrn,nonce,expiry,
+                    syntheticProof(f,name,mrn,nonce,expiry));
+                var rs=ps.executeQuery()) {
+                assertThat(rs.next()).isTrue();
+                assertThat(rs.getString("mrn")).isEqualTo(mrn);
+            }
+            // A competing auth runtime cannot commit session revocation while
+            // this registration transaction retains its FOR SHARE lock.
+            auth.setAutoCommit(false);
+            try(Statement s=auth.createStatement()) {
+                s.execute("SET LOCAL lock_timeout = '400ms'");
+            }
+            try(var revoke=auth.prepareStatement(
+                    "UPDATE public.auth_session SET revoked_at=clock_timestamp() WHERE id=?")) {
+                revoke.setObject(1,f.session());
+                assertThatThrownBy(revoke::executeUpdate)
+                        .isInstanceOf(java.sql.SQLException.class)
+                        .hasMessageContaining("canceling statement due to lock timeout");
+            }
+            auth.rollback();
+            patient.commit();
+            try(var revoke=auth.prepareStatement(
+                    "UPDATE public.auth_session SET revoked_at=clock_timestamp() WHERE id=?")) {
+                revoke.setObject(1,f.session());
+                assertThat(revoke.executeUpdate()).isEqualTo(1);
+            }
+            auth.commit();
+        }
+        as(f,f.member(),false,"PATIENT_REGISTER");
+        assertThatThrownBy(() -> service.register(f.branch(),
+                intake("Synthetic After Logout"),key()))
+                .isInstanceOf(AccessDeniedException.class);
+        assertThat(admin.queryForObject(
+                "SELECT count(*) FROM public.patient WHERE tenant_id=?",Integer.class,f.tenant()))
+                .isEqualTo(1);
+        assertThat(admin.queryForObject(
+                "SELECT count(*) FROM public.patient_registration_write_audit WHERE tenant_id=?",
+                Integer.class,f.tenant())).isEqualTo(1);
+        assertThat(admin.queryForObject(
+                "SELECT count(*) FROM public.patient_registration_proof_nonce WHERE tenant_id=?",
+                Integer.class,f.tenant())).isEqualTo(1);
+    }
+
+    /**
+     * The inverse order: an auth UPDATE holds the session row lock first.
+     * Registration must wait, and after revocation commits must be denied.
+     */
+    @Test void pendingLogoutPreventsSignedRegistrationUntilRevocationCommits() throws Exception {
+        Fixture f=fixture();
+        String name="Synthetic Logout First", mrn="PAT-0123456789AB";
+        long expiry=java.time.Instant.now().plusSeconds(30).getEpochSecond();
+        try(Connection auth=DriverManager.getConnection(postgres.getJdbcUrl(),
+                "aronexa_auth_runtime","only-for-ephemeral-auth-role");
+            Connection patient=DriverManager.getConnection(postgres.getJdbcUrl(),
+                "aronexa_patient_runtime","only-for-ephemeral-patient-role")) {
+            auth.setAutoCommit(false);
+            try(var revoke=auth.prepareStatement(
+                    "UPDATE public.auth_session SET revoked_at=clock_timestamp() WHERE id=?")) {
+                revoke.setObject(1,f.session());
+                assertThat(revoke.executeUpdate()).isEqualTo(1);
+            }
+            patient.setAutoCommit(false);
+            bindSqlRoleContext(patient,f);
+            try(Statement s=patient.createStatement()) {
+                s.execute("SET LOCAL lock_timeout = '400ms'");
+            }
+            UUID waitingNonce=UUID.randomUUID();
+            try(var waiting=proofCall(patient,f,name,mrn,waitingNonce,expiry,
+                    syntheticProof(f,name,mrn,waitingNonce,expiry))) {
+                assertThatThrownBy(waiting::executeQuery)
+                        .isInstanceOf(java.sql.SQLException.class)
+                        .hasMessageContaining("canceling statement due to lock timeout");
+            }
+            patient.rollback();
+            auth.commit();
+            patient.setAutoCommit(false);
+            bindSqlRoleContext(patient,f);
+            UUID deniedNonce=UUID.randomUUID();
+            try(var denied=proofCall(patient,f,name,mrn,deniedNonce,expiry,
+                    syntheticProof(f,name,mrn,deniedNonce,expiry))) {
+                assertThatThrownBy(denied::executeQuery)
+                        .isInstanceOf(java.sql.SQLException.class)
+                        .hasMessageContaining("C2_SESSION_REVOKED");
+            }
+            patient.rollback();
+        }
+        for(String table:new String[] {
+                "patient","patient_identifier","patient_registration",
+                "patient_registration_write_audit","patient_registration_idempotency",
+                "patient_registration_proof_nonce"
+        }) {
+            assertThat(admin.queryForObject(
+                    "SELECT count(*) FROM public."+table+" WHERE tenant_id=?",
+                    Integer.class,f.tenant()))
+                    .as("post-logout attempt must not write "+table).isZero();
+        }
+    }
+
     @Test void missingContextCannotInvokeFunctionDirectly() throws Exception {
         Fixture f=fixture();
         UUID nonce=UUID.randomUUID();
