@@ -46,6 +46,23 @@ class SyntheticRegistrationProofTests {
                 dob,key,"c".repeat(64),mrn,nonce,expiry)).isNotEqualTo(proof);
     }
 
+    @Test void sessionProofCannotBeReusedForDifferentAuthenticatedSession() {
+        UUID tenant=UUID.randomUUID(), actor=UUID.randomUUID(), branch=UUID.randomUUID();
+        UUID a=UUID.randomUUID(), b=UUID.randomUUID(), nonce=UUID.randomUUID();
+        String name="Synthetic Session Bound", mrn="PAT-0123456789AB";
+        String first=SyntheticRegistrationProof.sign(SECRET,1,tenant,actor,a,branch,
+                name,"UNKNOWN",null,"a".repeat(64),"b".repeat(64),
+                mrn,nonce,1794000000L);
+        String second=SyntheticRegistrationProof.sign(SECRET,1,tenant,actor,b,branch,
+                name,"UNKNOWN",null,"a".repeat(64),"b".repeat(64),
+                mrn,nonce,1794000000L);
+        assertThat(first).matches("[0-9a-f]{64}").isNotEqualTo(second);
+        assertThatThrownBy(() -> SyntheticRegistrationProof.sign(
+                SECRET,1,tenant,actor,null,branch,name,"UNKNOWN",null,
+                "a".repeat(64),"b".repeat(64),mrn,nonce,1794000000L))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
     @Test void rejectsShortSigningKeyAndInjectedControlCharacters() {
         UUID t=UUID.randomUUID(),m=UUID.randomUUID(),b=UUID.randomUUID(),n=UUID.randomUUID();
         assertThatThrownBy(()->SyntheticRegistrationProof.sign(
