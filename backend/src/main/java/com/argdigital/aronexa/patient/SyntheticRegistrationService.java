@@ -31,15 +31,19 @@ public class SyntheticRegistrationService {
     private final SecureRandom random = new SecureRandom();
     private final byte[] hmacSecret;
     private final byte[] proofSecret;
+    private final int proofKeyId;
 
     public SyntheticRegistrationService(
             TenantAuthorization authorization, PatientSqlScope patientScope,
             @Qualifier("patientJdbcTemplate") JdbcTemplate patientJdbc,
             @Value("${aronexa.c2.synthetic-hmac-base64:}") String encodedSecret,
-            @Value("${aronexa.c2.synthetic-proof-base64:}") String encodedProofSecret) {
+            @Value("${aronexa.c2.synthetic-proof-base64:}") String encodedProofSecret,
+            @Value("${aronexa.c2.synthetic-proof-key-id:1}") int proofKeyId) {
         this.authorization = authorization;
         this.patientScope = patientScope;
         this.patientJdbc = patientJdbc;
+        if (proofKeyId <= 0) throw new IllegalStateException("Invalid synthetic proof key ID");
+        this.proofKeyId = proofKeyId;
         try {
             this.hmacSecret = Base64.getDecoder().decode(encodedSecret);
             this.proofSecret = Base64.getDecoder().decode(encodedProofSecret);
@@ -69,21 +73,21 @@ public class SyntheticRegistrationService {
         String mrn = PatientRegistrationRules.generateMrn(random);
         UUID nonce = UUID.randomUUID();
         long expiry = Instant.now().plusSeconds(30).getEpochSecond();
-        String proof = SyntheticRegistrationProof.sign(proofSecret, actor.tenantId(),
+        String proof = SyntheticRegistrationProof.sign(proofSecret, proofKeyId, actor.tenantId(),
                 actor.membershipId(), branchId, v.displayName(),
                 v.birthDatePrecision().name(), v.dateOfBirth(),
                 keyDigest, payloadHash, mrn, nonce, expiry);
         try {
             return patientJdbc.queryForObject("""
                     SELECT patient_id,registration_id,mrn,replayed
-                    FROM public.aronexa_c2_register_patient(?,?,?,?,?,?,?,?,?,?,?,?)
+                    FROM public.aronexa_c2_register_patient(?,?,?,?,?,?,?,?,?,?,?,?,?)
                     """,
                     (rs, row) -> new Receipt(rs.getObject("patient_id", UUID.class),
                             rs.getObject("registration_id", UUID.class),
                             rs.getString("mrn"), rs.getBoolean("replayed")),
                     actor.tenantId(), actor.membershipId(), branchId,
                     v.displayName(), v.birthDatePrecision().name(), v.dateOfBirth(),
-                    keyDigest, payloadHash, mrn, nonce, expiry, proof);
+                    keyDigest, payloadHash, mrn, proofKeyId, nonce, expiry, proof);
         } catch (DataAccessException failure) {
             // PostgreSQL procedure emits fixed codes, never identifiers/PII.
             // Never return SQL error details or identifiers in HTTP responses.
