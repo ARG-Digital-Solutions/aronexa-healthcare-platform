@@ -417,4 +417,62 @@ class SyntheticRegistrationHttpAcceptanceTests {
     }
 
 
+    @Test void boundedSyntheticIngressAcceptsExact4096BytesAndRejectsOversizedJson()
+            throws Exception {
+        Staff allowed=staff(true,false);
+        String valid=intake("Synthetic Bounded Ingress");
+        int padding=SyntheticRegistrationBodyLimitFilter.MAX_BODY_BYTES
+                -valid.getBytes(StandardCharsets.UTF_8).length;
+        assertThat(padding).isPositive();
+        String exact=valid+" ".repeat(padding);
+        assertThat(exact.getBytes(StandardCharsets.UTF_8).length)
+                .isEqualTo(SyntheticRegistrationBodyLimitFilter.MAX_BODY_BYTES);
+        mvc.perform(request(allowed,allowed.branch(),idem(),exact))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.replayed").value(false));
+
+        Staff oversized=staff(true,false);
+        String canary="Synthetic Large Body Canary";
+        String body=intake(canary)+" ".repeat(4097);
+        mvc.perform(request(oversized,oversized.branch(),idem(),body))
+                .andExpect(status().is(413))
+                .andExpect(header().string("Cache-Control",
+                        org.hamcrest.Matchers.containsString("no-store")))
+                .andExpect(jsonPath("$.code").value("REGISTRATION_PAYLOAD_TOO_LARGE"))
+                .andExpect(content().string(org.hamcrest.Matchers.not(
+                        org.hamcrest.Matchers.containsString(canary))));
+        assertNoRegistrationSideEffects(oversized);
+        assertThat(admin.queryForObject(
+                "SELECT count(*) FROM patient WHERE tenant_id=?",
+                Integer.class,allowed.tenant())).isEqualTo(1);
+    }
+
+    @Test void streamedBytesStillLimitedWhenClientUnderstatesContentLength()
+            throws Exception {
+        Staff f=staff(true,false);
+        String large=intake("Synthetic Actual-Bytes Gate")+" ".repeat(5000);
+        mvc.perform(request(f,f.branch(),idem(),large)
+                        .header("Content-Length","4"))
+                .andExpect(status().is(413))
+                .andExpect(jsonPath("$.code").value("REGISTRATION_PAYLOAD_TOO_LARGE"));
+        assertNoRegistrationSideEffects(f);
+    }
+
+    @Test
+    @org.junit.jupiter.api.extension.ExtendWith(
+            org.springframework.boot.test.system.OutputCaptureExtension.class)
+    void syntheticRegistrationDoesNotEchoCanaryInApplicationConsole(
+            org.springframework.boot.test.system.CapturedOutput output) throws Exception {
+        Staff f=staff(true,false);
+        String canary="PrivateSyntheticCanary"+UUID.randomUUID().toString().replace("-","");
+        String key=idem();
+        mvc.perform(request(f,f.branch(),key,intake(canary)))
+                .andExpect(status().isCreated());
+        // Only the JVM's captured stdout/stderr: NOT PostgreSQL log_statement,
+        // JDBC bind tracing, reverse proxy logs, APM or crash diagnostics.
+        assertThat(output.getAll()).doesNotContain(canary,f.token(),key);
+    }
+
+
+
 }
