@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
-    "build": "tsc --noEmit && vite build",
+    "build": "tsc --noEmit && vite build && npm run test:reception",
+    "test:reception": "node --experimental-strip-types --test test/reception-demo.test.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
