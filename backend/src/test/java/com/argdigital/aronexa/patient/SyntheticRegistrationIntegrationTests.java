@@ -714,6 +714,84 @@ class SyntheticRegistrationIntegrationTests {
         }
     }
 
+
+    /**
+     * Exploratory release-blocker reproducer (NOT a secure acceptance test).
+     * An authorized registration finishes its SQL statement while the patient
+     * transaction remains open. A privileged operator commits revocation of
+     * role, branch, or module on a separate connection. Since this function
+     * locks only auth_session, the patient transaction can commit afterward.
+     *
+     * A passing test documents the CURRENT POLICY GAP; it does not certify
+     * that revocation is safe. Never run against the original Windows DB.
+     */
+    private void demonstrateUnserializedRevocation(String dimension) throws Exception {
+        Fixture f=fixture();
+        String name="Synthetic Pre-Commit Revocation "+dimension;
+        String mrn="PAT-0123456789AB";
+        UUID nonce=UUID.randomUUID();
+        long expiry=java.time.Instant.now().plusSeconds(30).getEpochSecond();
+        try(Connection patient=DriverManager.getConnection(postgres.getJdbcUrl(),
+                "aronexa_patient_runtime","only-for-ephemeral-patient-role");
+            Connection operator=DriverManager.getConnection(postgres.getJdbcUrl(),
+                postgres.getUsername(),postgres.getPassword())) {
+            patient.setAutoCommit(false);
+            bindSqlRoleContext(patient,f);
+            try(var request=proofCall(patient,f,name,mrn,nonce,expiry,
+                    syntheticProof(f,name,mrn,nonce,expiry));
+                var result=request.executeQuery()) {
+                assertThat(result.next()).isTrue();
+                assertThat(result.getBoolean("replayed")).isFalse();
+            }
+            // Keep patient transaction OPEN; revocation must genuinely commit
+            // on a separate privileged connection before patient.commit().
+            operator.setAutoCommit(false);
+            try(Statement timeout=operator.createStatement()) {
+                timeout.execute("SET LOCAL statement_timeout = '1200ms'");
+            }
+            String revokeSql=switch(dimension) {
+                case "ROLE" -> "DELETE FROM public.auth_membership_role WHERE tenant_id=? AND membership_id=?";
+                case "BRANCH" -> "DELETE FROM public.org_membership_branch_scope WHERE tenant_id=? AND membership_id=? AND branch_id=?";
+                case "MODULE" -> "UPDATE public.tenant_module_state SET activated=false WHERE tenant_id=? AND module_code='PATIENT_REGISTRATION'";
+                default -> throw new IllegalArgumentException("Unknown synthetic revocation");
+            };
+            try(var revoke=operator.prepareStatement(revokeSql)) {
+                revoke.setObject(1,f.tenant());
+                if(!dimension.equals("MODULE")) revoke.setObject(2,f.member());
+                if(dimension.equals("BRANCH")) revoke.setObject(3,f.branch());
+                assertThat(revoke.executeUpdate())
+                        .as("synthetic privileged operator must commit "+dimension+" revocation")
+                        .isEqualTo(1);
+            }
+            operator.commit();
+            // Existing implementation permits this commit, even though the
+            // authorization row is already revoked. This is a NO-GO finding.
+            patient.commit();
+        }
+        assertThat(admin.queryForObject(
+                "SELECT count(*) FROM public.patient WHERE tenant_id=?",
+                Integer.class,f.tenant())).isEqualTo(1);
+        assertThat(admin.queryForObject(
+                "SELECT count(*) FROM public.patient_registration_write_audit WHERE tenant_id=?",
+                Integer.class,f.tenant())).isEqualTo(1);
+        assertThat(admin.queryForObject(
+                "SELECT count(*) FROM public.patient_registration_proof_nonce WHERE tenant_id=?",
+                Integer.class,f.tenant())).isEqualTo(1);
+        assertThat(admin.queryForObject(
+                "SELECT count(*) FROM public.patient_registration_idempotency WHERE tenant_id=?",
+                Integer.class,f.tenant())).isEqualTo(1);
+    }
+
+    @Test void exploratoryRoleRevocationCommitsBeforeRegistrationCommit() throws Exception {
+        demonstrateUnserializedRevocation("ROLE");
+    }
+    @Test void exploratoryBranchRevocationCommitsBeforeRegistrationCommit() throws Exception {
+        demonstrateUnserializedRevocation("BRANCH");
+    }
+    @Test void exploratoryModuleRevocationCommitsBeforeRegistrationCommit() throws Exception {
+        demonstrateUnserializedRevocation("MODULE");
+    }
+
     @Test void missingContextCannotInvokeFunctionDirectly() throws Exception {
         Fixture f=fixture();
         UUID nonce=UUID.randomUUID();
