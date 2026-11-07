@@ -1,6 +1,8 @@
 package com.argdigital.aronexa.patient;
 
 import com.argdigital.aronexa.auth.AuthPrincipal;
+import java.security.SecureRandom;
+import java.util.Base64;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.Statement;
@@ -21,6 +23,8 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.TestPropertySource;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -29,12 +33,21 @@ import static org.assertj.core.api.Assertions.*;
 
 @SpringBootTest
 @ActiveProfiles({"test","c2-synthetic"})
-@TestPropertySource(properties = {
-        "aronexa.c2.synthetic-hmac-base64=QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE=",
-        "aronexa.c2.synthetic-proof-base64=QkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkI="})
+@TestPropertySource(properties =
+        "aronexa.c2.synthetic-hmac-base64=QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE=")
 @Testcontainers
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class SyntheticRegistrationIntegrationTests {
+    // Every disposable test container has a fresh unknown signing key. Nothing
+    // usable for impersonation is checked into the repo or Flyway script.
+    private static final byte[] EPHEMERAL_PROOF_KEY = new byte[32];
+    static { new SecureRandom().nextBytes(EPHEMERAL_PROOF_KEY); }
+
+    @DynamicPropertySource
+    static void syntheticProofSecret(DynamicPropertyRegistry registry) {
+        registry.add("aronexa.c2.synthetic-proof-base64",
+                () -> Base64.getEncoder().encodeToString(EPHEMERAL_PROOF_KEY));
+    }
     @Container @ServiceConnection
     static PostgreSQLContainer postgres = new PostgreSQLContainer("postgres:17-alpine")
             .withInitScript("db/test/role-bootstrap.sql")
@@ -57,8 +70,8 @@ class SyntheticRegistrationIntegrationTests {
         assertThat(migration.info().current().getVersion().getVersion()).isEqualTo("10");
         assertThat(migration.validateWithResult().validationSuccessful).isTrue();
         // Synthetic fixture only: no proof key is shipped by Flyway migration.
-        admin.update("INSERT INTO public.patient_registration_proof_key(id,secret) VALUES (1,decode(?,'base64'))",
-                "QkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkI=");
+        admin.update("INSERT INTO public.patient_registration_proof_key(id,secret) VALUES (1,?)",
+                EPHEMERAL_PROOF_KEY);
     }
 
     @AfterEach
@@ -266,10 +279,8 @@ class SyntheticRegistrationIntegrationTests {
         }
     }
 
-    private static final byte[] PROOF_SECRET =
-            "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB".getBytes(java.nio.charset.StandardCharsets.UTF_8);
-    private static String syntheticProof(Fixture f, String name, String mrn, UUID nonce, long expiry) {
-        return SyntheticRegistrationProof.sign(PROOF_SECRET, f.tenant(), f.member(),
+     private static String syntheticProof(Fixture f, String name, String mrn, UUID nonce, long expiry) {
+        return SyntheticRegistrationProof.sign(EPHEMERAL_PROOF_KEY, f.tenant(), f.member(),
                 f.branch(), name, "UNKNOWN", null,
                 "a".repeat(64), "b".repeat(64), mrn, nonce, expiry);
     }
