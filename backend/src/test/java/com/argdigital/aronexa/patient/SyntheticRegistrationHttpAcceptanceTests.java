@@ -276,8 +276,11 @@ class SyntheticRegistrationHttpAcceptanceTests {
             throws Exception {
         Staff expired=staff(true,false), disabled=staff(true,false),
                 inactiveMembership=staff(true,false);
-        admin.update("UPDATE auth_session SET expires_at=now()-interval '1 minute' "+
-                "WHERE membership_id=?",expired.membership());
+        // Schema requires expires_at > issued_at. Move both timestamps
+        // into the past to model a valid but naturally expired session.
+        admin.update("UPDATE auth_session SET issued_at=now()-interval '2 hours', "+
+                "expires_at=now()-interval '1 hour' WHERE membership_id=?",
+                expired.membership());
         admin.update("UPDATE app_user SET enabled=false WHERE id=?",disabled.user());
         admin.update("UPDATE user_tenant_membership SET enabled=false WHERE id=?",
                 inactiveMembership.membership());
