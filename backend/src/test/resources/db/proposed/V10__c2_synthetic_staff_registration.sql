@@ -234,12 +234,15 @@ BEGIN
       AND catalog.implemented AND catalog.released AND ts.entitled AND ts.activated
       AND (NOT catalog.requires_clinical_authorization OR ts.clinically_authorized)
   ) THEN RAISE EXCEPTION 'C2_ACCESS_DENIED'; END IF;
-  INSERT INTO public.patient_registration_proof_nonce
-     (nonce,tenant_id,actor_membership_id,branch_id)
-    VALUES (p_nonce,v_tenant,v_actor,p_branch)
-    ON CONFLICT (nonce) DO NOTHING;
-  GET DIAGNOSTICS v_inserted=ROW_COUNT;
-  IF v_inserted=0 THEN RAISE EXCEPTION 'C2_PROOF_REPLAY'; END IF;
+  -- A plain INSERT avoids granting SELECT on nonce to the definer.
+  -- Unique nonce violation is the definitive one-use replay signal.
+  BEGIN
+    INSERT INTO public.patient_registration_proof_nonce
+       (nonce,tenant_id,actor_membership_id,branch_id)
+      VALUES (p_nonce,v_tenant,v_actor,p_branch);
+  EXCEPTION WHEN unique_violation THEN
+    RAISE EXCEPTION 'C2_PROOF_REPLAY';
+  END;
   v_name := regexp_replace(btrim(p_name),'[[:space:]]+',' ','g');
   v_key := p_key_hash::char(64); v_payload := p_payload_hash::char(64);
   -- One key is claimed transactionally. Concurrent identical submissions wait
