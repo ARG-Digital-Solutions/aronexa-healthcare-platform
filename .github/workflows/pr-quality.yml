@@ -98,14 +98,43 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Scan pinned Maven and npm manifests using read-only OSV container
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: backend/pom.xml
+      - name: Generate resolved Maven dependency SBOM (not application code)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mvn -B -f backend/pom.xml -DskipTests \
+            -Dcyclonedx.skipAttach=true \
+            org.cyclonedx:cyclonedx-maven-plugin:2.9.3:makeBom
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          bom = Path("backend/target/bom.json")
+          if not bom.is_file():
+              raise SystemExit("SCA_INCONCLUSIVE: resolved Maven SBOM missing")
+          components = json.loads(bom.read_text(encoding="utf-8")).get("components", [])
+          resolved = [item for item in components
+                      if item.get("version")
+                      and item.get("purl", "").startswith("pkg:maven/")]
+          print(f"RESOLVED_MAVEN_SBOM_COMPONENTS={len(resolved)}")
+          if len(resolved) < 20:
+              raise SystemExit("SCA_INCONCLUSIVE: too few resolved Maven dependencies")
+          PY
+      - name: Scan resolved Maven SBOM and npm lock using pinned OSV container
         shell: bash
         run: |
           set -euo pipefail
           docker run --rm \
             --mount "type=bind,source=${PWD},target=/src,readonly" \
             ghcr.io/google/osv-scanner:v2.7.0@sha256:4f3b7e2c64b9d38a5febc5a7e4a3dfef1d1362f726dea7a2ef4762b46469fcd0 \
-            scan source --recursive /src/backend /src/frontend
+            scan source \
+              --lockfile=/src/backend/target/bom.json \
+              --lockfile=/src/frontend/package-lock.json
 
   npm-dependency-audit:
     name: npm locked dependencies (high and critical)
