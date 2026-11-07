@@ -5,11 +5,11 @@
 **Status:** PROPOSED FOR INDEPENDENT REVIEW — NOT ACCEPTED / NOT IMPLEMENTED IN PRODUCTION  
 **Owner authorization:** [Issue #44](https://github.com/ARG-Digital-Solutions/aronexa-healthcare-platform/issues/44)  
 **Existing code review:** [Draft PR #38](https://github.com/ARG-Digital-Solutions/aronexa-healthcare-platform/pull/38)  
-**Grounded source baseline:** \`8ee15b53b63879a16cd57f3a0d669dbdc8ae4f3a\`
+**Grounded source baseline:** `8ee15b53b63879a16cd57f3a0d669dbdc8ae4f3a`
 
 ## 1. Purpose and non-negotiable scope
 
-Define production security decisions needed **before authorizing** the C3 receptionist UI/API integration. The current C2 function is a **synthetic-only proof of concept**, enabled only with Spring profile \`test & c2-synthetic & !dev & !prod\`, using a proposed V10 Flyway file under \`backend/src/test/resources/db/proposed/\`. None of the decisions below has been deployed. The original Windows V8 database, W3-E HOLD/W4 BLOCKED [Issue #31](https://github.com/ARG-Digital-Solutions/aronexa-healthcare-platform/issues/31), and draft PRs #32/#36/#38 must remain untouched and unmerged.
+Define production security decisions needed **before authorizing** the C3 receptionist UI/API integration. The current C2 function is a **synthetic-only proof of concept**, enabled only with Spring profile `test & c2-synthetic & !dev & !prod`, using a proposed V10 Flyway file under `backend/src/test/resources/db/proposed/`. None of the decisions below has been deployed. The original Windows V8 database, W3-E HOLD/W4 BLOCKED [Issue #31](https://github.com/ARG-Digital-Solutions/aronexa-healthcare-platform/issues/31), and draft PRs #32/#36/#38 must remain untouched and unmerged.
 
 **Deployment choices are not yet settled.** AroNexa plans both an offline/single-site clinic edition and connected multi-tenant/cloud editions. Security topology, rate limiting, keys and backup requirements must be validated **per deployment mode**; do not assume a single architecture covers both.
 
@@ -17,12 +17,12 @@ Define production security decisions needed **before authorizing** the C3 recept
 
 | Asset/actor | Trust boundary and threats | Current state |
 |---|---|---|
-| Reception staff / bearer session | Stolen token, revoked staff, tenant/branch substitution | Filter validates opaque bearer; server retains session UUID; SQL verifies session with \`FOR SHARE\` in synthetic mode |
+| Reception staff / bearer session | Stolen token, revoked staff, tenant/branch substitution | Filter validates opaque bearer; server retains session UUID; SQL verifies session with `FOR SHARE` in synthetic mode |
 | Patient display name / DOB / MRN | Sensitive clinical identity, inference from logs, accidental cross-tenant access | Registration SQL sees data as arguments; UI has not been integrated; no real PHI authorized |
 | Application signing key | Compromise can mint apparently valid proof; signer process memory/config/telemetry exposure | Ephemeral test-only HMAC secret, generated per disposable test fixture; no production custody design |
 | SQL verifier key | Patient SQL login theft, privileged DB/migrator theft, backup restore leakage | Stored under restricted NOLOGIN writer access in synthetic V10; DB superuser/migrator remains a material trust boundary |
 | Proof nonce / idempotency ledger | Replay, race, stale key and restore inconsistencies | Test-only transactional, unique nonce and bounded retry demonstrated |
-| Database runtime roles and \`SECURITY DEFINER\` | SQL session GUC spoofing, RLS/grant bypass, search-path/extension tampering | Signed HMAC proof mitigates **stolen patient SQL login without signing key** in tested scope; no independent production assessment |
+| Database runtime roles and `SECURITY DEFINER` | SQL session GUC spoofing, RLS/grant bypass, search-path/extension tampering | Signed HMAC proof mitigates **stolen patient SQL login without signing key** in tested scope; no independent production assessment |
 | Audits / metrics / backups | PHI or proof leakage, tampering, long retention, data loss | Synthetic metadata audit; operational controls and restore validation pending |
 | Identity, role and module revocation | TOCTOU between check and commit; multiple transaction lock orders | Session row lock tested in both orders; membership/role/branch/module revocation races not fully serialized |
 
@@ -42,11 +42,11 @@ Required acceptance: key ID binding, signature manipulation, freshness, nonce re
 
 ### SEC-D02 — Authentication and authorization linearization (HIGH, OPEN)
 
-Current synthetic function uses an authenticated \`auth_session.id\` signed in HMAC proof V3 and \`FOR SHARE\` on that row. Real PostgreSQL tests show serialized ordering for logout versus registration, but **permission/role/branch/module rows are read without an equivalent revocation lock protocol**. Token expiration is checked at SQL operation time, not necessarily again at commit.
+Current synthetic function uses an authenticated `auth_session.id` signed in HMAC proof V3 and `FOR SHARE` on that row. Real PostgreSQL tests show serialized ordering for logout versus registration, but **permission/role/branch/module rows are read without an equivalent revocation lock protocol**. Token expiration is checked at SQL operation time, not necessarily again at commit.
 
 **Decision needed:** Choose and document one user-visible policy: a registration already authorized and committed before logout may succeed; logout blocks any registration that reaches the authorization gate afterward. Specify a transaction lock order across session, membership, role grants, branch assignments and entitlements—or an equivalent versioned authorization epoch—and test revocation wins/registration wins. Specify whether token expiration at commit requires cancellation (and how long transactions may run). Prevent deadlocks and pooled connection context contamination.
 
-Required tests: disable user/membership, revoke \`PATIENT_REGISTER\`, unassign branch, disable module, expire token, logout/password change, crossed tenants, long-running transaction; both commit orderings, post-restart behavior, and no partial writes. Independent reviewer must validate design and evidence.
+Required tests: disable user/membership, revoke `PATIENT_REGISTER`, unassign branch, disable module, expire token, logout/password change, crossed tenants, long-running transaction; both commit orderings, post-restart behavior, and no partial writes. Independent reviewer must validate design and evidence.
 
 ### SEC-D03 — Centralized admission / abuse controls (HIGH, OPEN)
 
@@ -62,11 +62,11 @@ Required tests: two or more replicas; 100+ concurrent requests; shared staff quo
 
 Function parameters include **patient name, DOB precision/date, MRN and signed proof**. Parameterized JDBC prevents literal concatenation, but DB statement/error logging, driver debug, APM tracing, SQL proxies and exception messages could still expose values.
 
-Before staging with patient-like records, inventory actual configurations for \`log_statement\`, \`log_min_error_statement\`, parameter logging, proxy/query collectors, transaction traces, distributed tracing, exception serialization and crash dumps; demonstrate redaction in each path and test log access controls, retention and deletion. Require TLS and service-to-database identity control. **Never log bearer tokens, proof MACs, key bytes, full names, DOBs or unrestricted MRNs.** Use synthetic canary strings and verify they cannot appear in telemetry exports. This design does not assert that current production logging is safe.
+Before staging with patient-like records, inventory actual configurations for `log_statement`, `log_min_error_statement`, parameter logging, proxy/query collectors, transaction traces, distributed tracing, exception serialization and crash dumps; demonstrate redaction in each path and test log access controls, retention and deletion. Require TLS and service-to-database identity control. **Never log bearer tokens, proof MACs, key bytes, full names, DOBs or unrestricted MRNs.** Use synthetic canary strings and verify they cannot appear in telemetry exports. This design does not assert that current production logging is safe.
 
 ### SEC-D05 — Database roles, RLS and function ownership (HIGH, OPEN)
 
-Review test-only V10 \`SECURITY DEFINER\`, FORCE RLS, \`EXECUTE\` grants, role owner/no-login, \`search_path\`, temp schema/extension privileges, \`pgcrypto\` dependencies, function argument canonicalization, all tenant-scoped constraints and restore-time permissions. Specifically investigate **column-limited UPDATE(revoked_at) on \`auth_session\` granted to NOLOGIN writer** to permit \`SELECT FOR SHARE\`; justify or reduce it so the function cannot unexpectedly change sessions. Test stolen patient/auth/app SQL logins, connection resets, DDL privilege escalation, SQL injection, role inheritance and owner/migrator compromise.
+Review test-only V10 `SECURITY DEFINER`, FORCE RLS, `EXECUTE` grants, role owner/no-login, `search_path`, temp schema/extension privileges, `pgcrypto` dependencies, function argument canonicalization, all tenant-scoped constraints and restore-time permissions. Specifically investigate **column-limited UPDATE(revoked_at) on `auth_session` granted to NOLOGIN writer** to permit `SELECT FOR SHARE`; justify or reduce it so the function cannot unexpectedly change sessions. Test stolen patient/auth/app SQL logins, connection resets, DDL privilege escalation, SQL injection, role inheritance and owner/migrator compromise.
 
 A successful synthetic check is **not** permission to apply V10 to persistent data or to run Flyway against the original V8 database.
 
