@@ -266,19 +266,144 @@ class SyntheticRegistrationIntegrationTests {
         }
     }
 
-    @Test void missingContextCannotInvokeFunctionDirectly() throws Exception {
-        try(Connection c=DriverManager.getConnection(postgres.getJdbcUrl(),
+    private static final byte[] PROOF_SECRET =
+            "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+    private static String syntheticProof(Fixture f, String name, String mrn, UUID nonce, long expiry) {
+        return SyntheticRegistrationProof.sign(PROOF_SECRET, f.tenant(), f.member(),
+                f.branch(), name, "UNKNOWN", null,
+                "a".repeat(64), "b".repeat(64), mrn, nonce, expiry);
+    }
+    private static void bindSqlRoleContext(Connection connection, Fixture f) throws Exception {
+        try(var setTenant=connection.prepareStatement("SELECT set_config('aronexa.tenant_id',?,true)");
+            var setActor=connection.prepareStatement("SELECT set_config('aronexa.membership_id',?,true)")) {
+            setTenant.setString(1,f.tenant().toString());
+            setTenant.executeQuery().close();
+            setActor.setString(1,f.member().toString());
+            setActor.executeQuery().close();
+        }
+    }
+    private static java.sql.PreparedStatement proofCall(Connection connection, Fixture f,
+            String name, String mrn, UUID nonce, long expiry, String signature) throws Exception {
+        var ps=connection.prepareStatement(
+                "SELECT * FROM public.aronexa_c2_register_patient(?,?,?,?,?,?,?,?,?,?,?,?)");
+        ps.setObject(1,f.tenant());
+        ps.setObject(2,f.member());
+        ps.setObject(3,f.branch());
+        ps.setString(4,name);
+        ps.setString(5,"UNKNOWN");
+        ps.setNull(6,java.sql.Types.DATE);
+        ps.setString(7,"a".repeat(64));
+        ps.setString(8,"b".repeat(64));
+        ps.setString(9,mrn);
+        ps.setObject(10,nonce);
+        ps.setLong(11,expiry);
+        ps.setString(12,signature);
+        return ps;
+    }
+
+    @Test void stolenSqlLoginAndForgedSessionContextCannotCreatePatient() throws Exception {
+        Fixture f=fixture();
+        long expiry=java.time.Instant.now().plusSeconds(30).getEpochSecond();
+        UUID nonce=UUID.randomUUID();
+        try(Connection connection=DriverManager.getConnection(postgres.getJdbcUrl(),
                 "aronexa_patient_runtime","only-for-ephemeral-patient-role")) {
-            try(var ps=c.prepareStatement(
-                    "SELECT * FROM public.aronexa_c2_register_patient(?, ?, ?, NULL, ?, ?, ?)")) {
-                ps.setObject(1,UUID.randomUUID());
-                ps.setString(2,"Synthetic Unauthorized");
-                ps.setString(3,"UNKNOWN");
-                ps.setString(4,"a".repeat(64));
-                ps.setString(5,"b".repeat(64));
-                ps.setString(6,"PAT-0123456789AB");
-                assertThatThrownBy(ps::executeQuery).isInstanceOf(java.sql.SQLException.class);
+            connection.setAutoCommit(false);
+            // The compromised role can set the exact tenant and actor GUCs.
+            bindSqlRoleContext(connection,f);
+            try(var ps=proofCall(connection,f,"Synthetic Forged Staff",
+                    "PAT-0123456789AB",nonce,expiry,"0".repeat(64))) {
+                assertThatThrownBy(ps::executeQuery)
+                        .isInstanceOf(java.sql.SQLException.class)
+                        .hasMessageContaining("C2_PROOF_DENIED");
             }
+            connection.rollback();
+            try(var stmt=connection.createStatement()) {
+                assertThatThrownBy(() -> stmt.executeQuery(
+                        "SELECT secret FROM public.patient_registration_proof_key"))
+                        .isInstanceOf(java.sql.SQLException.class);
+            }
+            connection.rollback();
+        }
+        assertThat(admin.queryForObject("SELECT count(*) FROM patient WHERE tenant_id=?",
+                Integer.class,f.tenant())).isZero();
+    }
+
+    @Test void proofIsBoundToExactPayloadAndExpiry() throws Exception {
+        Fixture f=fixture();
+        UUID nonce=UUID.randomUUID();
+        String name="Synthetic Tamper",mrn="PAT-0123456789AB";
+        long expiry=java.time.Instant.now().plusSeconds(30).getEpochSecond();
+        String proof=syntheticProof(f,name,mrn,nonce,expiry);
+        try(Connection connection=DriverManager.getConnection(postgres.getJdbcUrl(),
+                "aronexa_patient_runtime","only-for-ephemeral-patient-role")) {
+            connection.setAutoCommit(false); bindSqlRoleContext(connection,f);
+            try(var ps=proofCall(connection,f,"Synthetic Tampered",mrn,nonce,expiry,proof)) {
+                assertThatThrownBy(ps::executeQuery)
+                        .isInstanceOf(java.sql.SQLException.class)
+                        .hasMessageContaining("C2_PROOF_DENIED");
+            }
+            connection.rollback();
+            connection.setAutoCommit(false);bindSqlRoleContext(connection,f);
+            try(var ps=proofCall(connection,f,name,"PAT-0123456789AC",nonce,expiry,proof)) {
+                assertThatThrownBy(ps::executeQuery)
+                        .isInstanceOf(java.sql.SQLException.class)
+                        .hasMessageContaining("C2_PROOF_DENIED");
+            }
+            connection.rollback();
+            connection.setAutoCommit(false);bindSqlRoleContext(connection,f);
+            long past=java.time.Instant.now().minusSeconds(20).getEpochSecond();
+            try(var ps=proofCall(connection,f,name,mrn,UUID.randomUUID(),past,
+                    syntheticProof(f,name,mrn,UUID.randomUUID(),past))) {
+                assertThatThrownBy(ps::executeQuery)
+                        .isInstanceOf(java.sql.SQLException.class)
+                        .hasMessageContaining("C2_PROOF_DENIED");
+            }
+            connection.rollback();
+        }
+        assertThat(admin.queryForObject("SELECT count(*) FROM patient WHERE tenant_id=?",
+                Integer.class,f.tenant())).isZero();
+    }
+
+    @Test void onceUsedValidProofCannotBeReplayedDirectlyFromStolenSqlLogin() throws Exception {
+        Fixture f=fixture();
+        UUID nonce=UUID.randomUUID();
+        String name="Synthetic One Use",mrn="PAT-0123456789AB";
+        long expiry=java.time.Instant.now().plusSeconds(30).getEpochSecond();
+        String proof=syntheticProof(f,name,mrn,nonce,expiry);
+        try(Connection connection=DriverManager.getConnection(postgres.getJdbcUrl(),
+                "aronexa_patient_runtime","only-for-ephemeral-patient-role")) {
+            connection.setAutoCommit(false);bindSqlRoleContext(connection,f);
+            try(var ps=proofCall(connection,f,name,mrn,nonce,expiry,proof);
+                var rs=ps.executeQuery()) {
+                assertThat(rs.next()).isTrue();
+                assertThat(rs.getString("mrn")).isEqualTo(mrn);
+            }
+            connection.commit();
+            connection.setAutoCommit(false);bindSqlRoleContext(connection,f);
+            try(var ps=proofCall(connection,f,name,mrn,nonce,expiry,proof)) {
+                assertThatThrownBy(ps::executeQuery)
+                        .isInstanceOf(java.sql.SQLException.class)
+                        .hasMessageContaining("C2_PROOF_REPLAY");
+            }
+            connection.rollback();
+        }
+        assertThat(admin.queryForObject("SELECT count(*) FROM patient WHERE tenant_id=?",
+                Integer.class,f.tenant())).isEqualTo(1);
+        assertThat(admin.queryForObject("SELECT count(*) FROM patient_registration_proof_nonce WHERE tenant_id=?",
+                Integer.class,f.tenant())).isEqualTo(1);
+    }
+
+    @Test void missingContextCannotInvokeFunctionDirectly() throws Exception {
+        Fixture f=fixture();
+        UUID nonce=UUID.randomUUID();
+        long expiry=java.time.Instant.now().plusSeconds(30).getEpochSecond();
+        try(Connection connection=DriverManager.getConnection(postgres.getJdbcUrl(),
+                "aronexa_patient_runtime","only-for-ephemeral-patient-role");
+            var ps=proofCall(connection,f,"Synthetic Unbound","PAT-0123456789AB",
+                    nonce,expiry,syntheticProof(f,"Synthetic Unbound","PAT-0123456789AB",nonce,expiry))) {
+            assertThatThrownBy(ps::executeQuery)
+                    .isInstanceOf(java.sql.SQLException.class)
+                    .hasMessageContaining("C2_ACCESS_DENIED");
         }
     }
 }
