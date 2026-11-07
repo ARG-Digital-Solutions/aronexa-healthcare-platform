@@ -405,6 +405,34 @@ class SyntheticRegistrationIntegrationTests {
                 Integer.class,f.tenant())).isEqualTo(1);
     }
 
+    @Test void allThreeSqlLoginRolesCannotReadProofSecretOrNonceLedger() throws Exception {
+        for (String[] role : new String[][] {
+                {"aronexa_patient_runtime","only-for-ephemeral-patient-role"},
+                {"aronexa_app_runtime","only-for-ephemeral-test-container"},
+                {"aronexa_auth_runtime","only-for-ephemeral-auth-role"}
+        }) {
+            try(Connection connection=DriverManager.getConnection(postgres.getJdbcUrl(),role[0],role[1]);
+                Statement statement=connection.createStatement()) {
+                assertThatThrownBy(() -> statement.executeQuery(
+                        "SELECT secret FROM public.patient_registration_proof_key"))
+                        .as("verifier secret readable by "+role[0])
+                        .isInstanceOf(java.sql.SQLException.class);
+                assertThatThrownBy(() -> statement.executeQuery(
+                        "SELECT nonce FROM public.patient_registration_proof_nonce"))
+                        .as("nonce ledger readable by "+role[0])
+                        .isInstanceOf(java.sql.SQLException.class);
+                assertThatThrownBy(() -> statement.executeUpdate(
+                        "UPDATE public.patient_registration_proof_key SET secret=decode('AA','hex') WHERE id=1"))
+                        .as("proof key writable by "+role[0])
+                        .isInstanceOf(java.sql.SQLException.class);
+                assertThatThrownBy(() -> statement.executeUpdate(
+                        "INSERT INTO public.patient_registration_proof_nonce DEFAULT VALUES"))
+                        .as("nonce ledger directly writable by "+role[0])
+                        .isInstanceOf(java.sql.SQLException.class);
+            }
+        }
+    }
+
     @Test void missingContextCannotInvokeFunctionDirectly() throws Exception {
         Fixture f=fixture();
         UUID nonce=UUID.randomUUID();
