@@ -26,10 +26,17 @@ public class AuthController {
                 .body(service.login(request.tenantCode(),request.username(),request.password()));
     }
 
+    /** Preserve /me response fields without disclosing the internal session UUID. */
+    public record MeResult(java.util.UUID userId, java.util.UUID tenantId,
+                           java.util.UUID membershipId, String username,
+                           boolean mustChangePassword, java.util.List<String> roles,
+                           java.util.List<String> permissions) {}
     @GetMapping("/me")
-    public ResponseEntity<AuthPrincipal> me() {
+    public ResponseEntity<MeResult> me() {
+        AuthPrincipal p = tenantAuthorization.currentPrincipal();
         return ResponseEntity.ok().cacheControl(CacheControl.noStore())
-                .body(tenantAuthorization.currentPrincipal());
+                .body(new MeResult(p.userId(),p.tenantId(),p.membershipId(),
+                        p.username(),p.mustChangePassword(),p.roles(),p.permissions()));
     }
 
     @PostMapping("/logout")
