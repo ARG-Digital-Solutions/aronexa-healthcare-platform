@@ -7,6 +7,33 @@
 **Review candidate:** [Draft PR #38](https://github.com/ARG-Digital-Solutions/aronexa-healthcare-platform/pull/38)  
 **Design proposal:** [S2-C2 Production Security ADR](P01_T07C2_S2C2_PRODUCTION_SECURITY_ADR_2026-11-07.md)
 
+## Current C8 handoff addendum — 2026-11-08 (supersedes C1 for new review)
+
+**PINNED REVIEW CANDIDATE:** `a88bb6a53b871f39608e0b1074c71304f372c6a6` at [Draft PR #38](https://github.com/ARG-Digital-Solutions/aronexa-healthcare-platform/pull/38). Review that exact SHA and subsequent reviewer-approved changes, not the older C1 SHA in the historical table below.
+
+**Verified baseline:** [PR Quality #42414022865](https://github.com/ARG-Digital-Solutions/aronexa-healthcare-platform/actions/runs/42414022865) PASS (**138 backend tests, 0 failures/errors/skips, including 32 synthetic PostgreSQL integration tests; frontend, docs, tracked secrets and scope checks PASS**). [Fresh Dev #42414022937](https://github.com/ARG-Digital-Solutions/aronexa-healthcare-platform/actions/runs/42414022937) PASS. These automated checks are **not** a penetration test or independent security sign-off.
+
+**Reviewer assignment:** PR #38 had **zero submitted reviews, zero review threads and no requested individual/team reviewers** at the time of inspection. [Independent reviewer Issue #45](https://github.com/ARG-Digital-Solutions/aronexa-healthcare-platform/issues/45) remains OPEN/unassigned. No external access is granted or implied.
+
+### Change history for current independent-review scope
+
+| Increment | Evidence and behavior to evaluate | Still unverified for production |
+|---|---|---|
+| [C3 / static triage #46](https://github.com/ARG-Digital-Solutions/aronexa-healthcare-platform/issues/46) | Login brute-force, authorization TOCTOU, request ingress bounds, SQL PHI/proof logging hypotheses | Independent exploit assessment |
+| [C4 #47](https://github.com/ARG-Digital-Solutions/aronexa-healthcare-platform/issues/47) | Three real SQL revocation race reproducers for role/branch/module | All privileged administrative mutation paths |
+| [C5 #48](https://github.com/ARG-Digital-Solutions/aronexa-healthcare-platform/issues/48) | Tenant advisory lock and both-order tests | Account/catalog mutation, trigger bypass, large-scale performance |
+| [C6 #49](https://github.com/ARG-Digital-Solutions/aronexa-healthcare-platform/issues/49) | Global guard experiment, later superseded due to cross-tenant serialization | A deployable authorization strategy |
+| [C7 #50](https://github.com/ARG-Digital-Solutions/aronexa-healthcare-platform/issues/50) | Scoped module SHARED / tenant and user EXCLUSIVE lock protocol; real PostgreSQL administrative deadlock `40P01` | Complete lock ordering, malicious lock-holder DoS, rollback policy |
+| [C8 #51](https://github.com/ARG-Digital-Solutions/aronexa-healthcare-platform/issues/51) | Test-only sorted tenant administrative batch; three-attempt `40P01` fresh-transaction rollback/retry; audit consistency | Production admin identity, permissions, multiple-resource operations and safe operational retries |
+
+**Review code paths:** `backend/src/test/resources/db/proposed/V10__c2_synthetic_staff_registration.sql`, `backend/src/main/java/com/argdigital/aronexa/patient/`, `backend/src/test/java/com/argdigital/aronexa/patient/SyntheticRegistrationIntegrationTests.java` and **test-only** `SyntheticAdminBatchExecutor.java`, plus the authorization and module migrations V1–V9. This is still internal foundation, not a deployed customer service.
+
+**Automated-scan evidence gap:** repository workflow inspection found only `.github/workflows/pr-quality.yml` and `.github/workflows/dev-runtime-acceptance.yml`. Neither definition contains a dedicated CodeQL/SAST, DAST, or dependency-vulnerability-audit step; PR CI invokes `npm ci --no-audit --no-fund`. This does **not** establish that no separate scanner exists. Require dated Java/TypeScript SAST, SCA/dependency advisories, API/authorization DAST and severity triage with exact SHA before a reviewer can sign off.
+
+**Decision remains NO-GO:** independent assessment NOT STARTED, no appointed reviewer, no production key custody, globally coordinated rate limit, verified SQL/PHI logging protections or Windows restore/clinical approval. PRs #32/#36/#38 DRAFT/UNMERGED. Issue #31 W3-E NO-GO/W4 original database Apply BLOCKED. No original DB access, PHI, persistent V10, UI integration, merge or release.
+
+---
+
 ## 1. Executive reviewer instruction
 
 Assess the **existing synthetic registration implementation** and challenge the **proposed** production design. Do not mistake successful CI for an independent penetration test or a cleared release. Reviewer may inspect and reproduce test-only code in a **fresh disposable PostgreSQL 17 Testcontainers environment**, with synthetic records only. No original Windows database, clinic data, production keys, private patient reports, Flyway W4 Apply or live endpoint access is authorized.
