@@ -404,8 +404,11 @@ class SyntheticRegistrationHttpAcceptanceTests {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(intake("Synthetic Put Attempt")))
                 .andExpect(status().isForbidden());
-        mvc.perform(request(f,f.branch(),idem(),intake("Synthetic Basic Attempt"))
-                        .header("Authorization","Basic YWJjOmRlZg=="))
+        mvc.perform(post(route(f.branch()))
+                        .header("Authorization","Basic YWJjOmRlZg==")
+                        .header("Idempotency-Key",idem())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(intake("Synthetic Basic Attempt")))
                 .andExpect(status().isUnauthorized());
         assertNoRegistrationSideEffects(f);
     }
