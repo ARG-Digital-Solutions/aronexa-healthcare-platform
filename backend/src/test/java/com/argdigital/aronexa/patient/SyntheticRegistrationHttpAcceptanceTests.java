@@ -223,4 +223,27 @@ class SyntheticRegistrationHttpAcceptanceTests {
         assertThat(admin.queryForObject("SELECT count(*) FROM patient WHERE tenant_id IN (?,?)",
                 Integer.class,f.tenant(),other.tenant())).isZero();
     }
+    @Test void malformedAuthenticatedRequestsConsumeQuotaAndReturnGeneric429() throws Exception {
+        Staff f=staff(true,false);
+        String badBody="{\"displayName\":";
+        for(int i=0;i<12;i++) {
+            mvc.perform(request(f,f.branch(),idem(),badBody))
+                    .andExpect(status().isBadRequest());
+        }
+        mvc.perform(request(f,f.branch(),idem(),badBody)
+                        .header("X-Tenant-Id",UUID.randomUUID().toString())
+                        .header("X-Branch-Id",UUID.randomUUID().toString()))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(header().string("Retry-After","60"))
+                .andExpect(header().string("Cache-Control",
+                        org.hamcrest.Matchers.containsString("no-store")))
+                .andExpect(jsonPath("$.code").value("REGISTRATION_RATE_LIMITED"));
+        assertThat(admin.queryForObject("SELECT count(*) FROM patient WHERE tenant_id=?",
+                Integer.class,f.tenant())).isZero();
+        // A separate authenticated staff identity is not locked out by this actor.
+        Staff other=staff(true,false);
+        mvc.perform(request(other,other.branch(),idem(),badBody))
+                .andExpect(status().isBadRequest());
+    }
+
 }
