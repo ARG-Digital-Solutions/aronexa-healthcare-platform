@@ -16,8 +16,12 @@ GRANT USAGE ON SCHEMA public TO aronexa_registration_writer;
 -- Test-only secret store. A SQL LOGIN cannot read the verifier key.
 CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public;
 CREATE TABLE public.patient_registration_proof_key (
-  id integer PRIMARY KEY CHECK (id=1),
-  secret bytea NOT NULL CHECK (octet_length(secret)>=32)
+  id integer PRIMARY KEY CHECK (id>0),
+  secret bytea NOT NULL CHECK (octet_length(secret)>=32),
+  enabled boolean NOT NULL DEFAULT true,
+  valid_from timestamptz NOT NULL DEFAULT '-infinity'::timestamptz,
+  valid_until timestamptz NOT NULL DEFAULT 'infinity'::timestamptz,
+  CONSTRAINT c2_proof_key_window CHECK (valid_from < valid_until)
 );
 REVOKE ALL ON public.patient_registration_proof_key FROM PUBLIC;
 GRANT SELECT ON public.patient_registration_proof_key TO aronexa_registration_writer;
@@ -162,7 +166,7 @@ GRANT INSERT ON public.patient_registration_write_audit
 CREATE FUNCTION public.aronexa_c2_register_patient(
     p_tenant uuid,p_actor uuid,p_branch uuid,p_name text,p_precision text,p_dob date,
     p_key_hash text,p_payload_hash text,p_mrn text,
-    p_nonce uuid,p_expires bigint,p_proof text)
+    p_key_id integer,p_nonce uuid,p_expires bigint,p_proof text)
 RETURNS TABLE (patient_id uuid, registration_id uuid, mrn text, replayed boolean)
 LANGUAGE plpgsql VOLATILE SECURITY DEFINER
 SET search_path=pg_catalog,public,pg_temp
@@ -201,16 +205,20 @@ BEGIN
   -- Session GUCs are client-controllable. The HMAC binds exact verified
   -- tenant, membership, branch, payload, MRN, nonce and short expiry.
   v_now := floor(extract(epoch FROM clock_timestamp()))::bigint;
-  IF p_nonce IS NULL OR p_expires IS NULL OR p_expires <= v_now
+  IF p_key_id IS NULL OR p_key_id <= 0 OR p_nonce IS NULL
+      OR p_expires IS NULL OR p_expires <= v_now
       OR p_expires > v_now + 60 OR p_proof IS NULL
       OR p_proof !~ '^[0-9a-f]{64}$' THEN
     RAISE EXCEPTION 'C2_PROOF_DENIED';
   END IF;
   SELECT k.secret INTO v_proof_secret
-    FROM public.patient_registration_proof_key k WHERE k.id=1;
+    FROM public.patient_registration_proof_key k
+   WHERE k.id=p_key_id AND k.enabled
+     AND k.valid_from <= clock_timestamp()
+     AND k.valid_until > clock_timestamp();
   IF v_proof_secret IS NULL THEN RAISE EXCEPTION 'C2_PROOF_DENIED'; END IF;
   v_proof_input := array_to_string(ARRAY[
-    'ARONEXA-C2-PROOF-V1',p_tenant::text,p_actor::text,p_branch::text,
+    'ARONEXA-C2-PROOF-V2',p_key_id::text,p_tenant::text,p_actor::text,p_branch::text,
     encode(convert_to(p_name,'UTF8'),'hex'),p_precision,
     COALESCE(p_dob::text,'-'),p_key_hash,p_payload_hash,p_mrn,
     p_nonce::text,p_expires::text], chr(10));
@@ -296,10 +304,10 @@ END $$;
 -- PostgreSQL requires the new function owner to be CREATE-capable on the schema
 -- at transfer time. Grant temporarily and revoke immediately after ownership.
 GRANT CREATE ON SCHEMA public TO aronexa_registration_writer;
-ALTER FUNCTION public.aronexa_c2_register_patient(uuid,uuid,uuid,text,text,date,text,text,text,uuid,bigint,text)
+ALTER FUNCTION public.aronexa_c2_register_patient(uuid,uuid,uuid,text,text,date,text,text,text,integer,uuid,bigint,text)
   OWNER TO aronexa_registration_writer;
 REVOKE CREATE ON SCHEMA public FROM aronexa_registration_writer;
 REVOKE ALL ON FUNCTION public.aronexa_c2_register_patient(
-    uuid,uuid,uuid,text,text,date,text,text,text,uuid,bigint,text) FROM PUBLIC;
+    uuid,uuid,uuid,text,text,date,text,text,text,integer,uuid,bigint,text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.aronexa_c2_register_patient(
-    uuid,uuid,uuid,text,text,date,text,text,text,uuid,bigint,text) TO aronexa_patient_runtime;
+    uuid,uuid,uuid,text,text,date,text,text,text,integer,uuid,bigint,text) TO aronexa_patient_runtime;
