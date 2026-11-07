@@ -18,6 +18,8 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.testcontainers.junit.jupiter.Container;
@@ -38,10 +40,19 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @Testcontainers
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 @ActiveProfiles({"test", "c2-synthetic"})
-@TestPropertySource(properties = {
-        "aronexa.c2.synthetic-hmac-base64=QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE=",
-        "aronexa.c2.synthetic-proof-base64=QkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkI="})
+@TestPropertySource(properties =
+        "aronexa.c2.synthetic-hmac-base64=QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE=")
 class SyntheticRegistrationHttpAcceptanceTests {
+    // Every disposable test container has a fresh unknown signing key. Nothing
+    // usable for impersonation is checked into the repo or Flyway script.
+    private static final byte[] EPHEMERAL_PROOF_KEY = new byte[32];
+    static { new SecureRandom().nextBytes(EPHEMERAL_PROOF_KEY); }
+
+    @DynamicPropertySource
+    static void syntheticProofSecret(DynamicPropertyRegistry registry) {
+        registry.add("aronexa.c2.synthetic-proof-base64",
+                () -> Base64.getEncoder().encodeToString(EPHEMERAL_PROOF_KEY));
+    }
     @Container @ServiceConnection
     static PostgreSQLContainer postgres = new PostgreSQLContainer("postgres:17-alpine")
             .withInitScript("db/test/role-bootstrap.sql")
@@ -62,8 +73,8 @@ class SyntheticRegistrationHttpAcceptanceTests {
         assertThat(isolated.info().current().getVersion().getVersion()).isEqualTo("10");
         assertThat(isolated.validateWithResult().validationSuccessful).isTrue();
         // Synthetic fixture only: no proof key is shipped by Flyway migration.
-        admin.update("INSERT INTO public.patient_registration_proof_key(id,secret) VALUES (1,decode(?,'base64'))",
-                "QkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkI=");
+        admin.update("INSERT INTO public.patient_registration_proof_key(id,secret) VALUES (1,?)",
+                EPHEMERAL_PROOF_KEY);
     }
 
     private static String suffix() { return UUID.randomUUID().toString().substring(0,8); }
