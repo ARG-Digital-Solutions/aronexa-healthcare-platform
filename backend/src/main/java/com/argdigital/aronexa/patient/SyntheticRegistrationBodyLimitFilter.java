@@ -49,7 +49,8 @@ final class SyntheticRegistrationBodyLimitFilter extends OncePerRequestFilter {
         ByteArrayOutputStream limited = new ByteArrayOutputStream(256);
         byte[] buffer = new byte[1024];
         int bytesRead;
-        while ((bytesRead = request.getInputStream().read(buffer)) != -1) {
+        ServletInputStream incoming = request.getInputStream();
+        while ((bytesRead = incoming.read(buffer)) != -1) {
             if (bytesRead > MAX_BODY_BYTES - limited.size()) {
                 tooLarge(response);
                 return;
