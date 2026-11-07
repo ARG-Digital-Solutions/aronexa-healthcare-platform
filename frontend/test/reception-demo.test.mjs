@@ -1,0 +1,13 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import {blankIntake,candidateMatches,demoRegistration,maskPhone,seedPatients,validateIntake} from "../src/receptionModel.ts";
+test("C1-A03 rejects empty intake",()=>assert.ok(validateIntake(blankIntake()).name));
+test("C1-A03 supports unknown DOB with no date",()=>assert.deepEqual(validateIntake({name:"Demo Person",precision:"UNKNOWN",dob:"",phone:""}),{}));
+test("C1-A03 rejects future DOB",()=>assert.ok(validateIntake({name:"Demo Person",precision:"FULL",dob:"2099-01-01",phone:""}, "2026-11-07").dob));
+test("C1-A03 rejects inconsistent unknown DOB",()=>assert.ok(validateIntake({name:"Demo Person",precision:"UNKNOWN",dob:"1991-01-01",phone:""}).dob));
+test("C1-A03 rejects malformed phone",()=>assert.ok(validateIntake({name:"Demo Person",precision:"UNKNOWN",dob:"",phone:"123"}).phone));
+test("C1-A04 similar phones alone never produce matches",()=>assert.equal(candidateMatches({name:"Unrelated Person",precision:"UNKNOWN",dob:"",phone:seedPatients[0].phone},seedPatients).length,0));
+test("C1-A04 exact synthetic name suggests review",()=>assert.equal(candidateMatches({name:" ANAYA   KULKARNI ",precision:"UNKNOWN",dob:"",phone:""},seedPatients).length,1));
+test("C1-A04 DOB mismatch not flagged as same exact candidate",()=>assert.equal(candidateMatches({name:"Anaya Kulkarni",precision:"FULL",dob:"2001-01-01",phone:""},seedPatients).length,0));
+test("C1-A05 registers an in-memory result only",()=>{const p=demoRegistration({name:"Test Patient",precision:"UNKNOWN",dob:"",phone:""},5,"11:00");assert.equal(p.id,"DEMO-0005");assert.equal(p.name,"Test Patient");assert.equal(p.status,"Registered");assert.equal(p.dob,"");});
+test("C1-A04 masks sample contact display",()=>assert.equal(maskPhone("9000000001"),"******0001"));
