@@ -856,6 +856,183 @@ class SyntheticRegistrationIntegrationTests {
         revocationWinsRegistrationOrder("PERMISSION");
     }
 
+
+    // C6 targeted synthetic tests; the global guard is a safety prototype and
+    // intentionally bottlenecks unrelated tenants. No persistent DB involved.
+    private static String globalChangeSql(String dimension) {
+        return switch (dimension) {
+            case "ACCOUNT" -> "UPDATE public.app_user SET enabled=false WHERE id=?";
+            case "PASSWORD" -> "UPDATE public.app_user SET must_change_password=true WHERE id=?";
+            case "CATALOG" -> "UPDATE public.module_registry SET released=false WHERE code='PATIENT_REGISTRATION'";
+            default -> throw new IllegalArgumentException("unknown global dimension");
+        };
+    }
+    private UUID userFor(Fixture f) {
+        return admin.queryForObject(
+                "SELECT user_id FROM public.user_tenant_membership WHERE tenant_id=? AND id=?",
+                UUID.class,f.tenant(),f.member());
+    }
+    private void bindGlobalChange(java.sql.PreparedStatement statement, Fixture f,
+                                  String dimension) throws Exception {
+        if (!dimension.equals("CATALOG")) statement.setObject(1,userFor(f));
+    }
+    private void globalChangeAfterRegistration(String dimension) throws Exception {
+        Fixture f=fixture();
+        String name="Synthetic Global Register First "+dimension;
+        String mrn="PAT-0123456789AB";
+        UUID nonce=UUID.randomUUID();
+        long expiry=java.time.Instant.now().plusSeconds(30).getEpochSecond();
+        try(Connection patient=DriverManager.getConnection(postgres.getJdbcUrl(),
+                "aronexa_patient_runtime","only-for-ephemeral-patient-role");
+            Connection operator=DriverManager.getConnection(postgres.getJdbcUrl(),
+                postgres.getUsername(),postgres.getPassword())) {
+            patient.setAutoCommit(false);
+            bindSqlRoleContext(patient,f);
+            try(var stmt=proofCall(patient,f,name,mrn,nonce,expiry,
+                    syntheticProof(f,name,mrn,nonce,expiry));
+                var result=stmt.executeQuery()) {
+                assertThat(result.next()).isTrue();
+            }
+            operator.setAutoCommit(false);
+            try(Statement timeout=operator.createStatement()) {
+                timeout.execute("SET LOCAL lock_timeout = '400ms'");
+            }
+            try(var change=operator.prepareStatement(globalChangeSql(dimension))) {
+                bindGlobalChange(change,f,dimension);
+                assertThatThrownBy(change::executeUpdate)
+                        .as("C6 global change may not overtake registration: "+dimension)
+                        .isInstanceOf(java.sql.SQLException.class)
+                        .hasMessageContaining("canceling statement due to lock timeout");
+            }
+            operator.rollback();
+            patient.commit();
+            try(var change=operator.prepareStatement(globalChangeSql(dimension))) {
+                bindGlobalChange(change,f,dimension);
+                assertThat(change.executeUpdate()).isEqualTo(1);
+            }
+            operator.commit();
+        }
+        as(f,f.member(),false,"PATIENT_REGISTER");
+        assertThatThrownBy(() -> service.register(f.branch(),
+                intake("Synthetic Post Global Change "+dimension),key()))
+                .isInstanceOf(AccessDeniedException.class);
+        for(String table:new String[]{"patient","patient_identifier","patient_registration",
+                "patient_registration_write_audit","patient_registration_idempotency",
+                "patient_registration_proof_nonce"}) {
+            assertThat(admin.queryForObject("SELECT count(*) FROM public."+table+
+                    " WHERE tenant_id=?",Integer.class,f.tenant()))
+                    .as("only original registration survives "+dimension+" "+table).isEqualTo(1);
+        }
+    }
+
+    private void globalChangeBeforeRegistration(String dimension) throws Exception {
+        Fixture f=fixture();
+        String name="Synthetic Global Revoke First "+dimension, mrn="PAT-0123456789AB";
+        long expiry=java.time.Instant.now().plusSeconds(30).getEpochSecond();
+        try(Connection operator=DriverManager.getConnection(postgres.getJdbcUrl(),
+                postgres.getUsername(),postgres.getPassword());
+            Connection patient=DriverManager.getConnection(postgres.getJdbcUrl(),
+                "aronexa_patient_runtime","only-for-ephemeral-patient-role")) {
+            operator.setAutoCommit(false);
+            try(var change=operator.prepareStatement(globalChangeSql(dimension))) {
+                bindGlobalChange(change,f,dimension);
+                assertThat(change.executeUpdate()).isEqualTo(1);
+            }
+            patient.setAutoCommit(false);
+            bindSqlRoleContext(patient,f);
+            try(Statement timeout=patient.createStatement()) {
+                timeout.execute("SET LOCAL lock_timeout = '400ms'");
+            }
+            UUID nonce=UUID.randomUUID();
+            try(var call=proofCall(patient,f,name,mrn,nonce,expiry,
+                    syntheticProof(f,name,mrn,nonce,expiry))) {
+                assertThatThrownBy(call::executeQuery)
+                        .as("uncommitted global change blocks registration "+dimension)
+                        .isInstanceOf(java.sql.SQLException.class)
+                        .hasMessageContaining("canceling statement due to lock timeout");
+            }
+            patient.rollback();
+            operator.commit();
+            patient.setAutoCommit(false);
+            bindSqlRoleContext(patient,f);
+            UUID deniedNonce=UUID.randomUUID();
+            try(var denied=proofCall(patient,f,name,mrn,deniedNonce,expiry,
+                    syntheticProof(f,name,mrn,deniedNonce,expiry))) {
+                assertThatThrownBy(denied::executeQuery)
+                        .isInstanceOf(java.sql.SQLException.class)
+                        .hasMessageContaining("C2_ACCESS_DENIED");
+            }
+            patient.rollback();
+        }
+        for(String table:new String[]{"patient","patient_identifier","patient_registration",
+                "patient_registration_write_audit","patient_registration_idempotency",
+                "patient_registration_proof_nonce"}) {
+            assertThat(admin.queryForObject("SELECT count(*) FROM public."+table+
+                    " WHERE tenant_id=?",Integer.class,f.tenant()))
+                    .as("no write after global change "+dimension+" "+table).isZero();
+        }
+    }
+
+    @Test void accountDisableChangeSerializesBothWays() throws Exception {
+        globalChangeAfterRegistration("ACCOUNT");
+        globalChangeBeforeRegistration("ACCOUNT");
+    }
+    @Test void passwordChangeRequirementSerializesBothWays() throws Exception {
+        globalChangeAfterRegistration("PASSWORD");
+        globalChangeBeforeRegistration("PASSWORD");
+    }
+    @Test void globalCatalogDeactivationSerializesBothWays() throws Exception {
+        globalChangeAfterRegistration("CATALOG");
+        globalChangeBeforeRegistration("CATALOG");
+    }
+
+    @Test void syntheticGlobalGuardBlocksOtherwiseIndependentTenantRegistration() throws Exception {
+        Fixture a=fixture(), b=fixture();
+        String mrn="PAT-0123456789AB";
+        long expiry=java.time.Instant.now().plusSeconds(30).getEpochSecond();
+        try(Connection first=DriverManager.getConnection(postgres.getJdbcUrl(),
+                "aronexa_patient_runtime","only-for-ephemeral-patient-role");
+            Connection second=DriverManager.getConnection(postgres.getJdbcUrl(),
+                "aronexa_patient_runtime","only-for-ephemeral-patient-role")) {
+            first.setAutoCommit(false);
+            bindSqlRoleContext(first,a);
+            UUID firstNonce=UUID.randomUUID();
+            try(var call=proofCall(first,a,"Synthetic Tenant One",mrn,firstNonce,expiry,
+                    syntheticProof(a,"Synthetic Tenant One",mrn,firstNonce,expiry));
+                var row=call.executeQuery()) {
+                assertThat(row.next()).isTrue();
+            }
+            second.setAutoCommit(false);
+            bindSqlRoleContext(second,b);
+            try(Statement timeout=second.createStatement()) {
+                timeout.execute("SET LOCAL lock_timeout = '400ms'");
+            }
+            UUID secondNonce=UUID.randomUUID();
+            try(var call=proofCall(second,b,"Synthetic Tenant Two",mrn,secondNonce,expiry,
+                    syntheticProof(b,"Synthetic Tenant Two",mrn,secondNonce,expiry))) {
+                assertThatThrownBy(call::executeQuery)
+                        .as("global lock serializes independent tenants: known throughput limitation")
+                        .isInstanceOf(java.sql.SQLException.class)
+                        .hasMessageContaining("canceling statement due to lock timeout");
+            }
+            second.rollback();
+            first.commit();
+            second.setAutoCommit(false);
+            bindSqlRoleContext(second,b);
+            UUID fresh=UUID.randomUUID();
+            try(var call=proofCall(second,b,"Synthetic Tenant Two",mrn,fresh,expiry,
+                    syntheticProof(b,"Synthetic Tenant Two",mrn,fresh,expiry));
+                var row=call.executeQuery()) {
+                assertThat(row.next()).isTrue();
+            }
+            second.commit();
+        }
+        assertThat(admin.queryForObject("SELECT count(*) FROM public.patient WHERE tenant_id=?",
+                Integer.class,a.tenant())).isEqualTo(1);
+        assertThat(admin.queryForObject("SELECT count(*) FROM public.patient WHERE tenant_id=?",
+                Integer.class,b.tenant())).isEqualTo(1);
+    }
+
     @Test void missingContextCannotInvokeFunctionDirectly() throws Exception {
         Fixture f=fixture();
         UUID nonce=UUID.randomUUID();
