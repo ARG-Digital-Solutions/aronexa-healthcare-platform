@@ -233,8 +233,12 @@ BEGIN
   RETURN QUERY SELECT v_patient,v_registration,p_mrn, FALSE;
 END $$;
 
+-- PostgreSQL requires the new function owner to be CREATE-capable on the schema
+-- at transfer time. Grant temporarily and revoke immediately after ownership.
+GRANT CREATE ON SCHEMA public TO aronexa_registration_writer;
 ALTER FUNCTION public.aronexa_c2_register_patient(uuid,text,text,date,text,text,text)
   OWNER TO aronexa_registration_writer;
+REVOKE CREATE ON SCHEMA public FROM aronexa_registration_writer;
 REVOKE ALL ON FUNCTION public.aronexa_c2_register_patient(
     uuid,text,text,date,text,text,text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.aronexa_c2_register_patient(
