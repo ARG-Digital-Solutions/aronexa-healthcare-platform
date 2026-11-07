@@ -103,3 +103,26 @@ The earlier "no implementation/test evidence" text describes the historical plan
 | SAAS-01 | PARTIAL: reusable entitlement foundation only | Registry flags and denial checks | Tenant onboarding, subscriptions, payments and commercial lifecycle NOT IMPLEMENTED by P01-T06 |
 
 Source: [P01-T06 closure review](../phases/P01_T06_CLOSURE_REVIEW_2026-11-04.md), [evidence archive](../phases/evidence/P01_T06_20261104/EVIDENCE.md). Exact Windows test totals/skips not supplied. Preservation evidence is table-count equality, not row-by-row or clinical-record integrity. Disposable V6 restoration passed; operational post-V7 recovery cutover NOT RUN. No new requirement IDs or phase allocations inferred. Owner closure approval remains pending.
+
+
+## 2026-11-07 proposed clinical EMR / mobile / specialty requirements extension
+
+**Status: PROPOSED / NOT IMPLEMENTED / OWNER REVIEW REQUIRED.** This section adds requirements derived from the clinician's request; it does not supersede Master Engineering Contract V3.0 or approve implementation. Exact wording, clinical templates and phase allocation await owner/clinical/security review. See [full requirement and acceptance addendum](CLINICAL_EMR_MOBILE_ADDENDUM_2026-11-07.md).
+
+| Proposed requirement ID | Requirement | Owning module | Proposed phase | Priority | Acceptance and negative tests |
+|---|---|---|---|---|---|
+| EMR-360-01 | One-screen patient 360 summary and drill-down across prior records | Clinical EMR | 02; expand 04, 09–11 | P0 | Authorized clinician finds recent encounters, reports, treatment; unrelated patient/tenant denied |
+| EMR-HIST-01 | Date-ordered case sheets, historical investigations, prescriptions and treatments | Clinical EMR | 02 | P0 | Source/date/author clear; history preserved; finalized record cannot be silently overwritten |
+| EMR-RPT-01 | Secure upload, indexed retrieval by test name/test date, categorization, preview and version history | Documents/Lab | 04; Lab 10 | P0 | Search and version tests; unauthorized download, unsafe file and expired link denied |
+| EMR-PHOTO-01 | Optional permitted patient photo for identity confirmation | Patient EMR | 02 after 01 | P1 | Authorized display; absence allowed; denied cross-tenant/unauthorized access |
+| MOB-CLN-01 | Responsive mobile/tablet doctor view with scoped entry of notes and treatment | Clinical UX | 02; expand 04/09/11 | P0 | Mobile viewport/touch and clinician UAT; unauthorized write denied; safe draft recovery |
+| MOB-REMOTE-01 | Remote access for travelling clinicians on approved online/dedicated deployment, not implicit standalone sync | Security/deployment | 02 design, 05/06/08 gate | P0 | MFA/revocation, secure access and safe network failure; offline/sync claims prohibited |
+| DOC-SIGN-01 | Clinician approval and versioned finalized documents; distinguish image from legally recognized eSign | Forms/Documents | 02/04, extend 09/11 | P1 | Actor/time/version evidence, unsigned draft, immutable final and authorized amendment; invalid signer denied |
+| DOC-BRAND-01 | Configurable hospital/branch logos, letterheads, seal/stamp and optional facility photo in clinical PDF/print templates; immutable branded versions after signing | Document branding | 02 template design; 04 management, 09/11 reuse | P1 | Authorized admin upload/approval, branch-specific preview/PDF rendering, logo update without altering finalized documents, unsafe upload and cross-tenant asset access denied; images alone cannot sign documents |
+| OBS-PARTO-01 | Clinically approved editable and auditable labour partograph | Obstetrics | 09 | P1 | Time-ordered observations, graph/print, qualification-based access and clinician validation |
+| IPD-DISCH-01 | Digital discharge card and clinician-approved summary | IPD | 09 | P1 | Admission links, advice and treatment, print, signature, immutable final, audit and authorized access |
+| OT-NOTE-01 | Structured specialty OT/procedure note and authorization | IPD/OT | 09 | P1 | Draft/finalize/print/version and encounter linkage; cross-role/tenant denial |
+| FER-CHART-01 | Separate IUI/IVF/ICSI editable treatment charts and cycle chronology | Fertility | 11 | P1 | Cycle isolation, monitoring, signatures, consent, specialist review and ART traceability |
+| SEC-EMR-01 | Cross-cutting patient/object/branch/role/tenant authorization and secure clinical-file handling | Security | 02+, all customer gates | P0 | Negative tenancy/role/branch/object tests, module-off deny, access audit, encrypted storage/backup review |
+
+**Overlaps and dependencies:** Extend existing PAT-01, CLN-01, FORM-01/02, RX-02, DOC-01, IPD-01/02, LAB-01/02, FER-01/02, SEC-01/03/04, UX-01/02 and REL-01 instead of creating competing patient masters, form engines, document services or role rules. Native Android remains Phase 14; native macOS remains Phase 13. Phase 01 P01-T07-B2 / Windows V8-to-V9 owner gates are unaffected. No real patient-data or customer-use acceptance evidence exists for these new requirements.
