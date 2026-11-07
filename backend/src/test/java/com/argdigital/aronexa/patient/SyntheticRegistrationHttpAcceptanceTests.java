@@ -38,8 +38,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @Testcontainers
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 @ActiveProfiles({"test", "c2-synthetic"})
-@TestPropertySource(properties =
-        "aronexa.c2.synthetic-hmac-base64=QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE=")
+@TestPropertySource(properties = {
+        "aronexa.c2.synthetic-hmac-base64=QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE=",
+        "aronexa.c2.synthetic-proof-base64=QkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkI="})
 class SyntheticRegistrationHttpAcceptanceTests {
     @Container @ServiceConnection
     static PostgreSQLContainer postgres = new PostgreSQLContainer("postgres:17-alpine")
@@ -60,6 +61,9 @@ class SyntheticRegistrationHttpAcceptanceTests {
         assertThat(isolated.migrate().migrationsExecuted).isEqualTo(1);
         assertThat(isolated.info().current().getVersion().getVersion()).isEqualTo("10");
         assertThat(isolated.validateWithResult().validationSuccessful).isTrue();
+        // Synthetic fixture only: no proof key is shipped by Flyway migration.
+        admin.update("INSERT INTO public.patient_registration_proof_key(id,secret) VALUES (1,decode(?,'base64'))",
+                "QkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkI=");
     }
 
     private static String suffix() { return UUID.randomUUID().toString().substring(0,8); }
