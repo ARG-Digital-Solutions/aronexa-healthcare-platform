@@ -29,7 +29,9 @@ import static org.assertj.core.api.Assertions.*;
 
 @SpringBootTest
 @ActiveProfiles({"test","c2-synthetic"})
-@TestPropertySource(properties = "aronexa.c2.synthetic-hmac-base64=QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE=")
+@TestPropertySource(properties = {
+        "aronexa.c2.synthetic-hmac-base64=QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE=",
+        "aronexa.c2.synthetic-proof-base64=QkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkI="})
 @Testcontainers
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class SyntheticRegistrationIntegrationTests {
@@ -54,6 +56,9 @@ class SyntheticRegistrationIntegrationTests {
         assertThat(migration.migrate().migrationsExecuted).isEqualTo(1);
         assertThat(migration.info().current().getVersion().getVersion()).isEqualTo("10");
         assertThat(migration.validateWithResult().validationSuccessful).isTrue();
+        // Synthetic fixture only: no proof key is shipped by Flyway migration.
+        admin.update("INSERT INTO public.patient_registration_proof_key(id,secret) VALUES (1,decode(?,'base64'))",
+                "QkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkI=");
     }
 
     @AfterEach
