@@ -716,19 +716,31 @@ class SyntheticRegistrationIntegrationTests {
 
 
     /**
-     * Exploratory release-blocker reproducer (NOT a secure acceptance test).
-     * An authorized registration finishes its SQL statement while the patient
-     * transaction remains open. A privileged operator commits revocation of
-     * role, branch, or module on a separate connection. Since this function
-     * locks only auth_session, the patient transaction can commit afterward.
-     *
-     * A passing test documents the CURRENT POLICY GAP; it does not certify
-     * that revocation is safe. Never run against the original Windows DB.
+     * C5 acceptance: authorization is linearized by a tenant-scoped PostgreSQL
+     * transaction advisory lock. Registration-first commits before a competing
+     * revocation. Revocation-first commits before the next registration check.
+     * Both paths run against disposable PostgreSQL 17 only.
      */
-    private void demonstrateUnserializedRevocation(String dimension) throws Exception {
+    private static String revocationSql(String dimension) {
+        return switch(dimension) {
+            case "ROLE" -> "DELETE FROM public.auth_membership_role WHERE tenant_id=? AND membership_id=?";
+            case "BRANCH" -> "DELETE FROM public.org_membership_branch_scope WHERE tenant_id=? AND membership_id=? AND branch_id=?";
+            case "MODULE" -> "UPDATE public.tenant_module_state SET activated=false WHERE tenant_id=? AND module_code='PATIENT_REGISTRATION'";
+            case "PERMISSION" -> "DELETE FROM public.auth_role_permission WHERE tenant_id=? AND permission_code='PATIENT_REGISTER'";
+            default -> throw new IllegalArgumentException("Unexpected synthetic scope");
+        };
+    }
+
+    private static void fillRevocation(java.sql.PreparedStatement ps, Fixture f, String dimension)
+            throws Exception {
+        ps.setObject(1,f.tenant());
+        if (dimension.equals("ROLE") || dimension.equals("BRANCH")) ps.setObject(2,f.member());
+        if (dimension.equals("BRANCH")) ps.setObject(3,f.branch());
+    }
+
+    private void registrationWinsRevocationOrder(String dimension) throws Exception {
         Fixture f=fixture();
-        String name="Synthetic Pre-Commit Revocation "+dimension;
-        String mrn="PAT-0123456789AB";
+        String name="Synthetic Register First "+dimension, mrn="PAT-0123456789AB";
         UUID nonce=UUID.randomUUID();
         long expiry=java.time.Instant.now().plusSeconds(30).getEpochSecond();
         try(Connection patient=DriverManager.getConnection(postgres.getJdbcUrl(),
@@ -743,53 +755,105 @@ class SyntheticRegistrationIntegrationTests {
                 assertThat(result.next()).isTrue();
                 assertThat(result.getBoolean("replayed")).isFalse();
             }
-            // Keep patient transaction OPEN; revocation must genuinely commit
-            // on a separate privileged connection before patient.commit().
+            // Registration keeps its tenant authorization lock through commit.
+            // Privileged revocation may acquire its table row lock but its
+            // BEFORE trigger cannot finish before registration commits.
             operator.setAutoCommit(false);
             try(Statement timeout=operator.createStatement()) {
-                timeout.execute("SET LOCAL statement_timeout = '1200ms'");
+                timeout.execute("SET LOCAL lock_timeout = '400ms'");
             }
-            String revokeSql=switch(dimension) {
-                case "ROLE" -> "DELETE FROM public.auth_membership_role WHERE tenant_id=? AND membership_id=?";
-                case "BRANCH" -> "DELETE FROM public.org_membership_branch_scope WHERE tenant_id=? AND membership_id=? AND branch_id=?";
-                case "MODULE" -> "UPDATE public.tenant_module_state SET activated=false WHERE tenant_id=? AND module_code='PATIENT_REGISTRATION'";
-                default -> throw new IllegalArgumentException("Unknown synthetic revocation");
-            };
-            try(var revoke=operator.prepareStatement(revokeSql)) {
-                revoke.setObject(1,f.tenant());
-                if(!dimension.equals("MODULE")) revoke.setObject(2,f.member());
-                if(dimension.equals("BRANCH")) revoke.setObject(3,f.branch());
-                assertThat(revoke.executeUpdate())
-                        .as("synthetic privileged operator must commit "+dimension+" revocation")
-                        .isEqualTo(1);
+            try(var revoke=operator.prepareStatement(revocationSql(dimension))) {
+                fillRevocation(revoke,f,dimension);
+                assertThatThrownBy(revoke::executeUpdate)
+                        .as(dimension+" revocation must not overtake registration")
+                        .isInstanceOf(java.sql.SQLException.class)
+                        .hasMessageContaining("canceling statement due to lock timeout");
+            }
+            operator.rollback();
+            patient.commit();
+            try(var revoke=operator.prepareStatement(revocationSql(dimension))) {
+                fillRevocation(revoke,f,dimension);
+                assertThat(revoke.executeUpdate()).isEqualTo(1);
             }
             operator.commit();
-            // Existing implementation permits this commit, even though the
-            // authorization row is already revoked. This is a NO-GO finding.
-            patient.commit();
         }
-        assertThat(admin.queryForObject(
-                "SELECT count(*) FROM public.patient WHERE tenant_id=?",
-                Integer.class,f.tenant())).isEqualTo(1);
-        assertThat(admin.queryForObject(
-                "SELECT count(*) FROM public.patient_registration_write_audit WHERE tenant_id=?",
-                Integer.class,f.tenant())).isEqualTo(1);
-        assertThat(admin.queryForObject(
-                "SELECT count(*) FROM public.patient_registration_proof_nonce WHERE tenant_id=?",
-                Integer.class,f.tenant())).isEqualTo(1);
-        assertThat(admin.queryForObject(
-                "SELECT count(*) FROM public.patient_registration_idempotency WHERE tenant_id=?",
-                Integer.class,f.tenant())).isEqualTo(1);
+        as(f,f.member(),false,"PATIENT_REGISTER");
+        assertThatThrownBy(()->service.register(f.branch(),
+                intake("Synthetic Post Revocation "+dimension),key()))
+                .isInstanceOf(AccessDeniedException.class);
+        for(String table:new String[]{"patient","patient_identifier",
+                "patient_registration","patient_registration_write_audit",
+                "patient_registration_idempotency","patient_registration_proof_nonce"}) {
+            assertThat(admin.queryForObject("SELECT count(*) FROM public."+table+
+                    " WHERE tenant_id=?",Integer.class,f.tenant()))
+                    .as(dimension+" original success only: "+table).isEqualTo(1);
+        }
     }
 
-    @Test void exploratoryRoleRevocationCommitsBeforeRegistrationCommit() throws Exception {
-        demonstrateUnserializedRevocation("ROLE");
+    private void revocationWinsRegistrationOrder(String dimension) throws Exception {
+        Fixture f=fixture();
+        String name="Synthetic Revoke First "+dimension, mrn="PAT-0123456789AB";
+        long expiry=java.time.Instant.now().plusSeconds(30).getEpochSecond();
+        try(Connection operator=DriverManager.getConnection(postgres.getJdbcUrl(),
+                postgres.getUsername(),postgres.getPassword());
+            Connection patient=DriverManager.getConnection(postgres.getJdbcUrl(),
+                "aronexa_patient_runtime","only-for-ephemeral-patient-role")) {
+            operator.setAutoCommit(false);
+            try(var revoke=operator.prepareStatement(revocationSql(dimension))) {
+                fillRevocation(revoke,f,dimension);
+                assertThat(revoke.executeUpdate()).isEqualTo(1);
+            }
+            patient.setAutoCommit(false);
+            bindSqlRoleContext(patient,f);
+            try(Statement timeout=patient.createStatement()) {
+                timeout.execute("SET LOCAL lock_timeout = '400ms'");
+            }
+            UUID waitingNonce=UUID.randomUUID();
+            try(var attempt=proofCall(patient,f,name,mrn,waitingNonce,expiry,
+                    syntheticProof(f,name,mrn,waitingNonce,expiry))) {
+                assertThatThrownBy(attempt::executeQuery)
+                        .as("registration cannot overtake uncommitted "+dimension+" revoke")
+                        .isInstanceOf(java.sql.SQLException.class)
+                        .hasMessageContaining("canceling statement due to lock timeout");
+            }
+            patient.rollback();
+            operator.commit();
+            patient.setAutoCommit(false);
+            bindSqlRoleContext(patient,f);
+            UUID deniedNonce=UUID.randomUUID();
+            try(var denied=proofCall(patient,f,name,mrn,deniedNonce,expiry,
+                    syntheticProof(f,name,mrn,deniedNonce,expiry))) {
+                assertThatThrownBy(denied::executeQuery)
+                        .as("completed "+dimension+" revocation is enforceable")
+                        .isInstanceOf(java.sql.SQLException.class)
+                        .hasMessageContaining("C2_ACCESS_DENIED");
+            }
+            patient.rollback();
+        }
+        for(String table:new String[]{"patient","patient_identifier",
+                "patient_registration","patient_registration_write_audit",
+                "patient_registration_idempotency","patient_registration_proof_nonce"}) {
+            assertThat(admin.queryForObject("SELECT count(*) FROM public."+table+
+                    " WHERE tenant_id=?",Integer.class,f.tenant()))
+                    .as(dimension+" revoked before registration: "+table).isZero();
+        }
     }
-    @Test void exploratoryBranchRevocationCommitsBeforeRegistrationCommit() throws Exception {
-        demonstrateUnserializedRevocation("BRANCH");
+
+    @Test void roleRevocationSerializesBeforeOrAfterRegistration() throws Exception {
+        registrationWinsRevocationOrder("ROLE");
+        revocationWinsRegistrationOrder("ROLE");
     }
-    @Test void exploratoryModuleRevocationCommitsBeforeRegistrationCommit() throws Exception {
-        demonstrateUnserializedRevocation("MODULE");
+    @Test void branchRevocationSerializesBeforeOrAfterRegistration() throws Exception {
+        registrationWinsRevocationOrder("BRANCH");
+        revocationWinsRegistrationOrder("BRANCH");
+    }
+    @Test void moduleRevocationSerializesBeforeOrAfterRegistration() throws Exception {
+        registrationWinsRevocationOrder("MODULE");
+        revocationWinsRegistrationOrder("MODULE");
+    }
+    @Test void permissionRevocationSerializesBeforeOrAfterRegistration() throws Exception {
+        registrationWinsRevocationOrder("PERMISSION");
+        revocationWinsRegistrationOrder("PERMISSION");
     }
 
     @Test void missingContextCannotInvokeFunctionDirectly() throws Exception {
