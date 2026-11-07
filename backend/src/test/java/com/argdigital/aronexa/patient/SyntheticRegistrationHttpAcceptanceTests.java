@@ -142,11 +142,12 @@ class SyntheticRegistrationHttpAcceptanceTests {
                 .andExpect(jsonPath("$.replayed").value(false))
                 .andReturn().getResponse().getContentAsString();
         assertThat(created).doesNotContain("Synthetic Http Success","phone","contact");
+        var receiptMrn = java.util.regex.Pattern.compile("\\\"mrn\\\"\\\\s*:\\\\s*\\\"([^\\\"]+)\\\"").matcher(created);
+        assertThat(receiptMrn.find()).isTrue();
         mvc.perform(request(f,f.branch(),key,body))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.replayed").value(true))
-                .andExpect(jsonPath("$.mrn").value(
-                        new com.fasterxml.jackson.databind.ObjectMapper().readTree(created).get("mrn").asText()));
+                .andExpect(jsonPath("$.mrn").value(receiptMrn.group(1)));
         assertThat(admin.queryForObject("SELECT count(*) FROM patient WHERE tenant_id=?",
                 Integer.class,f.tenant())).isEqualTo(1);
         assertThat(admin.queryForObject("SELECT count(*) FROM patient_registration_write_audit WHERE tenant_id=? AND actor_membership_id=?",
