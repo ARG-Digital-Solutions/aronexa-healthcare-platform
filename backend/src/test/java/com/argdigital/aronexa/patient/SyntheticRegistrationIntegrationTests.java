@@ -1092,6 +1092,137 @@ class SyntheticRegistrationIntegrationTests {
         }
     }
 
+
+    private SyntheticAdminBatchExecutor.ConnectionFactory isolatedAdminConnections() {
+        return () -> DriverManager.getConnection(postgres.getJdbcUrl(),
+                postgres.getUsername(),postgres.getPassword());
+    }
+
+    private int tenantEntitlementUpdateAuditCount(Fixture a, Fixture b) {
+        return admin.queryForObject("""
+                SELECT count(*) FROM public.module_configuration_audit
+                WHERE tenant_id IN (?,?) AND module_code='PATIENT_REGISTRATION'
+                  AND source_table='tenant_module_state' AND operation='UPDATE'
+                """,Integer.class,a.tenant(),b.tenant());
+    }
+
+    @Test void orderedSyntheticAdminBatchDeduplicatesTenantsAndProducesOneAuditPerChange()
+            throws Exception {
+        Fixture a=fixture(), b=fixture();
+        var outcome=SyntheticAdminBatchExecutor.deactivateRegistration(
+                isolatedAdminConnections(),List.of(b.tenant(),a.tenant(),b.tenant()),
+                (connection, attempt) -> {});
+        assertThat(outcome.attempts()).isEqualTo(1);
+        assertThat(outcome.changedTenantRows()).isEqualTo(2);
+        assertThat(tenantEntitlementUpdateAuditCount(a,b)).isEqualTo(2);
+        assertThat(admin.queryForObject("""
+                SELECT count(*) FROM public.tenant_module_state
+                 WHERE tenant_id IN (?,?) AND module_code='PATIENT_REGISTRATION'
+                   AND activated=false
+                """,Integer.class,a.tenant(),b.tenant())).isEqualTo(2);
+        as(a,a.member(),false,"PATIENT_REGISTER");
+        assertThatThrownBy(() -> service.register(a.branch(),
+                intake("Synthetic Disabled Batch Tenant"),key()))
+                .isInstanceOf(AccessDeniedException.class);
+    }
+
+    @Test void reverseOrderConcurrentAdminBatchesUseTheSameTotalTenantOrder()
+            throws Exception {
+        Fixture a=fixture(), b=fixture();
+        var pool=java.util.concurrent.Executors.newFixedThreadPool(4);
+        var ready=new java.util.concurrent.CountDownLatch(4);
+        var start=new java.util.concurrent.CountDownLatch(1);
+        try {
+            var futures=new java.util.ArrayList<java.util.concurrent.Future<
+                    SyntheticAdminBatchExecutor.Outcome>>();
+            for(int n=0;n<4;n++) {
+                final int ordinal=n;
+                futures.add(pool.submit(() -> {
+                    ready.countDown();
+                    if (!start.await(8,java.util.concurrent.TimeUnit.SECONDS))
+                        throw new IllegalStateException("Synthetic start signal missing");
+                    return SyntheticAdminBatchExecutor.deactivateRegistration(
+                            isolatedAdminConnections(),
+                            ordinal%2==0?List.of(a.tenant(),b.tenant()):
+                                    List.of(b.tenant(),a.tenant()),
+                            (connection, attempt)->{});
+                }));
+            }
+            assertThat(ready.await(8,java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            start.countDown();
+            int changed=0;
+            for(var future:futures) {
+                var result=future.get(20,java.util.concurrent.TimeUnit.SECONDS);
+                assertThat(result.attempts()).isEqualTo(1);
+                changed+=result.changedTenantRows();
+            }
+            assertThat(changed).isEqualTo(2);
+            assertThat(tenantEntitlementUpdateAuditCount(a,b)).isEqualTo(2);
+        } finally {
+            start.countDown();
+            pool.shutdownNow();
+        }
+    }
+
+    private static void forceSyntheticSqlState(Connection connection,String sqlState)
+            throws java.sql.SQLException {
+        // The database, not Java, raises the SQLSTATE, exercising actual JDBC
+        // rollback and the fresh-transaction retry branch.
+        try (var statement=connection.createStatement()) {
+            statement.execute("DO $ BEGIN RAISE EXCEPTION 'synthetic abort' USING ERRCODE='"
+                    +sqlState+"'; END $");
+        }
+    }
+
+    @Test void deadlockSqlStateRetryRollsBackBeforeCreatingNewConnection()
+            throws Exception {
+        Fixture a=fixture(),b=fixture();
+        var opened=new java.util.concurrent.atomic.AtomicInteger();
+        var result=SyntheticAdminBatchExecutor.deactivateRegistration(
+                ()->{opened.incrementAndGet();return isolatedAdminConnections().open();},
+                List.of(b.tenant(),a.tenant()),(connection,attempt)->{
+                    if(attempt==1) forceSyntheticSqlState(connection,"40P01");
+                });
+        assertThat(result.attempts()).isEqualTo(2);
+        assertThat(result.changedTenantRows()).isEqualTo(2);
+        assertThat(opened.get()).isEqualTo(2);
+        // Rolled back attempt cannot leave its module audit records.
+        assertThat(tenantEntitlementUpdateAuditCount(a,b)).isEqualTo(2);
+    }
+
+    @Test void repeatedDeadlockFailsAfterThreeFreshRolledBackTransactions()
+            throws Exception {
+        Fixture a=fixture(),b=fixture();
+        var opened=new java.util.concurrent.atomic.AtomicInteger();
+        assertThatThrownBy(() -> SyntheticAdminBatchExecutor.deactivateRegistration(
+                ()->{opened.incrementAndGet();return isolatedAdminConnections().open();},
+                List.of(a.tenant(),b.tenant()),(connection,attempt)->
+                    forceSyntheticSqlState(connection,"40P01")))
+                .isInstanceOf(java.sql.SQLException.class)
+                .matches(error->"40P01".equals(((java.sql.SQLException)error).getSQLState()));
+        assertThat(opened.get()).isEqualTo(3);
+        assertThat(tenantEntitlementUpdateAuditCount(a,b)).isZero();
+        assertThat(admin.queryForObject("""
+                SELECT count(*) FROM public.tenant_module_state
+                 WHERE tenant_id IN (?,?) AND module_code='PATIENT_REGISTRATION'
+                   AND activated=true
+                """,Integer.class,a.tenant(),b.tenant())).isEqualTo(2);
+    }
+
+    @Test void unrelatedSqlFailureNeverGetsRetriedAndLeavesNoAuditRows()
+            throws Exception {
+        Fixture a=fixture(),b=fixture();
+        var opened=new java.util.concurrent.atomic.AtomicInteger();
+        assertThatThrownBy(() -> SyntheticAdminBatchExecutor.deactivateRegistration(
+                ()->{opened.incrementAndGet();return isolatedAdminConnections().open();},
+                List.of(a.tenant(),b.tenant()),(connection,attempt)->
+                    forceSyntheticSqlState(connection,"23505")))
+                .isInstanceOf(java.sql.SQLException.class)
+                .matches(error->"23505".equals(((java.sql.SQLException)error).getSQLState()));
+        assertThat(opened.get()).isEqualTo(1);
+        assertThat(tenantEntitlementUpdateAuditCount(a,b)).isZero();
+    }
+
     @Test void missingContextCannotInvokeFunctionDirectly() throws Exception {
         Fixture f=fixture();
         UUID nonce=UUID.randomUUID();
