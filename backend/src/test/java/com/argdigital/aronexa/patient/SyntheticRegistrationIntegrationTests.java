@@ -295,8 +295,12 @@ class SyntheticRegistrationIntegrationTests {
     }
     private static java.sql.PreparedStatement proofCall(Connection connection, Fixture f,
             String name, String mrn, UUID nonce, long expiry, String signature) throws Exception {
+        return proofCallWithKey(connection,f,1,name,mrn,nonce,expiry,signature);
+    }
+    private static java.sql.PreparedStatement proofCallWithKey(Connection connection, Fixture f,
+            int keyId, String name, String mrn, UUID nonce, long expiry, String signature) throws Exception {
         var ps=connection.prepareStatement(
-                "SELECT * FROM public.aronexa_c2_register_patient(?,?,?,?,?,?,?,?,?,?,?,?)");
+                "SELECT * FROM public.aronexa_c2_register_patient(?,?,?,?,?,?,?,?,?,?,?,?,?)");
         ps.setObject(1,f.tenant());
         ps.setObject(2,f.member());
         ps.setObject(3,f.branch());
@@ -306,9 +310,10 @@ class SyntheticRegistrationIntegrationTests {
         ps.setString(7,"a".repeat(64));
         ps.setString(8,"b".repeat(64));
         ps.setString(9,mrn);
-        ps.setObject(10,nonce);
-        ps.setLong(11,expiry);
-        ps.setString(12,signature);
+        ps.setInt(10,keyId);
+        ps.setObject(11,nonce);
+        ps.setLong(12,expiry);
+        ps.setString(13,signature);
         return ps;
     }
 
@@ -431,6 +436,95 @@ class SyntheticRegistrationIntegrationTests {
                         .isInstanceOf(java.sql.SQLException.class);
             }
         }
+    }
+
+    @Test void secondaryKeyCanBeActivatedAndRetiredWithoutLeakingOrCrossSigning() throws Exception {
+        Fixture f=fixture();
+        byte[] second=new byte[32];
+        new SecureRandom().nextBytes(second);
+        // Synthetic migrator fixture only. No runtime SQL login can UPDATE keys.
+        admin.update("""
+                INSERT INTO public.patient_registration_proof_key
+                    (id,secret,enabled,valid_from,valid_until)
+                VALUES (2,?,true,clock_timestamp()-interval '1 minute',
+                          clock_timestamp()+interval '1 hour')
+                """,second);
+        String name="Synthetic Rotating Key",mrn="PAT-0123456789AB";
+        long expiry=java.time.Instant.now().plusSeconds(30).getEpochSecond();
+        UUID nonce=UUID.randomUUID();
+        String signature=SyntheticRegistrationProof.sign(second,2,
+                f.tenant(),f.member(),f.branch(),name,"UNKNOWN",null,
+                "a".repeat(64),"b".repeat(64),mrn,nonce,expiry);
+        try(Connection connection=DriverManager.getConnection(postgres.getJdbcUrl(),
+                "aronexa_patient_runtime","only-for-ephemeral-patient-role")) {
+            connection.setAutoCommit(false);
+            bindSqlRoleContext(connection,f);
+            // A valid ID=2 signature cannot be relabeled as ID=1.
+            try(var bad=proofCallWithKey(connection,f,1,name,mrn,nonce,expiry,signature)) {
+                assertThatThrownBy(bad::executeQuery)
+                        .isInstanceOf(java.sql.SQLException.class)
+                        .hasMessageContaining("C2_PROOF_DENIED");
+            }
+            connection.rollback();
+            connection.setAutoCommit(false);
+            bindSqlRoleContext(connection,f);
+            try(var valid=proofCallWithKey(connection,f,2,name,mrn,nonce,expiry,signature);
+                var rs=valid.executeQuery()) {
+                assertThat(rs.next()).isTrue();
+                assertThat(rs.getBoolean("replayed")).isFalse();
+            }
+            connection.commit();
+            admin.update("UPDATE public.patient_registration_proof_key SET enabled=false WHERE id=2");
+            UUID disabledNonce=UUID.randomUUID();
+            String disabledName="Synthetic Retired Key";
+            String disabledSig=SyntheticRegistrationProof.sign(second,2,
+                    f.tenant(),f.member(),f.branch(),disabledName,"UNKNOWN",null,
+                    "a".repeat(64),"b".repeat(64),"PAT-0123456789AC",disabledNonce,expiry);
+            connection.setAutoCommit(false);
+            bindSqlRoleContext(connection,f);
+            try(var disabled=proofCallWithKey(connection,f,2,disabledName,"PAT-0123456789AC",
+                    disabledNonce,expiry,disabledSig)) {
+                assertThatThrownBy(disabled::executeQuery)
+                        .isInstanceOf(java.sql.SQLException.class)
+                        .hasMessageContaining("C2_PROOF_DENIED");
+            }
+            connection.rollback();
+            admin.update("""
+                    UPDATE public.patient_registration_proof_key
+                       SET enabled=true, valid_from=clock_timestamp()+interval '1 hour',
+                           valid_until=clock_timestamp()+interval '2 hours'
+                     WHERE id=2
+                    """);
+            connection.setAutoCommit(false);
+            bindSqlRoleContext(connection,f);
+            try(var future=proofCallWithKey(connection,f,2,disabledName,"PAT-0123456789AC",
+                    disabledNonce,expiry,disabledSig)) {
+                assertThatThrownBy(future::executeQuery)
+                        .isInstanceOf(java.sql.SQLException.class)
+                        .hasMessageContaining("C2_PROOF_DENIED");
+            }
+            connection.rollback();
+            admin.update("""
+                    UPDATE public.patient_registration_proof_key
+                       SET valid_from=clock_timestamp()-interval '2 hours',
+                           valid_until=clock_timestamp()-interval '1 hour'
+                     WHERE id=2
+                    """);
+            connection.setAutoCommit(false);
+            bindSqlRoleContext(connection,f);
+            try(var expired=proofCallWithKey(connection,f,2,disabledName,"PAT-0123456789AC",
+                    disabledNonce,expiry,disabledSig)) {
+                assertThatThrownBy(expired::executeQuery)
+                        .isInstanceOf(java.sql.SQLException.class)
+                        .hasMessageContaining("C2_PROOF_DENIED");
+            }
+            connection.rollback();
+        }
+        assertThat(admin.queryForObject(
+                "SELECT count(*) FROM public.patient WHERE tenant_id=?",Integer.class,f.tenant())).isEqualTo(1);
+        assertThat(admin.queryForObject(
+                "SELECT count(*) FROM public.patient_registration_proof_nonce WHERE tenant_id=?",
+                Integer.class,f.tenant())).isEqualTo(1);
     }
 
     @Test void missingContextCannotInvokeFunctionDirectly() throws Exception {
