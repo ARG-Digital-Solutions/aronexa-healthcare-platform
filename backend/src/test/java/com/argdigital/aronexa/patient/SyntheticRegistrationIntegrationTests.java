@@ -60,7 +60,7 @@ class SyntheticRegistrationIntegrationTests {
     @Autowired SyntheticRegistrationService service;
 
     private record Fixture(UUID tenant, UUID otherTenant, UUID member, UUID otherMember,
-                           UUID branch, UUID otherBranch) {}
+                           UUID branch, UUID otherBranch, UUID session) {}
 
     @BeforeAll
     void migrateProposedSqlInEphemeralDatabaseOnly() {
@@ -109,11 +109,19 @@ class SyntheticRegistrationIntegrationTests {
         // Explicit, ephemeral TEST fixture only. Migration itself enables no module/permission.
         admin.update("UPDATE module_registry SET implemented=true,released=true WHERE code='PATIENT_REGISTRATION'");
         admin.update("INSERT INTO tenant_module_state(tenant_id,module_code,entitled,activated,clinically_authorized) VALUES (?,'PATIENT_REGISTRATION',true,true,true)",t);
-        return new Fixture(t,other,a,another,b,otherBranch);
+        UUID session=UUID.randomUUID();
+        admin.update("INSERT INTO auth_session(id,membership_id,tenant_id,token_sha256,expires_at) VALUES (?,?,?,?,now()+interval '30 minutes')",
+                session,a,t,UUID.randomUUID().toString().replace("-","").repeat(2));
+        return new Fixture(t,other,a,another,b,otherBranch,session);
     }
     private void as(Fixture f, UUID member, boolean passwordRequired, String... perms) {
+        UUID session=member.equals(f.member())?f.session():UUID.randomUUID();
+        if (!member.equals(f.member())) {
+            admin.update("INSERT INTO auth_session(id,membership_id,tenant_id,token_sha256,expires_at) VALUES (?,?,?,?,now()+interval '30 minutes')",
+                    session,member,f.tenant(),UUID.randomUUID().toString().replace("-","").repeat(2));
+        }
         var principal=new AuthPrincipal(UUID.randomUUID(),f.tenant(),member,"synthetic",
-                passwordRequired,List.of("RECEPTION"),List.of(perms));
+                passwordRequired,List.of("RECEPTION"),List.of(perms),session);
         SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken(principal,null,List.of()));
     }
@@ -280,8 +288,8 @@ class SyntheticRegistrationIntegrationTests {
     }
 
      private static String syntheticProof(Fixture f, String name, String mrn, UUID nonce, long expiry) {
-        return SyntheticRegistrationProof.sign(EPHEMERAL_PROOF_KEY, f.tenant(), f.member(),
-                f.branch(), name, "UNKNOWN", null,
+        return SyntheticRegistrationProof.sign(EPHEMERAL_PROOF_KEY,1, f.tenant(), f.member(),
+                f.session(), f.branch(), name, "UNKNOWN", null,
                 "a".repeat(64), "b".repeat(64), mrn, nonce, expiry);
     }
     private static void bindSqlRoleContext(Connection connection, Fixture f) throws Exception {
@@ -300,20 +308,21 @@ class SyntheticRegistrationIntegrationTests {
     private static java.sql.PreparedStatement proofCallWithKey(Connection connection, Fixture f,
             int keyId, String name, String mrn, UUID nonce, long expiry, String signature) throws Exception {
         var ps=connection.prepareStatement(
-                "SELECT * FROM public.aronexa_c2_register_patient(?,?,?,?,?,?,?,?,?,?,?,?,?)");
+                "SELECT * FROM public.aronexa_c2_register_patient(?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
         ps.setObject(1,f.tenant());
         ps.setObject(2,f.member());
-        ps.setObject(3,f.branch());
-        ps.setString(4,name);
-        ps.setString(5,"UNKNOWN");
-        ps.setNull(6,java.sql.Types.DATE);
-        ps.setString(7,"a".repeat(64));
-        ps.setString(8,"b".repeat(64));
-        ps.setString(9,mrn);
-        ps.setInt(10,keyId);
-        ps.setObject(11,nonce);
-        ps.setLong(12,expiry);
-        ps.setString(13,signature);
+        ps.setObject(3,f.session());
+        ps.setObject(4,f.branch());
+        ps.setString(5,name);
+        ps.setString(6,"UNKNOWN");
+        ps.setNull(7,java.sql.Types.DATE);
+        ps.setString(8,"a".repeat(64));
+        ps.setString(9,"b".repeat(64));
+        ps.setString(10,mrn);
+        ps.setInt(11,keyId);
+        ps.setObject(12,nonce);
+        ps.setLong(13,expiry);
+        ps.setString(14,signature);
         return ps;
     }
 
@@ -453,7 +462,7 @@ class SyntheticRegistrationIntegrationTests {
         long expiry=java.time.Instant.now().plusSeconds(30).getEpochSecond();
         UUID nonce=UUID.randomUUID();
         String signature=SyntheticRegistrationProof.sign(second,2,
-                f.tenant(),f.member(),f.branch(),name,"UNKNOWN",null,
+                f.tenant(),f.member(),f.session(),f.branch(),name,"UNKNOWN",null,
                 "a".repeat(64),"b".repeat(64),mrn,nonce,expiry);
         try(Connection connection=DriverManager.getConnection(postgres.getJdbcUrl(),
                 "aronexa_patient_runtime","only-for-ephemeral-patient-role")) {
@@ -478,7 +487,7 @@ class SyntheticRegistrationIntegrationTests {
             UUID disabledNonce=UUID.randomUUID();
             String disabledName="Synthetic Retired Key";
             String disabledSig=SyntheticRegistrationProof.sign(second,2,
-                    f.tenant(),f.member(),f.branch(),disabledName,"UNKNOWN",null,
+                    f.tenant(),f.member(),f.session(),f.branch(),disabledName,"UNKNOWN",null,
                     "a".repeat(64),"b".repeat(64),"PAT-0123456789AC",disabledNonce,expiry);
             connection.setAutoCommit(false);
             bindSqlRoleContext(connection,f);
@@ -525,6 +534,67 @@ class SyntheticRegistrationIntegrationTests {
         assertThat(admin.queryForObject(
                 "SELECT count(*) FROM public.patient_registration_proof_nonce WHERE tenant_id=?",
                 Integer.class,f.tenant())).isEqualTo(1);
+    }
+
+    @Test void revokedOrExpiredSessionIsDeniedAtDatabaseBoundary() {
+        Fixture revoked=fixture(); as(revoked,revoked.member(),false,"PATIENT_REGISTER");
+        admin.update("UPDATE auth_session SET revoked_at=clock_timestamp() WHERE id=?",revoked.session());
+        assertThatThrownBy(() -> service.register(revoked.branch(),
+                intake("Synthetic Revoked After Authentication"),key()))
+                .isInstanceOf(AccessDeniedException.class);
+        assertThat(admin.queryForObject("SELECT count(*) FROM patient WHERE tenant_id=?",
+                Integer.class,revoked.tenant())).isZero();
+
+        Fixture expired=fixture(); as(expired,expired.member(),false,"PATIENT_REGISTER");
+        admin.update("UPDATE auth_session SET issued_at=now()-interval '2 hours', expires_at=now()-interval '1 hour' WHERE id=?",
+                expired.session());
+        assertThatThrownBy(() -> service.register(expired.branch(),
+                intake("Synthetic Expired After Authentication"),key()))
+                .isInstanceOf(AccessDeniedException.class);
+        assertThat(admin.queryForObject("SELECT count(*) FROM patient WHERE tenant_id=?",
+                Integer.class,expired.tenant())).isZero();
+    }
+
+    @Test void mrnCollisionRollsBackThenRetriesWithFreshTransactionAndProof() {
+        Fixture f=fixture(); as(f,f.member(),false,"PATIENT_REGISTER");
+        var initial=service.register(f.branch(),intake("Synthetic First MRN Owner"),key());
+        var calls=new java.util.concurrent.atomic.AtomicInteger();
+        var recovered=service.registerWithSyntheticMrnSource(
+                f.branch(),intake("Synthetic MRN Recovered"),key(),() ->
+                        calls.getAndIncrement()==0?initial.mrn():
+                        PatientRegistrationRules.generateMrn(new SecureRandom()));
+        assertThat(calls.get()).isEqualTo(2);
+        assertThat(recovered.patientId()).isNotEqualTo(initial.patientId());
+        assertThat(recovered.mrn()).isNotEqualTo(initial.mrn());
+        assertThat(admin.queryForObject("SELECT count(*) FROM patient WHERE tenant_id=?",
+                Integer.class,f.tenant())).isEqualTo(2);
+        assertThat(admin.queryForObject("SELECT count(*) FROM patient_identifier WHERE tenant_id=?",
+                Integer.class,f.tenant())).isEqualTo(2);
+        assertThat(admin.queryForObject("SELECT count(*) FROM patient_registration_write_audit WHERE tenant_id=?",
+                Integer.class,f.tenant())).isEqualTo(2);
+        assertThat(admin.queryForObject("SELECT count(*) FROM patient_registration_proof_nonce WHERE tenant_id=?",
+                Integer.class,f.tenant())).isEqualTo(2);
+    }
+
+    @Test void threeRepeatedMrnCollisionsFailClosedWithoutOrphanData() {
+        Fixture f=fixture(); as(f,f.member(),false,"PATIENT_REGISTER");
+        var initial=service.register(f.branch(),intake("Synthetic Original MRN"),key());
+        var calls=new java.util.concurrent.atomic.AtomicInteger();
+        assertThatThrownBy(() -> service.registerWithSyntheticMrnSource(
+                f.branch(),intake("Synthetic All Collisions"),key(),() -> {
+                    calls.incrementAndGet();
+                    return initial.mrn();
+                })).isInstanceOf(SyntheticRegistrationService.RegistrationRejected.class)
+                .hasMessage("REGISTRATION_UNAVAILABLE");
+        assertThat(calls.get()).isEqualTo(3);
+        for(String table:new String[] {
+                "patient","patient_identifier","patient_registration",
+                "patient_registration_write_audit","patient_registration_idempotency",
+                "patient_registration_proof_nonce"
+        }) {
+            assertThat(admin.queryForObject("SELECT count(*) FROM "+table+" WHERE tenant_id=?",
+                    Integer.class,f.tenant())).as("orphan data in "+table).isEqualTo(1);
+        }
     }
 
     @Test void missingContextCannotInvokeFunctionDirectly() throws Exception {
