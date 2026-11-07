@@ -52,6 +52,11 @@ GRANT SELECT (id, user_id, tenant_id, enabled)
     ON public.user_tenant_membership TO aronexa_registration_writer;
 GRANT SELECT (id, enabled, must_change_password)
     ON public.app_user TO aronexa_registration_writer;
+-- NOLOGIN function owner gets a minimal auth_session row-lock capability.
+-- FOR SHARE serializes registration with the auth runtime's UPDATE revoked_at
+-- (logout and password changes). The SQL LOGIN still gets none of this grant.
+GRANT SELECT (id,tenant_id,membership_id,revoked_at,expires_at),
+      UPDATE (revoked_at) ON public.auth_session TO aronexa_registration_writer;
 GRANT SELECT ON public.auth_membership_role, public.auth_role_permission
     TO aronexa_registration_writer;
 GRANT SELECT ON public.org_membership_branch_scope, public.tenant_module_state,
@@ -164,7 +169,7 @@ GRANT INSERT ON public.patient_registration_write_audit
 -- pg_catalog and explicit public-qualified references avoid search-path hijacking.
 -- This is deliberately restricted to synthetic, staff-assisted CREATE_NEW only.
 CREATE FUNCTION public.aronexa_c2_register_patient(
-    p_tenant uuid,p_actor uuid,p_branch uuid,p_name text,p_precision text,p_dob date,
+    p_tenant uuid,p_actor uuid,p_session uuid,p_branch uuid,p_name text,p_precision text,p_dob date,
     p_key_hash text,p_payload_hash text,p_mrn text,
     p_key_id integer,p_nonce uuid,p_expires bigint,p_proof text)
 RETURNS TABLE (patient_id uuid, registration_id uuid, mrn text, replayed boolean)
@@ -184,10 +189,11 @@ DECLARE
   v_proof_secret bytea;
   v_proof_input text;
   v_now bigint;
+  v_constraint text;
 BEGIN
   v_tenant := public.aronexa_current_tenant_id();
   v_actor := public.aronexa_current_patient_membership();
-  IF v_tenant IS NULL OR v_actor IS NULL OR p_branch IS NULL
+  IF v_tenant IS NULL OR v_actor IS NULL OR p_session IS NULL OR p_branch IS NULL
     OR p_tenant IS DISTINCT FROM v_tenant OR p_actor IS DISTINCT FROM v_actor THEN
     RAISE EXCEPTION 'C2_ACCESS_DENIED';
   END IF;
@@ -218,7 +224,8 @@ BEGIN
      AND k.valid_until > clock_timestamp();
   IF v_proof_secret IS NULL THEN RAISE EXCEPTION 'C2_PROOF_DENIED'; END IF;
   v_proof_input := array_to_string(ARRAY[
-    'ARONEXA-C2-PROOF-V2',p_key_id::text,p_tenant::text,p_actor::text,p_branch::text,
+    'ARONEXA-C2-PROOF-V3',p_key_id::text,p_tenant::text,p_actor::text,
+    p_session::text,p_branch::text,
     encode(convert_to(p_name,'UTF8'),'hex'),p_precision,
     COALESCE(p_dob::text,'-'),p_key_hash,p_payload_hash,p_mrn,
     p_nonce::text,p_expires::text], chr(10));
@@ -226,6 +233,16 @@ BEGIN
       v_proof_secret,'sha256'),'hex') IS DISTINCT FROM p_proof THEN
     RAISE EXCEPTION 'C2_PROOF_DENIED';
   END IF;
+  -- Recheck the exact bearer session at SQL execution, not just at HTTP
+  -- filter entry. FOR SHARE prevents logout/password revocation UPDATE from
+  -- committing before this registration transaction completes. Conversely,
+  -- an already committed revocation is observed and denied. SQL LOGIN cannot
+  -- supply a different session ID without forging the signed proof.
+  PERFORM 1 FROM public.auth_session s
+    WHERE s.id=p_session AND s.tenant_id=v_tenant AND s.membership_id=v_actor
+      AND s.revoked_at IS NULL AND s.expires_at>clock_timestamp()
+    FOR SHARE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'C2_SESSION_REVOKED'; END IF;
   -- Verify actor, active role grants, branch, enabled module and entitlement.
   IF NOT EXISTS (
     SELECT 1 FROM public.user_tenant_membership m
@@ -286,8 +303,18 @@ BEGIN
   v_patient := gen_random_uuid(); v_registration := gen_random_uuid();
   INSERT INTO public.patient (id,tenant_id,display_name,birth_date_precision,date_of_birth)
     VALUES (v_patient,v_tenant,v_name,p_precision,p_dob);
-  INSERT INTO public.patient_identifier (id,tenant_id,patient_id,identifier_type,identifier_value)
-    VALUES (gen_random_uuid(),v_tenant,v_patient,'MRN',p_mrn);
+  -- Enforce a named MRN collision condition. Any unhandled UNIQUE failure
+  -- is propagated; application opens an entirely new transaction for retry.
+  BEGIN
+    INSERT INTO public.patient_identifier (id,tenant_id,patient_id,identifier_type,identifier_value)
+      VALUES (gen_random_uuid(),v_tenant,v_patient,'MRN',p_mrn);
+  EXCEPTION WHEN unique_violation THEN
+    GET STACKED DIAGNOSTICS v_constraint=CONSTRAINT_NAME;
+    IF v_constraint='uq_patient_identifier_value' THEN
+      RAISE EXCEPTION 'C2_MRN_COLLISION';
+    END IF;
+    RAISE;
+  END;
   INSERT INTO public.patient_registration
     (id,tenant_id,patient_id,branch_id,registration_source,
      registered_by_membership_id,idempotency_sha256)
@@ -304,10 +331,10 @@ END $$;
 -- PostgreSQL requires the new function owner to be CREATE-capable on the schema
 -- at transfer time. Grant temporarily and revoke immediately after ownership.
 GRANT CREATE ON SCHEMA public TO aronexa_registration_writer;
-ALTER FUNCTION public.aronexa_c2_register_patient(uuid,uuid,uuid,text,text,date,text,text,text,integer,uuid,bigint,text)
+ALTER FUNCTION public.aronexa_c2_register_patient(uuid,uuid,uuid,uuid,text,text,date,text,text,text,integer,uuid,bigint,text)
   OWNER TO aronexa_registration_writer;
 REVOKE CREATE ON SCHEMA public FROM aronexa_registration_writer;
 REVOKE ALL ON FUNCTION public.aronexa_c2_register_patient(
-    uuid,uuid,uuid,text,text,date,text,text,text,integer,uuid,bigint,text) FROM PUBLIC;
+    uuid,uuid,uuid,uuid,text,text,date,text,text,text,integer,uuid,bigint,text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.aronexa_c2_register_patient(
-    uuid,uuid,uuid,text,text,date,text,text,text,integer,uuid,bigint,text) TO aronexa_patient_runtime;
+    uuid,uuid,uuid,uuid,text,text,date,text,text,text,integer,uuid,bigint,text) TO aronexa_patient_runtime;
