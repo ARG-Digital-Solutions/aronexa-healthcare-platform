@@ -75,3 +75,22 @@ Phase 00: AI architecture/clinical/privacy requirements only. Phase 02: OPD note
 Task P01-T06 has owner-supplied passing original V6-to-V7 migration, Windows Preflight/Database/Verify/Tests and desktop scaffold review at main adc8e98096ff85e7866b66a4a58838d4b4bfc09c. Classification: INTERNAL_FOUNDATION only. Technical evidence reviewed; formal owner closure approval PENDING. This does not mark Phase 01 VERIFIED or OWNER_ACCEPTED; patient registration, appointments and reception workflows remain outside this task. P01-T07 requires separate approval.
 
 See [16-field closure review](P01_T06_CLOSURE_REVIEW_2026-11-04.md) and [curated evidence](evidence/P01_T06_20261104/EVIDENCE.md). Raw Windows archive collection remains pending; the private collector is scripts/Collect-P01-T06-ClosureEvidence.ps1. Historical planning sections above are preserved; this dated task update qualifies their evidence statements only for P01-T06.
+
+
+## 2026-11-07 proposed clinical EMR and mobile requirement allocation (review only)
+
+**Status: PROPOSED; no phase change, implementation authorization or customer release.** This supplements the existing 00–14 plan without renumbering or overriding the master contract. Full definitions and tests: [clinical EMR and mobile addendum](../requirements/CLINICAL_EMR_MOBILE_ADDENDUM_2026-11-07.md). Summary traceability: [TRACEABILITY.md](../requirements/TRACEABILITY.md).
+
+| Existing phase | Proposed additional scope / result | Gate or dependency |
+|---|---|---|
+| 01 | Reuse secure patient, guardian, identity and branch object foundation; no new clinical task in P01-T07 | Continue existing explicit P01-T07-B2 migration gates and authorization boundaries |
+| 02 | Patient 360 dashboard, longitudinal case sheets and treatments, optional patient photo, responsive doctor/mobile web UI; signing interface and versioned clinical document contracts | PAT-01, CLN-01, SEC-01/03, UX-01, FORM-01/02; clinician and negative authorization review |
+| 04 | Secure test-name/date indexed report uploads and retrieval, document metadata and versioned finalization/attestation workflows | DOC-01, SEC-EMR-01; file security, consent and clinical signature legal review |
+| 05 | Clinic-pilot evaluation of only finished and accepted Phase 02/04 subset, including mobile doctor usability | All customer-release security, clinical, restore, environment and explicit owner gates; not promised by this planning update |
+| 06/08 | Remote access deployment readiness for online SaaS/approved dedicated installations | No automatic public access, remote access to OFFLINE_STANDALONE, or offline sync |
+| 09 | IPD-linked partograph, OT/procedure documentation and discharge notes/cards with clinician approval and immutable records | Clinically validated templates, staff-role authorizations and Phase 09 admission/document infrastructure |
+| 10 | Link uploaded historical report records with structured investigation order/result lifecycle | LAB-01/02 and secure provenance/authorization |
+| 11 | Specialty IUI versus IVF/ICSI charts and monitoring timelines with existing traceability, consent and signed records | FER-01/02, specialist review and applicable ART/legal gate |
+| 13–14 | Native macOS and Android clients *last*, reusing approved business rules and mobile-ready APIs | Platform readiness and separate security/packaging acceptance; not Phase 02 native-app implementation |
+
+Business sequencing: P0 = EMR-360-01, EMR-HIST-01, EMR-RPT-01, MOB-CLN-01, MOB-REMOTE-01, SEC-EMR-01; P1 = EMR-PHOTO-01, DOC-SIGN-01, OBS-PARTO-01, IPD-DISCH-01, OT-NOTE-01, FER-CHART-01. P0/P1 labels are proposed priority only, not task authorization. All new requirements remain NOT IMPLEMENTED until independently verified. Do not advance a phase based on documentation alone.
