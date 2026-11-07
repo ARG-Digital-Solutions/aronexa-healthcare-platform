@@ -198,11 +198,27 @@ BEGIN
       OR p_mrn !~ '^PAT-[0-9A-HJKMNP-TV-Z]{12}$' THEN
     RAISE EXCEPTION 'C2_INVALID_INPUT';
   END IF;
-  -- Custom GUCs are spoofable; verify application proof over exact arguments.
+  -- Session GUCs are client-controllable. The HMAC binds exact verified
+  -- tenant, membership, branch, payload, MRN, nonce and short expiry.
   v_now := floor(extract(epoch FROM clock_timestamp()))::bigint;
   IF p_nonce IS NULL OR p_expires IS NULL OR p_expires <= v_now
       OR p_expires > v_now + 60 OR p_proof IS NULL
-      OR p_proof !~ '^[0-9a-f]{64}
+      OR p_proof !~ '^[0-9a-f]{64}$' THEN
+    RAISE EXCEPTION 'C2_PROOF_DENIED';
+  END IF;
+  SELECT k.secret INTO v_proof_secret
+    FROM public.patient_registration_proof_key k WHERE k.id=1;
+  IF v_proof_secret IS NULL THEN RAISE EXCEPTION 'C2_PROOF_DENIED'; END IF;
+  v_proof_input := array_to_string(ARRAY[
+    'ARONEXA-C2-PROOF-V1',p_tenant::text,p_actor::text,p_branch::text,
+    encode(convert_to(p_name,'UTF8'),'hex'),p_precision,
+    COALESCE(p_dob::text,'-'),p_key_hash,p_payload_hash,p_mrn,
+    p_nonce::text,p_expires::text], chr(10));
+  IF encode(public.hmac(convert_to(v_proof_input,'UTF8'),
+      v_proof_secret,'sha256'),'hex') IS DISTINCT FROM p_proof THEN
+    RAISE EXCEPTION 'C2_PROOF_DENIED';
+  END IF;
+  -- Verify actor, active role grants, branch, enabled module and entitlement.
   IF NOT EXISTS (
     SELECT 1 FROM public.user_tenant_membership m
     JOIN public.app_user u ON u.id=m.user_id
