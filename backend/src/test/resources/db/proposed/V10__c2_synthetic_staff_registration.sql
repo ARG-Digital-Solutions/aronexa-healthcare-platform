@@ -294,7 +294,7 @@ GRANT EXECUTE ON FUNCTION public.aronexa_c2_register_patient(
     'ARONEXA-C2-PROOF-V1',p_tenant::text,p_actor::text,p_branch::text,
     encode(convert_to(p_name,'UTF8'),'hex'),p_precision,
     COALESCE(p_dob::text,'-'),p_key_hash,p_payload_hash,p_mrn,
-    p_nonce::text,p_expires::text], E'\n');
+    p_nonce::text,p_expires::text], chr(10));
   IF encode(public.hmac(convert_to(v_proof_input,'UTF8'),
       v_proof_secret,'sha256'),'hex') IS DISTINCT FROM p_proof THEN
     RAISE EXCEPTION 'C2_PROOF_DENIED';
