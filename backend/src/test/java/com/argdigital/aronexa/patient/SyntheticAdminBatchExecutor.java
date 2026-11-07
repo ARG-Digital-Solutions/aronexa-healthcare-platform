@@ -42,7 +42,7 @@ final class SyntheticAdminBatchExecutor {
         Objects.requireNonNull(connections, "connections");
         Objects.requireNonNull(tenantIds, "tenantIds");
         Objects.requireNonNull(beforeCommit, "beforeCommit");
-        if (tenantIds.isEmpty() || tenantIds.contains(null)) {
+        if (tenantIds.isEmpty() || tenantIds.stream().anyMatch(Objects::isNull)) {
             throw new IllegalArgumentException("Synthetic tenant list must be nonempty and non-null");
         }
         List<UUID> ordered=tenantIds.stream().distinct().sorted().toList();
