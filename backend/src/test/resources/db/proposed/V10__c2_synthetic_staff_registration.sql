@@ -178,6 +178,10 @@ AS $c2_guard$
 BEGIN
   -- One key per tenant makes an earlier registration commit before revocation,
   -- or forces a later registration to observe the committed revocation.
+  -- C6 synthetic-only global-before-tenant ordering. This is deliberately
+  -- coarse and serializes unrelated tenants: NOT a production performance design.
+  PERFORM pg_catalog.pg_advisory_xact_lock(
+      pg_catalog.hashtextextended('ARONEXA-C2-AUTHZ-GLOBAL', 0));
   PERFORM pg_catalog.pg_advisory_xact_lock(
       pg_catalog.hashtextextended(
           'ARONEXA-C2-AUTHZ-TENANT:' || OLD.tenant_id::text, 0));
@@ -201,6 +205,29 @@ CREATE TRIGGER c2_tenant_module_revocation_guard
 CREATE TRIGGER c2_membership_disable_guard
     BEFORE UPDATE OR DELETE ON public.user_tenant_membership
     FOR EACH ROW EXECUTE FUNCTION public.aronexa_c2_authz_change_guard();
+
+-- C6: Global account-level and module catalog mutations lack a tenant_id.
+-- Share the global transaction advisory lock with registration and C5 guards.
+-- This proof-of-concept favors safe ordering over global throughput.
+CREATE FUNCTION public.aronexa_c2_global_authz_change_guard()
+RETURNS trigger LANGUAGE plpgsql VOLATILE
+SET search_path=pg_catalog,public,pg_temp
+AS $c2_global$
+BEGIN
+  PERFORM pg_catalog.pg_advisory_xact_lock(
+      pg_catalog.hashtextextended('ARONEXA-C2-AUTHZ-GLOBAL', 0));
+  IF TG_OP='DELETE' THEN RETURN OLD; END IF;
+  RETURN NEW;
+END
+$c2_global$;
+REVOKE ALL ON FUNCTION public.aronexa_c2_global_authz_change_guard() FROM PUBLIC;
+CREATE TRIGGER c2_app_user_authorization_guard
+  BEFORE UPDATE OF enabled,must_change_password OR DELETE ON public.app_user
+  FOR EACH ROW EXECUTE FUNCTION public.aronexa_c2_global_authz_change_guard();
+CREATE TRIGGER c2_module_registry_authorization_guard
+  BEFORE UPDATE OF implemented,released,requires_clinical_authorization
+       OR DELETE ON public.module_registry
+  FOR EACH ROW EXECUTE FUNCTION public.aronexa_c2_global_authz_change_guard();
 
 -- pg_catalog and explicit public-qualified references avoid search-path hijacking.
 -- This is deliberately restricted to synthetic, staff-assisted CREATE_NEW only.
@@ -269,6 +296,10 @@ BEGIN
       v_proof_secret,'sha256'),'hex') IS DISTINCT FROM p_proof THEN
     RAISE EXCEPTION 'C2_PROOF_DENIED';
   END IF;
+  -- C6: the same global guard must be taken FIRST, before the C5 tenant
+  -- guard, to serialize global account/catalog updates with registration.
+  PERFORM pg_catalog.pg_advisory_xact_lock(
+      pg_catalog.hashtextextended('ARONEXA-C2-AUTHZ-GLOBAL', 0));
   -- C5: acquire the tenant's authorization commit-order lock before all
   -- session/permission/branch/module reads; hold it through COMMIT/ROLLBACK.
   -- All covered revocation UPDATE/DELETE paths acquire this SAME lock in a
