@@ -150,3 +150,76 @@ jobs:
       - name: Audit npm lockfile without modifying dependencies
         working-directory: frontend
         run: npm audit --audit-level=high --registry=https://registry.npmjs.org/
+
+  # C2-S2-C11: read-only source SAST with pinned Semgrep Community Edition.
+  # Rules are fetched from Semgrep Registry; --metrics=off prevents telemetry.
+  # Source findings remain in ephemeral runner files; no SARIF uploads or keys.
+  static-security-analysis:
+    name: Static security analysis (Java and TypeScript)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned Semgrep Community Edition
+        run: python3 -m pip install --disable-pip-version-check "semgrep==1.184.0"
+      - name: Scan backend Java and frontend TypeScript without sending metrics
+        shell: bash
+        run: |
+          set -euo pipefail
+          report="$RUNNER_TEMP/aronexa-c11-semgrep.json"
+          set +e
+          semgrep scan \
+            --config p/security-audit \
+            --config p/owasp-top-ten \
+            --metrics=off \
+            --strict \
+            --error \
+            --json --output "$report" \
+            backend/src/main/java frontend/src
+          scan_exit=$?
+          set -e
+          python3 - "$report" "$scan_exit" <<'PY'
+          import json
+          import pathlib
+          import sys
+          report = pathlib.Path(sys.argv[1])
+          scan_exit = int(sys.argv[2])
+          if not report.is_file():
+              raise SystemExit("SAST_INCONCLUSIVE: Semgrep output missing")
+          try:
+              payload = json.loads(report.read_text(encoding="utf-8"))
+          except (ValueError, UnicodeError):
+              raise SystemExit("SAST_INCONCLUSIVE: Invalid Semgrep output")
+          scanned = payload.get("paths", {}).get("scanned", [])
+          java_paths = [p for p in scanned if p.endswith(".java")
+                        and p.startswith("backend/src/main/java/")]
+          frontend_paths = [p for p in scanned
+                            if p.endswith((".ts", ".tsx"))
+                            and p.startswith("frontend/src/")]
+          print(f"SAST_SCANNED_JAVA_FILES={len(java_paths)}")
+          print(f"SAST_SCANNED_TYPESCRIPT_FILES={len(frontend_paths)}")
+          findings = payload.get("results", [])
+          print(f"SAST_FINDINGS={len(findings)}")
+          for item in findings:
+              # Never print source-code excerpts, patient data or full JSON.
+              rule = str(item.get("check_id", "unknown")).replace("\n", " ")
+              severity = str(item.get("extra", {}).get("severity", "UNKNOWN"))
+              path = str(item.get("path", "unknown"))
+              line = item.get("start", {}).get("line", "?")
+              print(f"SAST_FINDING severity={severity} rule={rule} location={path}:{line}")
+          errors = payload.get("errors", [])
+          if errors:
+              print(f"SAST_SCANNER_ERRORS={len(errors)}")
+          if not java_paths or not frontend_paths:
+              raise SystemExit("SAST_INCONCLUSIVE: both Java and TS/TSX source coverage required")
+          if scan_exit != 0 or errors or findings:
+              raise SystemExit(f"SAST_BLOCKED: findings={len(findings)} scanner_exit={scan_exit} errors={len(errors)}")
+          print("SAST_GATE=PASS (covered sources, no rule matches)")
+          PY
