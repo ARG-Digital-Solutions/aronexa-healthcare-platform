@@ -19,20 +19,20 @@ Assess the **existing synthetic registration implementation** and challenge the 
 
 | Item | Exact source/evidence | Meaning |
 |---|---|---|
-| Last accepted C1 code+docs HEAD | \`8ee15b53b63879a16cd57f3a0d669dbdc8ae4f3a\` | Pre-review design baseline; do not substitute latest HEAD without checking diff |
+| Last accepted C1 code+docs HEAD | `8ee15b53b63879a16cd57f3a0d669dbdc8ae4f3a` | Pre-review design baseline; do not substitute latest HEAD without checking diff |
 | PR Quality Gate | [Run #42385701535](https://github.com/ARG-Digital-Solutions/aronexa-healthcare-platform/actions/runs/42385701535) | PASS backend, frontend, docs, secret/scope checks at baseline |
 | Fresh Dev Acceptance | [Run #42385701619](https://github.com/ARG-Digital-Solutions/aronexa-healthcare-platform/actions/runs/42385701619) | PASS normal dev startup at baseline (registration API remains gated) |
 | Backend test detail | [Run #42385640404](https://github.com/ARG-Digital-Solutions/aronexa-healthcare-platform/actions/runs/42385640404) | 124 tests / 0 failures / 0 errors / 0 skipped; includes 18 isolated synthetic integration tests |
 | Consent / C1 UI demo | [Draft PR #36](https://github.com/ARG-Digital-Solutions/aronexa-healthcare-platform/pull/36) | Independent synthetic UI; not connected to protected API |
 | Earlier migration HOLD | [Issue #31](https://github.com/ARG-Digital-Solutions/aronexa-healthcare-platform/issues/31) and [Draft PR #32](https://github.com/ARG-Digital-Solutions/aronexa-healthcare-platform/pull/32) | W3-E NO-GO / original W4 Apply BLOCKED |
 | S2-C1 security acceptance | [Issue #43](https://github.com/ARG-Digital-Solutions/aronexa-healthcare-platform/issues/43) | Lock-order test outcomes and outstanding limitations |
-| Proposed test-only schema | \`backend/src/test/resources/db/proposed/V10__c2_synthetic_staff_registration.sql\` | Not on production Flyway path and must stay there |
-| Auth implementation | \`backend/src/main/java/com/argdigital/aronexa/auth/AuthRepository.java\` | Bearer-session lookup and session revocation |
-| Auth API | \`backend/src/main/java/com/argdigital/aronexa/auth/AuthController.java\` | \`/auth/me\` uses DTO excluding internal session ID |
-| SQL caller | \`backend/src/main/java/com/argdigital/aronexa/patient/SyntheticRegistrationService.java\` | Short-lived proof, bounded MRN retry and transaction scope |
-| Proof cryptography | \`backend/src/main/java/com/argdigital/aronexa/patient/SyntheticRegistrationProof.java\` | V3 canonicalization and HMAC with signed key ID/session |
-| HTTP and throttle | \`SyntheticRegistrationController.java\`, \`SyntheticRegistrationThrottleConfiguration.java\` under patient package | Synthetic-only POST; single-JVM limiter |
-| Test harness | \`SyntheticRegistrationIntegrationTests.java\`, \`SyntheticRegistrationHttpAcceptanceTests.java\`, \`SyntheticRegistrationAttemptLimiterTests.java\` under backend tests | Synthetic SQL adversarial, HTTP and quota checks |
+| Proposed test-only schema | `backend/src/test/resources/db/proposed/V10__c2_synthetic_staff_registration.sql` | Not on production Flyway path and must stay there |
+| Auth implementation | `backend/src/main/java/com/argdigital/aronexa/auth/AuthRepository.java` | Bearer-session lookup and session revocation |
+| Auth API | `backend/src/main/java/com/argdigital/aronexa/auth/AuthController.java` | `/auth/me` uses DTO excluding internal session ID |
+| SQL caller | `backend/src/main/java/com/argdigital/aronexa/patient/SyntheticRegistrationService.java` | Short-lived proof, bounded MRN retry and transaction scope |
+| Proof cryptography | `backend/src/main/java/com/argdigital/aronexa/patient/SyntheticRegistrationProof.java` | V3 canonicalization and HMAC with signed key ID/session |
+| HTTP and throttle | `SyntheticRegistrationController.java`, `SyntheticRegistrationThrottleConfiguration.java` under patient package | Synthetic-only POST; single-JVM limiter |
+| Test harness | `SyntheticRegistrationIntegrationTests.java`, `SyntheticRegistrationHttpAcceptanceTests.java`, `SyntheticRegistrationAttemptLimiterTests.java` under backend tests | Synthetic SQL adversarial, HTTP and quota checks |
 
 **Evidence rule:** This packet is itself a *later documentation commit*. The source SHA/run IDs above prove the **previous application-code baseline**, not an independently approved production design. Attach the latest documentation CI run separately and verify that only documentation changed.
 
@@ -42,23 +42,23 @@ Preferred first step: inspect GitHub PR #38 and its successful Actions run; no l
 
 Suggested read-only or disposable commands from a clean checkout:
 
-\`\`\`powershell
+```powershell
 git status --short
 git rev-parse HEAD
 git diff --name-only main...HEAD
 mvn -f backend/pom.xml -B verify
-\`\`\`
+```
 
-The Maven verify command can create ephemeral Testcontainers databases, so run it **only inside the review machine's isolated Docker environment**. Do not run \`flyway migrate\`, \`flyway repair\`, Docker Compose pointed to original Windows services, or any destructive SQL against persistent data. Before reproducing, review the test profile and database property resolution to ensure no test can use a persistent database. Record the exact Docker/PostgreSQL/Java versions and CI run URL.
+The Maven verify command can create ephemeral Testcontainers databases, so run it **only inside the review machine's isolated Docker environment**. Do not run `flyway migrate`, `flyway repair`, Docker Compose pointed to original Windows services, or any destructive SQL against persistent data. Before reproducing, review the test profile and database property resolution to ensure no test can use a persistent database. Record the exact Docker/PostgreSQL/Java versions and CI run URL.
 
 ## 4. Adversarial security verification matrix
 
 | ID | Test/attacker scenario | Baseline evidence | Independent disposition required |
 |---|---|---|---|
-| REV-01 | Stolen \`aronexa_patient_runtime\` password + forged tenant/membership GUC without valid proof | PASS, synthetic Testcontainers | Review grants and cross-tenant proof verification |
+| REV-01 | Stolen `aronexa_patient_runtime` password + forged tenant/membership GUC without valid proof | PASS, synthetic Testcontainers | Review grants and cross-tenant proof verification |
 | REV-02 | Tampered name, branch, MRN, expiry, key ID or missing/expired/replayed nonce | PASS, synthetic | Re-run and inspect canonical serialization and time source |
 | REV-03 | Disabled/future/retired verifier key rejects otherwise valid signed request | PASS, synthetic | Confirm key custody and real rotation/rollback design |
-| REV-04 | SQL LOGIN attempts to SELECT proof key or nonce, or write identity tables | PASS in current tests | Review \`pg_roles\`, \`has_table_privilege\`, function \`EXECUTE\`, schema CREATE and RLS under all roles |
+| REV-04 | SQL LOGIN attempts to SELECT proof key or nonce, or write identity tables | PASS in current tests | Review `pg_roles`, `has_table_privilege`, function `EXECUTE`, schema CREATE and RLS under all roles |
 | REV-05 | Tenant, active staff, role permission, branch and module disabled | PASS, current synthetic negative tests | Test revocation *during* transaction; currently PENDING |
 | REV-06 | Session revoked after bearer authentication or expired before SQL gate | PASS, synthetic | Define expiry policy at transaction commit |
 | REV-07 | Registration-first/logout-second and logout-first/registration-second | PASS, bounded 2-connection lock tests | Multi-thread stress, deadlocks, cancellation, long transactions PENDING |
