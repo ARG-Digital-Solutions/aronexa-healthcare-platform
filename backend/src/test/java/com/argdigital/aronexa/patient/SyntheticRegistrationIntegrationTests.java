@@ -352,8 +352,9 @@ class SyntheticRegistrationIntegrationTests {
             connection.rollback();
             connection.setAutoCommit(false);bindSqlRoleContext(connection,f);
             long past=java.time.Instant.now().minusSeconds(20).getEpochSecond();
-            try(var ps=proofCall(connection,f,name,mrn,UUID.randomUUID(),past,
-                    syntheticProof(f,name,mrn,UUID.randomUUID(),past))) {
+            UUID expiredNonce=UUID.randomUUID();
+            try(var ps=proofCall(connection,f,name,mrn,expiredNonce,past,
+                    syntheticProof(f,name,mrn,expiredNonce,past))) {
                 assertThatThrownBy(ps::executeQuery)
                         .isInstanceOf(java.sql.SQLException.class)
                         .hasMessageContaining("C2_PROOF_DENIED");
