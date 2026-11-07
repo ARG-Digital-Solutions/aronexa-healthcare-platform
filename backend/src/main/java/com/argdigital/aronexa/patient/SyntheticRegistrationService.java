@@ -22,7 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
  * module release/entitlement and immutable actor audit.
  */
 @Service
-@Profile("c2-synthetic")
+@Profile("test & c2-synthetic & !dev & !prod")
 public class SyntheticRegistrationService {
     private final TenantAuthorization authorization;
     private final PatientSqlScope patientScope;
