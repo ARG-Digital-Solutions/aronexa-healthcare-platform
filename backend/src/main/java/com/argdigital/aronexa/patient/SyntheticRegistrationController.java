@@ -11,7 +11,7 @@ import org.springframework.web.bind.annotation.*;
 
 /** Test-profile-only contract. Does not ship an enabled patient route by default. */
 @RestController
-@Profile("c2-synthetic")
+@Profile("test & c2-synthetic & !dev & !prod")
 @RequestMapping("/api/v1/branches/{branchId}/patient-registrations")
 public class SyntheticRegistrationController {
     private final SyntheticRegistrationService service;
