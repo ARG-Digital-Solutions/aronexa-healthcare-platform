@@ -1,5 +1,7 @@
 # P01-T07-C2-S2-C2 — Independent Security Review Package
 
+> **Current review candidate has advanced beyond the historical C1/C8 tables below.** Start with the [C16 exact-head security gate/readiness matrix](P01_T07C2_S2C16_INDEPENDENT_REVIEW_READINESS_2026-11-08.md), then use this file's original REV-01–REV-18 procedures. Historical status entries and the claim that no SAST/SCA is configured are no longer current: C9–C15 added scanner and logging checks. **No REV case has yet been independently signed off.**
+
 **Project:** AroNexa patient registration, staff/receptionist workflow  
 **Date:** 2026-11-07 IST  
 **Classification:** REVIEW-READY DOCUMENTATION ONLY / NOT SECURITY-APPROVED / NOT CUSTOMER-READY  
