@@ -63,6 +63,7 @@ class SyntheticRegistrationHttpAcceptanceTests {
     @Autowired MockMvc mvc;
     @Autowired JdbcTemplate admin;
     @Autowired DataSource dataSource;
+    @Autowired org.springframework.core.env.Environment environment;
 
     record Staff(UUID tenant, UUID branch, UUID membership, UUID user, String token) {}
 
@@ -471,6 +472,74 @@ class SyntheticRegistrationHttpAcceptanceTests {
         // Only the JVM's captured stdout/stderr: NOT PostgreSQL log_statement,
         // JDBC bind tracing, reverse proxy logs, APM or crash diagnostics.
         assertThat(output.getAll()).doesNotContain(canary,f.token(),key);
+    }
+
+
+    /**
+     * C15 synthetic JDBC bind logging test:
+     * a) base application.yml pins the dangerous bind loggers at INFO;
+     * b) a prepared JdbcTemplate query must not expose a canary in memory;
+     * c) deliberately enabling TRACE *must* expose the canary to the isolated
+     *    in-memory ListAppender (positive control), proving test sensitivity.
+     *
+     * The appender is not attached to root, and logger additivity is disabled
+     * before TRACE. Restore the global logger in finally even on assertion
+     * failure. Never print a marker or captured log message in CI.
+     */
+    @Test void jdbcPreparedBindLogPolicyAndControlledTraceExposure() throws Exception {
+        assertThat(environment.getProperty(
+                "logging.level.org.springframework.jdbc.core.StatementCreatorUtils"))
+                .isEqualTo("INFO");
+        assertThat(environment.getProperty(
+                "logging.level.org.hibernate.orm.jdbc.bind"))
+                .isEqualTo("INFO");
+
+        org.slf4j.ILoggerFactory factory=org.slf4j.LoggerFactory.getILoggerFactory();
+        assertThat(factory).isInstanceOf(ch.qos.logback.classic.LoggerContext.class);
+        var logger=((ch.qos.logback.classic.LoggerContext)factory)
+                .getLogger("org.springframework.jdbc.core.StatementCreatorUtils");
+        var original=logger.getLevel();
+        boolean originalAdditive=logger.isAdditive();
+        var collected=new ch.qos.logback.core.read.ListAppender<
+                ch.qos.logback.classic.spi.ILoggingEvent>();
+        collected.start();
+        logger.addAppender(collected);
+        logger.setAdditive(false);
+        try {
+            String marker="C15SyntheticJdbcBoundValue"+
+                    UUID.randomUUID().toString().replace("-","");
+            assertThat(logger.isTraceEnabled())
+                    .as("Base policy must not expose JDBC bind parameters at TRACE")
+                    .isFalse();
+            assertThat(admin.queryForObject(
+                    "SELECT CAST(? AS varchar) AS c15_jdbc_bind_probe",
+                    String.class,marker)).isEqualTo(marker);
+            boolean leakedAtDefault=collected.list.stream()
+                    .anyMatch(event->event.getFormattedMessage().contains(marker));
+            assertThat(leakedAtDefault)
+                    .as("Synthetic bind marker must be absent at default INFO")
+                    .isFalse();
+
+            // Positive control to establish that this logger WOULD leak
+            // parameters under an unsafe TRACE override. Only the in-memory
+            // appender gets these events; no root/console appenders.
+            collected.list.clear();
+            logger.setLevel(ch.qos.logback.classic.Level.TRACE);
+            assertThat(admin.queryForObject(
+                    "SELECT CAST(? AS varchar) AS c15_jdbc_trace_probe",
+                    String.class,marker)).isEqualTo(marker);
+            boolean detectedAtTrace=collected.list.stream()
+                    .anyMatch(event->event.getFormattedMessage().contains(marker));
+            assertThat(detectedAtTrace)
+                    .as("C15 test positive control: TRACE would disclose bound values")
+                    .isTrue();
+        } finally {
+            logger.setLevel(original);
+            logger.setAdditive(originalAdditive);
+            logger.detachAppender(collected);
+            collected.stop();
+            collected.list.clear();
+        }
     }
 
 
