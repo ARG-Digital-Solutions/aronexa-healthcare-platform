@@ -1269,7 +1269,9 @@ class SyntheticRegistrationIntegrationTests {
             assertThat(meta.get(key)).as("C17 privilege: "+key).isEqualTo(false);
         }
         assertThat(meta.get("patient_can_execute")).isEqualTo(true);
-        assertThat(String.valueOf(meta.get("function_config")))
+        // PostgreSQL normalizes pg_proc.proconfig whitespace after commas.
+        // Compare identical schema-order semantics, not its pretty printing.
+        assertThat(String.valueOf(meta.get("function_config")).replace(" ", ""))
                 .contains("search_path=pg_catalog,public,pg_temp");
     }
 
