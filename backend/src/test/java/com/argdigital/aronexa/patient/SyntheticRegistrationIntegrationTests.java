@@ -1223,6 +1223,124 @@ class SyntheticRegistrationIntegrationTests {
         assertThat(tenantEntitlementUpdateAuditCount(a,b)).isZero();
     }
 
+
+    /** C17: inspect *effective PostgreSQL catalog state* in disposable V10,
+     * rather than assuming the migration's GRANT/REVOKE text did what it says. */
+    @Test void c17SecurityDefinerMetadataAndFunctionExecutionScopeAreRestricted() {
+        Integer overloads=admin.queryForObject("""
+                SELECT count(*) FROM pg_catalog.pg_proc p
+                JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
+                WHERE n.nspname='public' AND p.proname='aronexa_c2_register_patient'
+                  AND p.prokind='f'
+                """,Integer.class);
+        assertThat(overloads).isEqualTo(1);
+        var meta=admin.queryForMap("""
+                SELECT p.prosecdef AS definer,
+                       owner.rolname AS function_owner,
+                       owner.rolcanlogin AS owner_login,
+                       owner.rolsuper AS owner_super,
+                       owner.rolbypassrls AS owner_bypass,
+                       owner.rolcreatedb AS owner_createdb,
+                       owner.rolcreaterole AS owner_createrole,
+                       array_to_string(p.proconfig,',') AS function_config,
+                       pg_catalog.has_function_privilege(
+                         'aronexa_patient_runtime',p.oid,'EXECUTE') AS patient_can_execute,
+                       pg_catalog.has_function_privilege(
+                         'aronexa_auth_runtime',p.oid,'EXECUTE') AS auth_can_execute,
+                       pg_catalog.has_function_privilege(
+                         'aronexa_app_runtime',p.oid,'EXECUTE') AS app_can_execute,
+                       EXISTS (
+                         SELECT 1
+                         FROM pg_catalog.aclexplode(COALESCE(
+                           p.proacl,pg_catalog.acldefault('f',p.proowner))) grants
+                         WHERE grants.grantee=0 AND grants.privilege_type='EXECUTE'
+                       ) AS public_can_execute
+                FROM pg_catalog.pg_proc p
+                JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
+                JOIN pg_catalog.pg_roles owner ON owner.oid=p.proowner
+                WHERE n.nspname='public' AND p.proname='aronexa_c2_register_patient'
+                """);
+        assertThat(meta.get("definer")).isEqualTo(true);
+        assertThat(meta.get("function_owner")).isEqualTo("aronexa_registration_writer");
+        for(String key:new String[]{
+                "owner_login","owner_super","owner_bypass",
+                "owner_createdb","owner_createrole",
+                "auth_can_execute","app_can_execute","public_can_execute"}) {
+            assertThat(meta.get(key)).as("C17 privilege: "+key).isEqualTo(false);
+        }
+        assertThat(meta.get("patient_can_execute")).isEqualTo(true);
+        assertThat(String.valueOf(meta.get("function_config")))
+                .contains("search_path=pg_catalog,public,pg_temp");
+    }
+
+    @Test void c17SchemaAndSensitiveTableGrantsAreLeastPrivilege() {
+        for(String role:new String[]{
+                "aronexa_patient_runtime","aronexa_app_runtime",
+                "aronexa_auth_runtime","aronexa_registration_writer"}) {
+            assertThat(admin.queryForObject(
+                    "SELECT pg_catalog.has_schema_privilege(?::name,'public','CREATE')",
+                    Boolean.class,role)).as(role+" must lack public CREATE").isFalse();
+        }
+        assertThat(admin.queryForObject("""
+                SELECT pg_catalog.has_schema_privilege(
+                    'aronexa_registration_writer','public','USAGE')
+                """,Boolean.class)).isTrue();
+        assertThat(admin.queryForObject("""
+                SELECT pg_catalog.has_table_privilege(
+                    'aronexa_patient_runtime',
+                    'public.patient_registration_proof_key','SELECT')
+                """,Boolean.class)).isFalse();
+        assertThat(admin.queryForObject("""
+                SELECT pg_catalog.has_table_privilege(
+                    'aronexa_patient_runtime','public.patient','INSERT')
+                """,Boolean.class)).isFalse();
+        assertThat(admin.queryForObject("""
+                SELECT pg_catalog.has_function_privilege(
+                    'aronexa_patient_runtime',
+                    'public.aronexa_c2_authz_change_guard()'::regprocedure,'EXECUTE')
+                """,Boolean.class)).isFalse();
+        assertThat(admin.queryForObject("""
+                SELECT pg_catalog.has_function_privilege(
+                    'aronexa_patient_runtime',
+                    'public.aronexa_c2_global_authz_change_guard()'::regprocedure,
+                    'EXECUTE')
+                """,Boolean.class)).isFalse();
+    }
+
+    @Test void c17RuntimeRoleActuallyCannotCreateSchemaObjectsOrReadSigningKey()
+            throws Exception {
+        // Real restricted SQL principal and transactions, never an administrator.
+        // Failed statements abort only the disposable connection's transaction;
+        // rollback before running a second negative probe.
+        try(Connection restricted=DriverManager.getConnection(postgres.getJdbcUrl(),
+                "aronexa_patient_runtime","only-for-ephemeral-patient-role")) {
+            restricted.setAutoCommit(false);
+            try(Statement stmt=restricted.createStatement()) {
+                assertThatThrownBy(() -> stmt.execute(
+                        "CREATE TABLE public.c17_unprivileged_probe(id integer)"))
+                        .isInstanceOf(java.sql.SQLException.class)
+                        .matches(error->"42501".equals(
+                                ((java.sql.SQLException)error).getSQLState()));
+            } finally {
+                restricted.rollback();
+            }
+            try(Statement stmt=restricted.createStatement()) {
+                assertThatThrownBy(() -> stmt.executeQuery(
+                        "SELECT secret FROM public.patient_registration_proof_key"))
+                        .isInstanceOf(java.sql.SQLException.class)
+                        .matches(error->"42501".equals(
+                                ((java.sql.SQLException)error).getSQLState()));
+            } finally {
+                restricted.rollback();
+            }
+        }
+        assertThat(admin.queryForObject("""
+                SELECT count(*) FROM pg_catalog.pg_class rel
+                 JOIN pg_catalog.pg_namespace ns ON ns.oid=rel.relnamespace
+                WHERE ns.nspname='public' AND rel.relname='c17_unprivileged_probe'
+                """,Integer.class)).isZero();
+    }
+
     @Test void missingContextCannotInvokeFunctionDirectly() throws Exception {
         Fixture f=fixture();
         UUID nonce=UUID.randomUUID();
