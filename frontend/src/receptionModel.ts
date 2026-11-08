@@ -11,9 +11,16 @@ export const seedPatients: DemoPatient[] = [
   {id:"DEMO-0004",name:"Aarav Patil",dob:"2015-08-09",phone:"9000000004",branch:DEMO_BRANCH,status:"Registered",time:"09:30"}
 ];
 export const blankIntake = (): Intake => ({name:"",precision:"UNKNOWN",dob:"",phone:""});
-export function validateIntake(v:Intake, today=new Date().toISOString().slice(0,10)): Record<string,string> {
+export function localCalendarDate(now=new Date()):string {
+  return `${String(now.getFullYear()).padStart(4,"0")}-${String(now.getMonth()+1).padStart(2,"0")}-${String(now.getDate()).padStart(2,"0")}`;
+}
+export function normalizeIntake(v:Intake):Intake {
+  return {...v,name:v.name.trim().replace(/\s+/g," "),phone:v.phone.trim()};
+}
+export function validateIntake(input:Intake, today=localCalendarDate()): Record<string,string> {
+  const v=normalizeIntake(input);
   const errors:Record<string,string> = {};
-  const name=v.name.trim().replace(/\s+/g," ");
+  const name=v.name;
   if(name.length<2 || name.length>100 || !/[\p{L}]/u.test(name) || /[<>]/.test(name)) errors.name="Enter a valid patient name (2–100 characters).";
   if(v.precision==="FULL") {
     if(!/^\d{4}-\d{2}-\d{2}$/.test(v.dob) || Number.isNaN(Date.parse(v.dob)) || new Date(v.dob).toISOString().slice(0,10)!==v.dob || v.dob>today) errors.dob="Enter a valid date of birth that is not in the future.";
@@ -23,12 +30,14 @@ export function validateIntake(v:Intake, today=new Date().toISOString().slice(0,
 }
 const norm=(v:string)=>v.trim().replace(/\s+/g," ").toLocaleLowerCase("en-IN");
 export function candidateMatches(v:Intake, patients:DemoPatient[]):DemoPatient[] {
+  v=normalizeIntake(v);
   const query=norm(v.name);
   if(query.length<2) return [];
   return patients.filter(p=>norm(p.name)===query && (v.precision!=="FULL" || !v.dob || p.dob===v.dob)).slice(0,5);
 }
 export function maskPhone(phone:string):string {return phone ? "******"+phone.slice(-4) : "Not provided";}
 export function demoRegistration(v:Intake, ordinal:number, now="09:45"):DemoPatient {
+  v=normalizeIntake(v);
   if(Object.keys(validateIntake(v)).length) throw new Error("Invalid intake");
-  return {id:"DEMO-"+String(ordinal).padStart(4,"0"),name:v.name.trim().replace(/\s+/g," "),dob:v.precision==="FULL"?v.dob:"",phone:v.phone.trim(),branch:DEMO_BRANCH,status:"Registered",time:now};
+  return {id:"DEMO-"+String(ordinal).padStart(4,"0"),name:v.name,dob:v.precision==="FULL"?v.dob:"",phone:v.phone,branch:DEMO_BRANCH,status:"Registered",time:now};
 }
