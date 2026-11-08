@@ -24,8 +24,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @Testcontainers
 class SyntheticPostgresLogRedactionAcceptanceTests {
     @Container
-    static PostgreSQLContainer<?> postgres =
-            new PostgreSQLContainer<>("postgres:17-alpine")
+    static PostgreSQLContainer postgres =
+            new PostgreSQLContainer("postgres:17-alpine")
                     .withDatabaseName("aronexa_c14_log_isolated")
                     .withUsername("aronexa_c14_log_isolated")
                     .withPassword("ephemeral-log-probe-only")
