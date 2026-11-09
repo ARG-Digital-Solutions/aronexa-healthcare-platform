@@ -1,0 +1,57 @@
+name: P01-T07-INT-R2-CI01 Frozen Frontend
+
+# Synthetic frontend acceptance only. Do not merge or deploy.
+# The branch and event filters restrict this job to the authorized draft review.
+on:
+  pull_request:
+    branches: [feature/p01-t07-appointments-demo-20261108]
+    types: [opened, synchronize, reopened]
+    paths:
+      - .github/workflows/p01-t07-int-r2-ci01-frontend.yml
+
+permissions:
+  contents: read
+
+jobs:
+  frozen-frontend-only:
+    name: Frozen PR 61 frontend (Node 22)
+    if: github.event.pull_request.head.ref == 'codex/p01-t07-int-r2-ci01-frontend-20261109'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact frozen PR 61 source
+        uses: actions/checkout@v4
+        with:
+          ref: 52809efbc077cd6abb6860d870cc487cc8eddc42
+          persist-credentials: false
+
+      - name: Assert pinned source and clean checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected='52809efbc077cd6abb6860d870cc487cc8eddc42'
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$expected"
+          test -z "$(git status --porcelain --untracked-files=no)"
+          echo "Frozen application SHA: $actual" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install locked frontend dependencies
+        working-directory: frontend
+        run: npm ci --no-audit --no-fund
+
+      - name: TypeScript and Vite build (includes Reception model tests)
+        working-directory: frontend
+        run: npm run build
+
+      - name: Run Reception model tests explicitly
+        working-directory: frontend
+        run: npm run test:reception
+
+      - name: Run Appointments model tests explicitly
+        working-directory: frontend
+        run: node --experimental-strip-types --test test/appointment-demo.test.mjs
