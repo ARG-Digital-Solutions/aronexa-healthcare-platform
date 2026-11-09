@@ -19,9 +19,8 @@ concurrency:
 jobs:
   dispatch-and-await:
     name: Await independently executed QA Central result
-    if: >-
-      github.event.pull_request.head.repo.full_name == github.repository &&
-      contains(join(github.event.pull_request.labels.*.name, ','), 'qa-plan:')
+    # Always run, even when no plan label exists: missing QA plan must FAIL,
+    # never appear as a successful skipped/required job.
     runs-on: ubuntu-latest
     timeout-minutes: 48
     steps:
@@ -30,11 +29,16 @@ jobs:
         shell: bash
         env:
           PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+          SOURCE_REPO: ${{ github.event.pull_request.head.repo.full_name }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           APP_SHA: ${{ github.event.pull_request.head.sha }}
           REQUEST_KEY: ${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           set -euo pipefail
+          test "$SOURCE_REPO" = "$GITHUB_REPOSITORY" || {
+            echo "External/fork PRs are not authorized for cross-repo QA dispatch" >&2
+            exit 1
+          }
           LABEL_COUNT=$(jq -r '[.[] | select(startswith("qa-plan:"))] | length' <<< "$PR_LABELS")
           test "$LABEL_COUNT" -eq 1 || { echo "Exactly one approved QA plan label is required" >&2; exit 1; }
           LABEL=$(jq -r '[.[] | select(startswith("qa-plan:"))][0]' <<< "$PR_LABELS")
