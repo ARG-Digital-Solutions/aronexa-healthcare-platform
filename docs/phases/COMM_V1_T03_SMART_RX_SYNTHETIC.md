@@ -45,3 +45,20 @@ Test attribution: local Node 22.16.0 model checks **23/23 PASS** on the correspo
 14. Customer UAT NOT RUN.
 15. INTERNAL_FOUNDATION / NOT_READY.
 16. READY FOR ISOLATED REVIEW ONLY; NOT READY FOR COMMERCIAL RELEASE.
+
+
+## Secure persistent integration contract — PROPOSED (not implemented)
+**Boundary and ownership:** A future `prescription` Modulith module owns prescription drafts, medications, ink/form attachments, finalized snapshots and amendment history. It references a canonical `patient_id`, `encounter_id` and assigned doctor from the approved core; it does not invent a second patient/doctor identity. All API requests bind tenant/branch/doctor identities from verified server-side session context, never from client-supplied authority values.
+
+**Proposed versioned operations (design only):**
+- `POST /api/v1/encounters/{encounterId}/prescriptions/drafts` — create versioned draft with idempotency key; must deny wrong tenant/branch/doctor/encounter/module. Only authenticated clinician with active encounter permission can write.
+- `PUT /api/v1/prescriptions/{draftId}` — validate entire structured medicine order server-side; require a version precondition (`If-Match` or equivalent) to prevent lost updates and return conflict on stale version; no auto-prescribing.
+- `PUT /api/v1/prescriptions/{draftId}/clinical-ink` — accept bounded normalized stroke payload with separate ink version/author; reject non-finite coordinates, oversized payloads and unauthorized users, retain a structured data/ink separation. File/PDF extraction disabled until validation.
+- `POST /api/v1/prescriptions/{draftId}/finalize` — **separate clinician-authenticated action**, clinical validation and approved signing mechanism; produce immutable server-generated finalized version, PDF snapshot where applicable and audit, with no silent updates. No preview/frontend field can finalize automatically.
+- `POST /api/v1/prescriptions/{finalizedId}/amendments` — controlled authorized amendment referencing immutable prior version with reason, actor and time; reject overwriting an original final.
+
+**Test acceptance before any production API:** Testcontainers PostgreSQL with least-privileged runtime role and RLS; deny cross-tenant/branch/doctor/patient/object, wrong module, suspended user, expired session, revoked permission, replayed idempotency keys with changed payload, stale version, forged author and direct SQL mutation. Verify transaction commit ordering, authorization-to-write race, immutable finalization, audit/PHI log redaction, malware/file validation where attachments are added, backup/restore of version chains, medication formatting and clinician UAT. Verified server authorization is mandatory even if the synthetic frontend role checks pass.
+
+**Integration dependencies:** Phase 01 real patient/encounter authorization and #45 security clearance before live registration-connected clinical workflow; Phase 02 encounter/Rx clinical review; Windows #31 original DB hold. Keep the current draft synthetic, non-prescribing and unmerged. The following remain **NOT IMPLEMENTED/NOT RUN**: all operations above, ink persistence/versioning, finalized signature/PDF and production tests.
+
+**Verification note:** local copies of the model/test logic were exercised with Node 22.16.0 and TypeScript strict checks; those executions were **not** an exact-PR-checkout CI test. GitHub four standard jobs on the PR head do not run this dedicated suite or build the separate Vite preview. These must be added to a verified test plan and rerun on an immutable source SHA before any merge or release.
