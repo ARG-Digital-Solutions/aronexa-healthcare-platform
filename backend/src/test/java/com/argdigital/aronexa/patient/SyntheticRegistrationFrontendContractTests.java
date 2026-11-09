@@ -195,7 +195,7 @@ class SyntheticRegistrationFrontendContractTests {
     }
 
     @Test
-    void versionedContractDocumentsExplicitFrontendMappingAndNoLiveActivation() {
+    void versionedContractDocumentsExplicitFrontendMappingAndNoLiveActivation() throws Exception {
         assertThat(contract.path("restrictions").path("testOnly").asBoolean()).isTrue();
         assertThat(contract.path("restrictions").path("frontendConnected").asBoolean()).isFalse();
         assertThat(contract.path("restrictions").path("productionEnabled").asBoolean()).isFalse();
