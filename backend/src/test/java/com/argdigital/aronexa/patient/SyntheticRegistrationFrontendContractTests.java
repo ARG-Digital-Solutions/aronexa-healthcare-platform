@@ -1,12 +1,13 @@
 package com.argdigital.aronexa.patient;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.time.LocalDate;
+import java.time.format.DateTimeParseException;
 import java.util.Base64;
 import java.util.HexFormat;
 import java.util.UUID;
@@ -31,6 +32,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -66,7 +68,7 @@ class SyntheticRegistrationFrontendContractTests {
     @Autowired MockMvc mvc;
     @Autowired JdbcTemplate admin;
     @Autowired DataSource dataSource;
-    @Autowired ObjectMapper mapper;
+    @Autowired JsonMapper mapper;
     private JsonNode contract;
 
     record Staff(UUID tenant, UUID branch, String token) {}
@@ -136,8 +138,48 @@ class SyntheticRegistrationFrontendContractTests {
     private String url(UUID branch) {
         return "/api/v1/branches/" + branch + "/patient-registrations";
     }
-    private String body(JsonNode fixture) throws Exception {
-        return mapper.writeValueAsString(fixture.path("backend"));
+    /**
+     * Test-side translation of the frozen UI payload, NOT a production adapter.
+     * It refuses to silently discard nonempty phone input or manufacture branch IDs.
+     */
+    private String mappedFrontendBody(JsonNode fixture) throws Exception {
+        JsonNode front=fixture.path("frontend");
+        if (front.isMissingNode() || !front.isObject()) {
+            throw new IllegalArgumentException("Missing frontend fixture");
+        }
+        if (!front.path("phone").asText("").isBlank()) {
+            throw new IllegalArgumentException("Unsupported phone field; API activation blocked");
+        }
+        String name=front.path("name").asText("").strip().replaceAll("\\s+", " ");
+        if (name.length() < 2 || name.length() > 100
+                || name.codePoints().noneMatch(Character::isLetter)
+                || name.codePoints().anyMatch(c -> Character.isISOControl(c) || c == '<' || c == '>')) {
+            throw new IllegalArgumentException("Invalid frozen UI patient name");
+        }
+        String precision=front.path("precision").asText("");
+        String dob=front.path("dob").asText("");
+        var backend=mapper.createObjectNode();
+        backend.put("displayName",name);
+        if ("UNKNOWN".equals(precision)) {
+            if (!dob.isEmpty()) throw new IllegalArgumentException("Unknown birth date must be empty");
+            backend.put("birthDatePrecision","UNKNOWN");
+            backend.putNull("dateOfBirth");
+        } else if ("FULL".equals(precision)) {
+            if (!dob.matches("\\d{4}-\\d{2}-\\d{2}")) {
+                throw new IllegalArgumentException("Exact date must be ISO yyyy-MM-dd");
+            }
+            LocalDate date;
+            try { date=LocalDate.parse(dob); }
+            catch (DateTimeParseException e) {
+                throw new IllegalArgumentException("Invalid calendar date");
+            }
+            if (date.isAfter(LocalDate.now())) throw new IllegalArgumentException("Future birth date");
+            backend.put("birthDatePrecision","EXACT");
+            backend.put("dateOfBirth",dob);
+        } else {
+            throw new IllegalArgumentException("Unknown frontend birth precision");
+        }
+        return mapper.writeValueAsString(backend);
     }
     private JsonNode fixture(String id) {
         for (JsonNode item : contract.path("fixtures")) {
@@ -162,10 +204,12 @@ class SyntheticRegistrationFrontendContractTests {
         assertThat(unknown.path("frontend").path("precision").asText()).isEqualTo("UNKNOWN");
         assertThat(unknown.path("backend").path("birthDatePrecision").asText()).isEqualTo("UNKNOWN");
         assertThat(unknown.path("backend").path("dateOfBirth").isNull()).isTrue();
+        assertThat(mapper.readTree(mappedFrontendBody(unknown))).isEqualTo(unknown.path("backend"));
         assertThat(exact.path("frontend").path("precision").asText()).isEqualTo("FULL");
         assertThat(exact.path("backend").path("birthDatePrecision").asText()).isEqualTo("EXACT");
         assertThat(LocalDate.parse(exact.path("backend").path("dateOfBirth").asText()))
                 .isEqualTo(LocalDate.of(2001,4,12));
+        assertThat(mapper.readTree(mappedFrontendBody(exact))).isEqualTo(exact.path("backend"));
         assertThat(fixture("INTREG01-PHONE-BLOCK").path("expectedContract").asText())
                 .isEqualTo("BLOCK_UNSUPPORTED_PHONE");
         assertThat(fixture("INTREG01-PHONE-BLOCK").has("backend")).isFalse();
@@ -174,7 +218,7 @@ class SyntheticRegistrationFrontendContractTests {
     @Test
     void unknownPrecisionCreatesSafeReceiptReplaysAndNeverAutoMerges() throws Exception {
         Staff s=staff(true);
-        String body=body(fixture("INTREG01-UNKNOWN"));
+        String body=mappedFrontendBody(fixture("INTREG01-UNKNOWN"));
         String idempotency=key();
         var created=mvc.perform(request(s,s.branch(),idempotency,body))
                 .andExpect(status().isCreated())
@@ -203,7 +247,7 @@ class SyntheticRegistrationFrontendContractTests {
     @Test
     void exactBirthDateAndInvalidDateContractAreEnforced() throws Exception {
         Staff s=staff(true);
-        mvc.perform(request(s,s.branch(),key(),body(fixture("INTREG01-EXACT"))))
+        mvc.perform(request(s,s.branch(),key(),mappedFrontendBody(fixture("INTREG01-EXACT"))))
                 .andExpect(status().isCreated());
         String future="{\"displayName\":\"Synthetic Contract Future\","+
                 "\"birthDatePrecision\":\"EXACT\",\"dateOfBirth\":\"2099-01-01\"}";
@@ -218,7 +262,7 @@ class SyntheticRegistrationFrontendContractTests {
     @Test
     void contractDeniesMissingBearerWrongBranchAndMissingRoleWithoutWrites() throws Exception {
         Staff unprivileged=staff(false), authorized=staff(true);
-        String body=body(fixture("INTREG01-UNKNOWN"));
+        String body=mappedFrontendBody(fixture("INTREG01-UNKNOWN"));
         mvc.perform(post(url(authorized.branch())).header("Idempotency-Key",key())
                 .contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isUnauthorized());
@@ -238,6 +282,8 @@ class SyntheticRegistrationFrontendContractTests {
         JsonNode unsupported=fixture("INTREG01-PHONE-BLOCK");
         assertThat(unsupported.has("backend")).isFalse();
         assertThat(unsupported.path("frontend").path("phone").asText()).isNotEmpty();
+        assertThatThrownBy(() -> mappedFrontendBody(unsupported))
+                .isInstanceOf(IllegalArgumentException.class);
         // No API request is sent: mapping must block a phone-bearing frontend
         // intake rather than creating a record and silently dropping contact.
         assertThat(admin.queryForObject(
