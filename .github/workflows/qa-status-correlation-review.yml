@@ -1,0 +1,35 @@
+name: Review Exact QA Commit Status Correlation
+# Unprivileged, read-only CI for development-side QA receipt selection.
+# This does NOT dispatch QA, write commit statuses or authorize merging.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/central-qa-handoff.yml
+      - .github/workflows/qa-status-correlation-review.yml
+      - scripts/ci/test_qa_status_correlation.py
+
+permissions:
+  contents: read
+
+jobs:
+  exact-status-negative-tests:
+    name: Verify actual jq status selection fails closed
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify jq is available
+        run: jq --version
+      - name: Test exact request, state and context using production workflow jq
+        run: python3 scripts/ci/test_qa_status_correlation.py
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+      - name: Lint changed workflows without secrets
+        run: |
+          go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7 -shellcheck= \
+            .github/workflows/central-qa-handoff.yml \
+            .github/workflows/qa-status-correlation-review.yml
