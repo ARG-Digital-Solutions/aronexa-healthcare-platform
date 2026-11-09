@@ -1,0 +1,115 @@
+name: AroNexa - Central QA Handoff
+run-name: "Central QA handoff PR #${{ github.event.pull_request.number }}"
+
+# Trusted base-branch workflow. Never checks out or executes PR code.
+# Opt in to a registered QA plan with a single label: qa-plan:PLAN_ID
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
+
+permissions:
+  contents: read
+  pull-requests: read
+  statuses: read
+
+concurrency:
+  group: central-qa-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  dispatch-and-await:
+    name: Await independently executed QA Central result
+    # Always run, even when no plan label exists: missing QA plan must FAIL,
+    # never appear as a successful skipped/required job.
+    runs-on: ubuntu-latest
+    timeout-minutes: 48
+    steps:
+      - name: Verify exactly one registered-plan label and current source SHA
+        id: plan
+        shell: bash
+        env:
+          PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+          SOURCE_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          APP_SHA: ${{ github.event.pull_request.head.sha }}
+          REQUEST_KEY: ${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          test "$SOURCE_REPO" = "$GITHUB_REPOSITORY" || {
+            echo "External/fork PRs are not authorized for cross-repo QA dispatch" >&2
+            exit 1
+          }
+          LABEL_COUNT=$(jq -r '[.[] | select(startswith("qa-plan:"))] | length' <<< "$PR_LABELS")
+          test "$LABEL_COUNT" -eq 1 || { echo "Exactly one approved QA plan label is required" >&2; exit 1; }
+          LABEL=$(jq -r '[.[] | select(startswith("qa-plan:"))][0]' <<< "$PR_LABELS")
+          PLAN_ID=$(printf '%s' "$LABEL" | cut -d ':' -f 2-)
+          [[ "$PLAN_ID" =~ ^[A-Z][A-Z0-9_]{5,60}$ ]]
+          [[ "$APP_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]
+          [[ "$REQUEST_KEY" =~ ^[0-9]+-[0-9]+$ ]]
+          echo "plan_id=$PLAN_ID" >> "$GITHUB_OUTPUT"
+          echo "app_sha=$APP_SHA" >> "$GITHUB_OUTPUT"
+          echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "request_key=$REQUEST_KEY" >> "$GITHUB_OUTPUT"
+          echo "Current app SHA: $APP_SHA; QA plan: $PLAN_ID; no PR code checked out"
+      - name: Dispatch exact SHA to independent QA Central
+        shell: bash
+        env:
+          DISPATCH_TOKEN: ${{ secrets.ARONEXA_QA_DISPATCH_TOKEN }}
+          APP_REPO: ${{ github.repository }}
+          APP_SHA: ${{ steps.plan.outputs.app_sha }}
+          PR_NUMBER: ${{ steps.plan.outputs.pr_number }}
+          PLAN_ID: ${{ steps.plan.outputs.plan_id }}
+          REQUEST_KEY: ${{ steps.plan.outputs.request_key }}
+        run: |
+          set -euo pipefail
+          test -n "$DISPATCH_TOKEN" || { echo "Set ARONEXA_QA_DISPATCH_TOKEN in development repo Actions secrets" >&2; exit 1; }
+          jq -n \
+            --arg source_repository "$APP_REPO" \
+            --arg app_sha "$APP_SHA" \
+            --argjson pr_number "$PR_NUMBER" \
+            --arg plan_id "$PLAN_ID" \
+            --arg request_key "$REQUEST_KEY" \
+            '{event_type:"aronexa-qa-request",client_payload:{
+              source_repository:$source_repository,pr_number:$pr_number,
+              app_sha:$app_sha,plan_id:$plan_id,request_key:$request_key
+            }}' > /tmp/aronexa_qa_dispatch.json
+          curl --fail-with-body --silent --show-error \
+            --retry 2 --retry-delay 2 \
+            -H "Authorization: Bearer $DISPATCH_TOKEN" \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            -H 'Content-Type: application/json' \
+            --data-binary @/tmp/aronexa_qa_dispatch.json \
+            https://api.github.com/repos/ARG-Digital-Solutions/aronexa-qa-central/dispatches
+          echo "QA Central dispatch accepted; no QA PASS implied"
+      - name: Wait for matching QA status on this exact commit
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APP_SHA: ${{ steps.plan.outputs.app_sha }}
+          PLAN_ID: ${{ steps.plan.outputs.plan_id }}
+          REQUEST_KEY: ${{ steps.plan.outputs.request_key }}
+        run: |
+          set -euo pipefail
+          CONTEXT="aronexa/central-qa/$PLAN_ID"
+          for attempt in $(seq 1 110); do
+            STATUS_JSON=$(gh api "repos/$GITHUB_REPOSITORY/commits/$APP_SHA/statuses?per_page=100")
+            MATCH=$(jq -r --arg context "$CONTEXT" --arg request "$REQUEST_KEY" '
+              [.[] | select(.context == $context and ((.description // "") | contains($request)))] |
+              sort_by(.id) | last |
+              if . == null then "NOT_FOUND" else .state end
+            ' <<< "$STATUS_JSON")
+            if test "$MATCH" = "success"; then
+              echo "Central QA PASS for $APP_SHA (request $REQUEST_KEY)"
+              echo "Independent code review and release approval are still separate"
+              exit 0
+            fi
+            if test "$MATCH" = "failure" || test "$MATCH" = "error"; then
+              echo "Central QA FAILED for $APP_SHA (request $REQUEST_KEY)" >&2
+              exit 1
+            fi
+            sleep 20
+          done
+          echo "Timed out: exact-request QA status not received; fail closed" >&2
+          exit 1
