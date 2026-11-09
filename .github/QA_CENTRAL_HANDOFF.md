@@ -18,7 +18,7 @@
 - QA Central: review/merge central workflow + plan registry PR; configure `ARONEXA_SOURCE_READ_TOKEN` with read-only Contents on this private repo (already used for earlier manual CI) and `ARONEXA_DEV_STATUS_TOKEN` with **Commit statuses: write** on the product repo only.
 - Development repo: review/merge this workflow-only PR; create the `ARONEXA_QA_DISPATCH_TOKEN` secret with **Contents: write** on **QA Central only**, never on product code.
 - Turn on GitHub Actions for both repositories; allow the QA Central controller job to dispatch its own workflow via limited `GITHUB_TOKEN` `actions:write`. The code compiles in the unprivileged *child* QA workflow, not in dispatch/report jobs.
-- Attach one reviewed QA plan label to each intended PR. Missing label intentionally skips dispatch and must not be mistaken for approval; enforce a process requiring a plan before eligible code proceeds.
+- Attach one reviewed QA plan label to each intended PR. Missing QA plan labels and fork PRs explicitly **FAIL the handoff job** instead of producing misleading skipped-success checks. This may block previously unlabeled internal PRs after activation; assign reviewed plans before proceeding.
 - If branch protection/required status checks are available, require the relevant QA handoff check for eligible PRs. Some rulesets for private repositories may require a GitHub plan upgrade; no protection settings are changed by these PRs.
 
 ## Current registration checkpoint
