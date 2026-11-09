@@ -1,0 +1,176 @@
+{
+  "task": "P01-T07-INT-REG-01",
+  "schemaVersion": "1.0.0",
+  "classification": "INTERNAL_FOUNDATION/NOT_READY",
+  "baselines": {
+    "backend": "cfdb03c631c2ed6df687b71d68fcc890a1eb9cc4",
+    "frontendReadOnly": "52809efbc077cd6abb6860d870cc487cc8eddc42"
+  },
+  "route": {
+    "method": "POST",
+    "path": "/api/v1/branches/{branchId}/patient-registrations",
+    "profile": "test & c2-synthetic & !dev & !prod",
+    "contentType": "application/json",
+    "headers": [
+      "Authorization: Bearer <opaque session token>",
+      "Idempotency-Key: <20-128 high-entropy URL-safe characters>"
+    ]
+  },
+  "frontendToBackend": [
+    {
+      "frontend": "name",
+      "backend": "displayName",
+      "behavior": "trim and normalize whitespace; cap at 100 characters (UI limit)"
+    },
+    {
+      "frontend": "precision=UNKNOWN; dob empty",
+      "backend": "birthDatePrecision=UNKNOWN; dateOfBirth=null",
+      "behavior": "Do not send empty string for date"
+    },
+    {
+      "frontend": "precision=FULL; dob ISO yyyy-MM-dd",
+      "backend": "birthDatePrecision=EXACT; dateOfBirth=ISO yyyy-MM-dd",
+      "behavior": "Validate calendar date and reject future date"
+    },
+    {
+      "frontend": "phone",
+      "backend": null,
+      "behavior": "UNSUPPORTED: do not send or persist; nonempty input blocks future API activation pending separate authorization"
+    },
+    {
+      "frontend": "DEMO-xxxx display ID",
+      "backend": null,
+      "behavior": "UI demo ID is not backend MRN; no ID translation until separately approved"
+    },
+    {
+      "frontend": "branch display label",
+      "backend": "branchId URL UUID",
+      "behavior": "Never infer a real UUID from synthetic branch label; obtain server-authorized context separately"
+    }
+  ],
+  "unsupported": [
+    "Secure duplicate-candidate retrieval",
+    "Phone persistence and consent workflow",
+    "Patient search and detail retrieval",
+    "ESTIMATED precision translation from this UI",
+    "Clinical or production API activation"
+  ],
+  "success": {
+    "created": {
+      "httpStatus": 201,
+      "fields": [
+        "patientId",
+        "registrationId",
+        "mrn",
+        "replayed=false"
+      ]
+    },
+    "retry": {
+      "httpStatus": 200,
+      "fields": [
+        "patientId",
+        "registrationId",
+        "mrn",
+        "replayed=true"
+      ]
+    },
+    "note": "Receipt is safe but remains test-profile-only; no patient name or phone in response"
+  },
+  "errorCodes": [
+    {
+      "status": 400,
+      "code": "INVALID_REGISTRATION_REQUEST"
+    },
+    {
+      "status": 401,
+      "code": "AUTHENTICATION_REQUIRED",
+      "note": "HTTP code is authoritative; body may vary with security filter"
+    },
+    {
+      "status": 403,
+      "code": "REGISTRATION_DENIED",
+      "note": "HTTP code is authoritative; body may vary with security filter"
+    },
+    {
+      "status": 409,
+      "code": "IDEMPOTENCY_CONFLICT"
+    },
+    {
+      "status": 409,
+      "code": "DUPLICATE_REVIEW_REQUIRED"
+    },
+    {
+      "status": 413,
+      "code": "REGISTRATION_PAYLOAD_TOO_LARGE"
+    },
+    {
+      "status": 429,
+      "code": "REGISTRATION_RATE_LIMITED"
+    },
+    {
+      "status": 503,
+      "code": "REGISTRATION_UNAVAILABLE"
+    }
+  ],
+  "retry": "Retain the same random idempotency key and identical normalized payload on network retry. Never reuse a key with changed payload or between registration intentions.",
+  "fixtures": [
+    {
+      "id": "INTREG01-UNKNOWN",
+      "frontend": {
+        "name": "Synthetic Contract Unknown",
+        "precision": "UNKNOWN",
+        "dob": "",
+        "phone": ""
+      },
+      "backend": {
+        "displayName": "Synthetic Contract Unknown",
+        "birthDatePrecision": "UNKNOWN",
+        "dateOfBirth": null
+      },
+      "expectedHttp": 201
+    },
+    {
+      "id": "INTREG01-EXACT",
+      "frontend": {
+        "name": "Synthetic Contract Exact",
+        "precision": "FULL",
+        "dob": "2001-04-12",
+        "phone": ""
+      },
+      "backend": {
+        "displayName": "Synthetic Contract Exact",
+        "birthDatePrecision": "EXACT",
+        "dateOfBirth": "2001-04-12"
+      },
+      "expectedHttp": 201
+    },
+    {
+      "id": "INTREG01-PHONE-BLOCK",
+      "frontend": {
+        "name": "Synthetic Contract Phone",
+        "precision": "UNKNOWN",
+        "dob": "",
+        "phone": "9999999999"
+      },
+      "expectedContract": "BLOCK_UNSUPPORTED_PHONE"
+    },
+    {
+      "id": "INTREG01-FUTURE-DATE",
+      "frontend": {
+        "name": "Synthetic Contract Future",
+        "precision": "FULL",
+        "dob": "2099-01-01",
+        "phone": ""
+      },
+      "expectedHttp": 400
+    }
+  ],
+  "restrictions": {
+    "testOnly": true,
+    "productionEnabled": false,
+    "frontendConnected": false,
+    "patientDataAllowed": false,
+    "database": "fresh PostgreSQL Testcontainers only",
+    "noAutomaticIdentityMerge": true
+  }
+}
