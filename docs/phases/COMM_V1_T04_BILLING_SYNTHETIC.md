@@ -40,3 +40,21 @@
 14. Customer acceptance NOT RUN.
 15. INTERNAL_FOUNDATION / NOT_READY.
 16. READY FOR ISOLATED REVIEW; NOT READY FOR COMMERCIAL RELEASE.
+
+
+## Secure persistent finance integration contract — PROPOSED (not implemented)
+**Ownership:** A future `billing` Modulith module owns fee catalogue, invoice numbers/lines, payments/allocations, refunds and adjustments, immutable financial events and reporting projections. Each invoice references canonical patient/encounter/doctor/branch IDs; SaaS subscription invoices remain a separate platform commercial domain.
+
+**Proposed versioned operations (design only):**
+- `POST /api/v1/encounters/{encounterId}/invoices` — role-authorized creation, server-controlled tenant/branch, fee snapshot and stable server-generated identifier, idempotency key and unique invoice number within defined legal scope.
+- `POST /api/v1/invoices/{invoiceId}/payments` — precise positive integer paise (or decimal mapped once at API boundary), payment method/reference and server time; transactional idempotency and ledger balance constraint; avoid double collection on retries/concurrency.
+- `POST /api/v1/invoices/{invoiceId}/refunds` — separate refund authorization/policy, never edit or delete a posted payment; link to original source and limit cumulative refunds, audit reason, time and actor.
+- `GET /api/v1/reports/daily?date=YYYY-MM-DD&branchId=...` — server derives effective allowed branches from signed-in actor and entitlements; respond with reconciled billed, payments, refunds, net collections and outstanding balances using currency minor units. Date/time zone policy must be explicit (clinic's local date) and tested at day boundary.
+
+**Mandatory implementation constraints:** Versioned invoice/payment states; immutable append-only event/receipt provenance, concurrency-safe allocation, index/unique constraints for idempotency, correct decimal/rounding and tax/legal invoicing policy review; audit on corrections/refunds, no secrets/PHI in logs; correct offline reconciliation and restore. UI cannot authorize itself; implement server and PostgreSQL tenant/branch/role/object checks. User-entered price must be validated and compared to authorized fee catalogue/override permission.
+
+**Acceptance before integration/production:** Testcontainers transactional double-payment races, retry/replay/duplicate keys, cross-tenant/branch/doctor denials, invalid fee overrides, expired sessions, module-off, unauthorized refunds, rolled-back posting, safe crash/recovery, duplicate payment references, invoice->payment->refund balance reconciliation and exact daily reporting including midnight/time zone. Clinic cashier/owner UAT and clinical service billing sign-off. Only release after independent applicable privacy/security and backup/restore acceptance.
+
+**Integration dependencies:** stable encounter and registration authorization; Phase 03 finance; Windows-first offline continuity; parallel SaaS multi-tenant isolation; no #31 original database activity. Everything above is a proposal and remains **NOT IMPLEMENTED/NOT RUN**. All existing PR #36/#38/#45 holds continue.
+
+**Verification note:** a local reconstruction of the synthetic finance model and its Node test suite completed **21/21 PASS**, and strict TypeScript check passed, on 2026-11-10. This is NOT an exact checkout of this PR and cannot substitute for CI evidence. The standard frontend CI checks TypeScript but does not run the dedicated Node suite or Vite standalone preview build. Validate on exact GitHub head before considering any merge.
