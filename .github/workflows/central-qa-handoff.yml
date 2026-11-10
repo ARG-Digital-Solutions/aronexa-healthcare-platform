@@ -19,11 +19,11 @@ concurrency:
 jobs:
   dispatch-and-await:
     name: Await independently executed QA Central result
-    # An unlabelled GitHub-draft PR is not ready for independent QA.
-    # An explicitly labelled draft can still run early QA.
-    # Ready-for-review PRs always execute; missing/invalid plans FAIL CLOSED.
-    # The ready_for_review and unlabeled events re-evaluate the current gate.
-    if: github.event.pull_request.draft == false || contains(join(github.event.pull_request.labels.*.name, ','), 'qa-plan:')
+    # Draft PRs remain internal and are not independently QA-approved.
+    # Every ready-for-review PR MUST execute and FAIL CLOSED if its plan is
+    # missing, unknown or rejected. GitHub skipped is never a QA PASS.
+    # ready_for_review and label events re-evaluate the current gate.
+    if: github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     timeout-minutes: 48
     steps:
