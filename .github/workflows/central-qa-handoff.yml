@@ -5,7 +5,7 @@ run-name: "Central QA handoff PR #${{ github.event.pull_request.number }}"
 # Opt in to a registered QA plan with a single label: qa-plan:PLAN_ID
 on:
   pull_request_target:
-    types: [opened, synchronize, reopened, ready_for_review, labeled]
+    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft, labeled, unlabeled]
 
 permissions:
   contents: read
@@ -19,8 +19,11 @@ concurrency:
 jobs:
   dispatch-and-await:
     name: Await independently executed QA Central result
-    # Always run, even when no plan label exists: missing QA plan must FAIL,
-    # never appear as a successful skipped/required job.
+    # An unlabelled GitHub-draft PR is not ready for independent QA.
+    # An explicitly labelled draft can still run early QA.
+    # Ready-for-review PRs always execute; missing/invalid plans FAIL CLOSED.
+    # The ready_for_review and unlabeled events re-evaluate the current gate.
+    if: github.event.pull_request.draft == false || contains(join(github.event.pull_request.labels.*.name, ','), 'qa-plan:')
     runs-on: ubuntu-latest
     timeout-minutes: 48
     steps:
