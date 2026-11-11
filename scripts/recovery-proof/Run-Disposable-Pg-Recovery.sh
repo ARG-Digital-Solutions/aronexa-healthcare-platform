@@ -97,6 +97,9 @@ fi
 
 # Restore into a SECOND instance, never in place.
 docker cp "$TMP/restored.pgcustom" "$TARGET:/tmp/aronexa_synthetic.pgcustom"
+# docker cp writes as root. Allow only the disposable postgres service user.
+docker exec -u root "$TARGET" chown postgres:postgres /tmp/aronexa_synthetic.pgcustom
+docker exec -u root "$TARGET" chmod 0600 /tmp/aronexa_synthetic.pgcustom
 docker exec -u postgres "$TARGET" pg_restore --exit-on-error --no-owner --no-acl \
  -U postgres -d "$DB" /tmp/aronexa_synthetic.pgcustom >/dev/null
 rm -f -- "$TMP/restored.pgcustom"
