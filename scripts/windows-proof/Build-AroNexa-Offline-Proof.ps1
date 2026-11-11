@@ -22,7 +22,7 @@ foreach ($tool in @('java','mvn','jar','jpackage')) {
     }
 }
 $javaVersion = (& java --version | Select-Object -First 1).ToString()
-if ($javaVersion -notmatch '"21\.') {
+if ($javaVersion -notmatch '(?:^|\s)21\.') {
     throw "This proof requires JDK 21, received: $javaVersion"
 }
 
