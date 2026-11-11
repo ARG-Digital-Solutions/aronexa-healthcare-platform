@@ -11,3 +11,11 @@ server:
   port: 8080
 # No default database credentials or URL: a profile/container must explicitly
 # provide them. This deliberately fails closed outside configured environments.
+
+# C2-S2-C15: avoid recording clinical JDBC bind values in application logs.
+# TRACE on either category can expose patient identifiers, credentials or PHI.
+# Environment/system logging overrides and external monitoring require review.
+logging:
+  level:
+    org.springframework.jdbc.core.StatementCreatorUtils: INFO
+    org.hibernate.orm.jdbc.bind: INFO
