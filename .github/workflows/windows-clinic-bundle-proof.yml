@@ -1,0 +1,45 @@
+name: Windows Clinic Bundle App-Image Proof
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - 'scripts/windows-clinic/**'
+      - 'docs/phases/COMM_V1_T10_WINDOWS_CLINIC_BUNDLE.md'
+      - '.github/workflows/windows-clinic-bundle-proof.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  clinic-bundle:
+    name: Build and verify Spring Boot plus React in Windows app-image
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact PR source without saved credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Java 21 build tool and jpackage
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Node.js 22 build tool
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Package actual backend and React artifacts in disposable app image
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & "$env:GITHUB_WORKSPACE\scripts\windows-clinic\Build-Clinic-Bundle-Proof.ps1" -RepoPath $env:GITHUB_WORKSPACE
+      - name: State evidence limits
+        if: success()
+        shell: pwsh
+        run: |
+          Write-Host 'Proof only: actual Spring Boot JAR and compiled Vite assets packed with JDK21 runtime.'
+          Write-Host 'No clinic frontend functionality integrated, server or database started.'
+          Write-Host 'Not signed, not an MSI/EXE installer, not customer release.'
