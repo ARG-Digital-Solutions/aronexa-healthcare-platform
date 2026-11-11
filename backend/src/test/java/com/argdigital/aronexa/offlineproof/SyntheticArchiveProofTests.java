@@ -26,8 +26,8 @@ class SyntheticArchiveProofTests {
     @Test void encryptedFixtureRestoresByteForByte() throws Exception {
         Path source = input(), encrypted = temp.resolve("proof.enc"), restored = temp.resolve("restored.txt");
         SyntheticArchiveProof.encryptFixture(source, encrypted, secret());
-        assertThat(Files.readAllBytes(encrypted)).doesNotContainSequence(
-                "FICTIONAL VISIT".getBytes(StandardCharsets.UTF_8));
+        assertThat(new String(Files.readAllBytes(encrypted), StandardCharsets.ISO_8859_1))
+                .doesNotContain("FICTIONAL VISIT");
         SyntheticArchiveProof.restoreFixture(encrypted, restored, secret());
         assertThat(Files.readAllBytes(restored)).isEqualTo(Files.readAllBytes(source));
     }
