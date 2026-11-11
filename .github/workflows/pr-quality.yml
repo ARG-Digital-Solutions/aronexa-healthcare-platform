@@ -217,6 +217,16 @@ jobs:
           errors = payload.get("errors", [])
           if errors:
               print(f"SAST_SCANNER_ERRORS={len(errors)}")
+              # Only diagnostic metadata, no error messages or source snippets.
+              # Leave --strict and all scanner-error blocking intact.
+              for item in errors:
+                  error_type = str(item.get("type", "unknown")).replace("\\n", " ")[:100]
+                  error_level = str(item.get("level", "unknown")).replace("\\n", " ")[:35]
+                  spans = item.get("spans") or []
+                  span = spans[0] if spans and isinstance(spans[0], dict) else {}
+                  source = str(span.get("file", "unknown")).replace("\\n", " ")[:180]
+                  start = span.get("start") if isinstance(span.get("start"), dict) else {}
+                  print(f"SAST_SCANNER_DIAGNOSTIC type={error_type} level={error_level} file={source} line={start.get('line', '?')}")
           if not java_paths or not frontend_paths:
               raise SystemExit("SAST_INCONCLUSIVE: both Java and TS/TSX source coverage required")
           if scan_exit != 0 or errors or findings:
