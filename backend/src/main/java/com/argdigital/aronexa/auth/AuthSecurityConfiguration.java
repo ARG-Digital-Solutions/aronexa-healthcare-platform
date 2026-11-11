@@ -31,8 +31,19 @@ class AuthSecurityConfiguration {
                         .requestMatchers(HttpMethod.GET,"/api/v1/auth/me").authenticated()
                         .requestMatchers(HttpMethod.POST,"/api/v1/auth/logout","/api/v1/auth/password").authenticated()
                         .anyRequest().denyAll())
-                .exceptionHandling(e -> e.authenticationEntryPoint(
-                        (req,res,exc) -> res.sendError(401)))
+                // Sending servlet errors can redispatch /error without the
+                // original request's SecurityContext and rewrite an authenticated
+                // 403 denial as 401. Return explicit statuses with no error
+                // dispatch; the deny-all policy and bearer checks are unchanged.
+                .exceptionHandling(e -> e
+                        .authenticationEntryPoint((req,res,exc) -> {
+                            res.setStatus(401);
+                            res.setHeader("Cache-Control", "no-store");
+                        })
+                        .accessDeniedHandler((req,res,exc) -> {
+                            res.setStatus(403);
+                            res.setHeader("Cache-Control", "no-store");
+                        }))
                 .addFilterBefore(new BearerAuthenticationFilter(auth),
                         UsernamePasswordAuthenticationFilter.class)
                 .build();
