@@ -93,11 +93,26 @@ assert result.returncode == 0 and "Central QA deferred" in result.stdout, result
 assert "dispatch=false\n" in outputs, outputs
 assert "plan_id=" not in outputs, outputs
 
+# Missing QA Central cases must never generate a false-red development check
+# while the PR is draft. Even stale event labels do not authorize dispatch.
+for labels in ([], [plan_label], [plan_label, "qa-plan:OTHER_PLAN"]):
+    result, outputs = check_preflight("true", labels, live_labels=[])
+    assert result.returncode == 0, (labels, result)
+    assert "dispatch=false\n" in outputs, (labels, outputs)
+    assert "dispatch=true" not in outputs, (labels, outputs)
+
+# The live PR is authoritative. A ready event that raced with a conversion
+# back to draft is deferred (not tested), never dispatched or counted as PASS.
+for labels in ([], [plan_label]):
+    result, outputs = check_preflight("false", labels, live_draft=True, live_labels=[])
+    assert result.returncode == 0, (labels, result)
+    assert "dispatch=false\n" in outputs, (labels, outputs)
+    assert "dispatch=true" not in outputs, (labels, outputs)
+
 for draft, labels, opts in [
     ("null", [], {}),
     ("true", [], {"live_draft": False}),
     ("true", [], {"live_sha": "b" * 40}),
-    ("false", [], {"live_draft": True}),
     ("false", [], {"live_state": "closed"}),
     ("false", [], {}),
     ("false", [plan_label, "qa-plan:ANOTHER_PLAN"], {}),
@@ -111,7 +126,7 @@ assert result.returncode == 0, result
 assert "dispatch=true\n" in outputs, outputs
 assert "plan_id=P01_T07_INT_REG_01\n" in outputs, outputs
 assert f"request_key={REQUEST}\n" in outputs, outputs
-print("PASS: ten draft/ready preflight cases incl stale states and exact plan")
+print("PASS: draft and stale-ready QA deferral vs required ready-state failure")
 
 # Independently prove a missing or changed live QA plan never dispatches.
 for labels in ([], [plan_label, "qa-plan:UNAPPROVED_PLAN"]):

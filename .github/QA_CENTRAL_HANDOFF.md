@@ -18,8 +18,16 @@
 - QA Central: review/merge central workflow + plan registry PR; configure `ARONEXA_SOURCE_READ_TOKEN` with read-only Contents on this private repo (already used for earlier manual CI) and `ARONEXA_DEV_STATUS_TOKEN` with **Commit statuses: write** on the product repo only.
 - Development repo: review/merge this workflow-only PR; create the `ARONEXA_QA_DISPATCH_TOKEN` secret with **Contents: write** on **QA Central only**, never on product code.
 - Turn on GitHub Actions for both repositories; allow the QA Central controller job to dispatch its own workflow via limited `GITHUB_TOKEN` `actions:write`. The code compiles in the unprivileged *child* QA workflow, not in dispatch/report jobs.
-- Attach one reviewed QA plan label to each intended PR. Missing QA plan labels and fork PRs explicitly **FAIL the handoff job** instead of producing misleading skipped-success checks. This may block previously unlabeled internal PRs after activation; assign reviewed plans before proceeding.
+- **Draft PRs:** no QA plan label is required. The trusted handoff checks the current same-repository PR/SHA and returns **DEFERRED / NOT TESTED**, without dispatching QA Central. Even if a ready-for-review event races with conversion back to draft, current draft state must defer without a false missing-test failure. This is not independent QA acceptance.
+- **Ready-for-review PRs:** exactly one reviewed `qa-plan:<PLAN_ID>` label and a matching independent exact-SHA QA receipt remain mandatory. Missing or unregistered test cases, unavailable dispatcher/status, stale SHA, fork, or actual QA failure **block merge**; do not silently treat these as PASS. Application build/test jobs run separately and do not depend on QA Central coverage.
 - If branch protection/required status checks are available, require the relevant QA handoff check for eligible PRs. Some rulesets for private repositories may require a GitHub plan upgrade; no protection settings are changed by these PRs.
+
+## Diagnosing QA availability versus application test failures
+
+- A draft check that reports **DEFERRED / NOT TESTED** is expected and non-blocking for engineering iteration. It cannot authorize a merge or patient-data use.
+- For ready PRs, absent QA cases are a **coverage blocker**, not evidence that Java/React unit tests failed. Register/review the QA plan and re-run against the exact new source SHA before merging.
+- If **every** Actions job (including documentation/lint/application/QA) fails before any steps, the failure is not caused by missing QA cases. Inspect GitHub Actions service availability, organization/repository Actions policy, runner allocation, account spending/billing and GitHub check-run annotations. Do not bypass QA requirements or mark tests PASS.
+- Commit-status correlation and tests in `scripts/ci/test_qa_status_correlation.py` guard draft/ready transitions. CI runner failures cannot be repaired by workflow shell code that never executes.
 
 ## Current registration checkpoint
 
