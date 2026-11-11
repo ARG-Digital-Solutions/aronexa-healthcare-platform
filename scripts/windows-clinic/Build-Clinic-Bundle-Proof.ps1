@@ -55,19 +55,22 @@ try {
     Copy-Item -LiteralPath $backend -Destination (Join-Path $stage 'aronexa-backend.jar')
     Copy-Item -LiteralPath $dist -Destination $inputFrontend -Recurse
     $javacArgs = @('--release','21','-encoding','UTF-8','-d',$compiled,
-        (Join-Path $repo 'scripts\windows-clinic\ClinicBundleVerifier.java'))
+        (Join-Path $repo 'scripts\windows-clinic\ClinicBundleVerifier.java'),
+        (Join-Path $repo 'scripts\windows-clinic\ClinicLoopbackPreview.java'))
     & javac @javacArgs
     if ($LASTEXITCODE -ne 0) { throw 'Bundle verifier Java compile failed' }
     $verifyJar = Join-Path $stage 'aronexa-clinic-bundle-verifier.jar'
     $jarArgs = @('--create','--file',$verifyJar,'--main-class',
-        'ClinicBundleVerifier','-C',$compiled,'ClinicBundleVerifier.class')
+        'ClinicLoopbackPreview','-C',$compiled,'ClinicBundleVerifier.class',
+        '-C',$compiled,'ClinicLoopbackPreview.class')
     & jar @jarArgs
     if ($LASTEXITCODE -ne 0) { throw 'Verifier JAR build failed' }
-    & java -jar $verifyJar
+    & java -jar $verifyJar --selftest
     if ($LASTEXITCODE -ne 0) { throw 'Staged artifact verifier failed' }
     $packageArgs = @('--type','app-image','--name',$launcherName,
         '--input',$stage,'--main-jar','aronexa-clinic-bundle-verifier.jar',
-        '--main-class','ClinicBundleVerifier','--dest',$workspace,
+        '--main-class','ClinicLoopbackPreview','--dest',$workspace,
+        '--add-modules','jdk.httpserver',
         '--app-version','0.0.1','--win-console')
     & jpackage @packageArgs
     if ($LASTEXITCODE -ne 0) { throw 'Windows app-image packaging failed' }
@@ -75,12 +78,14 @@ try {
     if (-not (Test-Path -LiteralPath $launcher -PathType Leaf)) {
         throw 'Packaged Windows launcher missing'
     }
-    & $launcher
-    if ($LASTEXITCODE -ne 0) { throw 'Bundled-runtime Windows executable self-test failed' }
+    & $launcher --selftest
+    if ($LASTEXITCODE -ne 0) { throw 'Bundled-runtime Windows executable loopback self-test failed' }
     $hash = (Get-FileHash -LiteralPath $launcher -Algorithm SHA256).Hash
     Write-Host "PACKAGED CLINIC BUILD ARTIFACTS: PASS, Windows EXE SHA256 $hash"
     Write-Host 'No Spring Boot server started, no clinic Postgres, real patient or installer.'
     Write-Host 'Actual clinic UI on main is a foundation scaffold, NOT working OPD.'
+    Write-Host 'For disposable manual local browsing: run the EXE with --serve, then open its printed 127.0.0.1 URL.'
+    Write-Host 'Only static UI is served. No clinical API, authentication or database is available.'
     Write-Host 'THIS IS AN APP-IMAGE PROOF, NOT A CUSTOMER INSTALLER.'
 } finally {
     Pop-Location
