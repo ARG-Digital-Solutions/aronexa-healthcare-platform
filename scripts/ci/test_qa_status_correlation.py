@@ -60,8 +60,8 @@ def check_preflight(draft, labels, *, source_repo="example/product",
             "labels": [{"name": x} for x in live_labels],
         }
         mock_gh.write_text(
-            "#!/bin/sh\\n"
-            "printf '%s\\\\n' '" + json.dumps(payload) + "'\\n",
+            "#!/bin/sh\n"
+            "cat <<'MOCK_JSON'\n" + json.dumps(payload) + "\nMOCK_JSON\n",
             encoding="utf-8",
         )
         mock_gh.chmod(0o700)
