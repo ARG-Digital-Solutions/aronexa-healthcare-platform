@@ -98,7 +98,7 @@ assert "plan_id=" not in outputs, outputs
 for labels in ([], [plan_label], [plan_label, "qa-plan:OTHER_PLAN"]):
     result, outputs = check_preflight("true", labels, live_labels=[])
     assert result.returncode == 0, (labels, result)
-    assert "dispatch=false\\n" in outputs, (labels, outputs)
+    assert "dispatch=false\n" in outputs, (labels, outputs)
     assert "dispatch=true" not in outputs, (labels, outputs)
 
 # The live PR is authoritative. A ready event that raced with a conversion
@@ -106,7 +106,7 @@ for labels in ([], [plan_label], [plan_label, "qa-plan:OTHER_PLAN"]):
 for labels in ([], [plan_label]):
     result, outputs = check_preflight("false", labels, live_draft=True, live_labels=[])
     assert result.returncode == 0, (labels, result)
-    assert "dispatch=false\\n" in outputs, (labels, outputs)
+    assert "dispatch=false\n" in outputs, (labels, outputs)
     assert "dispatch=true" not in outputs, (labels, outputs)
 
 for draft, labels, opts in [
