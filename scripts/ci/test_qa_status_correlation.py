@@ -39,13 +39,38 @@ preflight, _ = steps.split("\n      - name: Dispatch exact SHA", 1)
 assert "PR_DRAFT: ${{ toJSON(github.event.pull_request.draft) }}" in preflight
 preflight_script = textwrap.dedent(preflight.split("        run: |\n", 1)[1])
 
-def check_preflight(draft, labels, *, source_repo="example/product"):
+def check_preflight(draft, labels, *, source_repo="example/product",
+                    live_draft=None, live_sha=None, live_labels=None, live_state="open"):
+    """Exercise the real production bash with a synthetic GitHub API response."""
     with TemporaryDirectory() as directory:
-        output = Path(directory) / "outputs"
+        temp = Path(directory)
+        output = temp / "outputs"
+        summary = temp / "summary"
+        mock_gh = temp / "gh"
+        if live_draft is None:
+            live_draft = draft == "true"
+        if live_sha is None:
+            live_sha = "a" * 40
+        if live_labels is None:
+            live_labels = labels
+        payload = {
+            "state": live_state,
+            "draft": live_draft,
+            "head": {"sha": live_sha, "repo": {"full_name": "example/product"}},
+            "labels": [{"name": x} for x in live_labels],
+        }
+        mock_gh.write_text(
+            "#!/bin/sh\\n"
+            "printf '%s\\\\n' '" + json.dumps(payload) + "'\\n",
+            encoding="utf-8",
+        )
+        mock_gh.chmod(0o700)
         result = subprocess.run(
             ["bash", "-c", preflight_script],
             env={
                 **os.environ,
+                "PATH": str(temp) + os.pathsep + os.environ["PATH"],
+                "GH_TOKEN": "synthetic-only",
                 "PR_DRAFT": draft,
                 "PR_LABELS": json.dumps(labels),
                 "SOURCE_REPO": source_repo,
@@ -54,6 +79,7 @@ def check_preflight(draft, labels, *, source_repo="example/product"):
                 "APP_SHA": "a" * 40,
                 "REQUEST_KEY": REQUEST,
                 "GITHUB_OUTPUT": str(output),
+                "GITHUB_STEP_SUMMARY": str(summary),
             },
             text=True,
             capture_output=True,
@@ -62,24 +88,43 @@ def check_preflight(draft, labels, *, source_repo="example/product"):
         return result, output.read_text(encoding="utf-8") if output.exists() else ""
 
 plan_label = "qa-plan:P01_T07_INT_REG_01"
-for draft in ("true", "null"):
-    result, outputs = check_preflight(draft, [plan_label])
-    assert result.returncode == 1 and "Central QA deferred" in result.stdout, result
-    assert not outputs, outputs
+result, outputs = check_preflight("true", [])
+assert result.returncode == 0 and "Central QA deferred" in result.stdout, result
+assert "dispatch=false\\n" in outputs, outputs
+assert "plan_id=" not in outputs, outputs
 
-for labels, source_repo in [
-    ([], "example/product"),
-    ([plan_label, "qa-plan:ANOTHER_PLAN"], "example/product"),
-    ([plan_label], "example/fork"),
+for draft, labels, opts in [
+    ("null", [], {}),
+    ("true", [], {"live_draft": False}),
+    ("true", [], {"live_sha": "b" * 40}),
+    ("false", [], {"live_draft": True}),
+    ("false", [], {"live_state": "closed"}),
+    ("false", [], {}),
+    ("false", [plan_label, "qa-plan:ANOTHER_PLAN"], {}),
+    ("false", [plan_label], {"source_repo": "example/fork"}),
 ]:
-    result, outputs = check_preflight("false", labels, source_repo=source_repo)
-    assert result.returncode != 0 and not outputs, result
+    result, outputs = check_preflight(draft, labels, **opts)
+    assert result.returncode != 0 and "dispatch=true" not in outputs, (result, outputs)
 
 result, outputs = check_preflight("false", [plan_label])
 assert result.returncode == 0, result
-assert "plan_id=P01_T07_INT_REG_01\n" in outputs, outputs
-assert f"request_key={REQUEST}\n" in outputs, outputs
-print("PASS: six draft and ready-for-review preflight cases")
+assert "dispatch=true\\n" in outputs, outputs
+assert "plan_id=P01_T07_INT_REG_01\\n" in outputs, outputs
+assert f"request_key={REQUEST}\\n" in outputs, outputs
+print("PASS: ten draft/ready preflight cases incl stale states and exact plan")
+
+# Independently prove a missing or changed live QA plan never dispatches.
+for labels in ([], [plan_label, "qa-plan:UNAPPROVED_PLAN"]):
+    result, outputs = check_preflight("false", [plan_label], live_labels=labels)
+    assert result.returncode != 0 and "dispatch=true" not in outputs, (result, outputs)
+print("PASS: live QA plan changes fail closed")
+
+# The dispatch and await steps must be gated on successful ready-state preflight.
+assert SOURCE.count("if: steps.plan.outputs.dispatch == 'true'") == 2
+assert "LIVE_PR=$(gh api" in SOURCE
+assert "PR_NUMBER: ${{ steps.plan.outputs.pr_number }}" in SOURCE
+assert "PR_DRAFT: ${{ toJSON(github.event.pull_request.draft) }}" in SOURCE
+print("PASS: draft blocks both privileged dispatch and result acceptance")
 
 def receipt(record_id, request=REQUEST, state="success", *, context=PLAN_CONTEXT,
             description=None):
