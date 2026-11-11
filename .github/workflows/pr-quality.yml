@@ -85,3 +85,152 @@ jobs:
         run: |
           npm ci --no-audit --no-fund
           npm run build
+
+  # C2-S2-C9: dependency metadata only. OSV queries public vulnerability
+  # services; no patient data or production credentials are supplied.
+  osv-dependency-review:
+    name: OSV dependency vulnerabilities (Maven and npm)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: backend/pom.xml
+      - name: Generate resolved Maven dependency SBOM (not application code)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mvn -B -f backend/pom.xml -DskipTests \
+            -Dcyclonedx.skipAttach=true \
+            org.cyclonedx:cyclonedx-maven-plugin:2.9.3:makeBom
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          bom = Path("backend/target/bom.json")
+          if not bom.is_file():
+              raise SystemExit("SCA_INCONCLUSIVE: resolved Maven SBOM missing")
+          components = json.loads(bom.read_text(encoding="utf-8")).get("components", [])
+          resolved = [item for item in components
+                      if item.get("version")
+                      and item.get("purl", "").startswith("pkg:maven/")]
+          print(f"RESOLVED_MAVEN_SBOM_COMPONENTS={len(resolved)}")
+          if len(resolved) < 20:
+              raise SystemExit("SCA_INCONCLUSIVE: too few resolved Maven dependencies")
+          PY
+      - name: Scan resolved Maven SBOM and npm lock using pinned OSV container
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            --mount "type=bind,source=${PWD},target=/src,readonly" \
+            ghcr.io/google/osv-scanner:v2.7.0@sha256:4f3b7e2c64b9d38a5febc5a7e4a3dfef1d1362f726dea7a2ef4762b46469fcd0 \
+            scan source \
+              --lockfile=/src/backend/target/bom.json \
+              --lockfile=/src/frontend/package-lock.json
+
+  npm-dependency-audit:
+    name: npm locked dependencies (high and critical)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Audit npm lockfile without modifying dependencies
+        working-directory: frontend
+        run: npm audit --audit-level=high --registry=https://registry.npmjs.org/
+
+  # C2-S2-C11: read-only source SAST with pinned Semgrep Community Edition.
+  # Rules are fetched from Semgrep Registry; --metrics=off prevents telemetry.
+  # Source findings remain in ephemeral runner files; no SARIF uploads or keys.
+  static-security-analysis:
+    name: Static security analysis (Java and TypeScript)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned Semgrep Community Edition
+        run: python3 -m pip install --disable-pip-version-check "semgrep==1.184.0"
+      - name: Scan backend Java and frontend TypeScript without sending metrics
+        shell: bash
+        run: |
+          set -euo pipefail
+          report="$RUNNER_TEMP/aronexa-c11-semgrep.json"
+          set +e
+          semgrep scan \
+            --config p/security-audit \
+            --config p/owasp-top-ten \
+            --metrics=off \
+            --strict \
+            --error \
+            --json --output "$report" \
+            backend/src/main/java frontend/src
+          scan_exit=$?
+          set -e
+          python3 - "$report" "$scan_exit" <<'PY'
+          import json
+          import pathlib
+          import sys
+          report = pathlib.Path(sys.argv[1])
+          scan_exit = int(sys.argv[2])
+          if not report.is_file():
+              raise SystemExit("SAST_INCONCLUSIVE: Semgrep output missing")
+          try:
+              payload = json.loads(report.read_text(encoding="utf-8"))
+          except (ValueError, UnicodeError):
+              raise SystemExit("SAST_INCONCLUSIVE: Invalid Semgrep output")
+          scanned = payload.get("paths", {}).get("scanned", [])
+          java_paths = [p for p in scanned if p.endswith(".java")
+                        and p.startswith("backend/src/main/java/")]
+          frontend_paths = [p for p in scanned
+                            if p.endswith((".ts", ".tsx"))
+                            and p.startswith("frontend/src/")]
+          print(f"SAST_SCANNED_JAVA_FILES={len(java_paths)}")
+          print(f"SAST_SCANNED_TYPESCRIPT_FILES={len(frontend_paths)}")
+          findings = payload.get("results", [])
+          print(f"SAST_FINDINGS={len(findings)}")
+          for item in findings:
+              # Never print source-code excerpts, patient data or full JSON.
+              rule = str(item.get("check_id", "unknown")).replace("\n", " ")
+              severity = str(item.get("extra", {}).get("severity", "UNKNOWN"))
+              path = str(item.get("path", "unknown"))
+              line = item.get("start", {}).get("line", "?")
+              print(f"SAST_FINDING severity={severity} rule={rule} location={path}:{line}")
+          errors = payload.get("errors", [])
+          if errors:
+              print(f"SAST_SCANNER_ERRORS={len(errors)}")
+              # Only diagnostic metadata, no error messages or source snippets.
+              # Leave --strict and all scanner-error blocking intact.
+              for item in errors:
+                  raw_type = item.get("type", "unknown")
+                  error_type = str(raw_type[0] if isinstance(raw_type, list) and raw_type else raw_type)[:70]
+                  error_level = str(item.get("level", "unknown"))[:35]
+                  spans = item.get("spans") or []
+                  span = spans[0] if spans and isinstance(spans[0], dict) else {}
+                  source = str(span.get("file", "unknown")).replace("\\n", " ")[:180]
+                  start = span.get("start") if isinstance(span.get("start"), dict) else {}
+                  print(f"SAST_SCANNER_DIAGNOSTIC type={error_type} level={error_level} file={source} line={start.get('line', '?')}")
+          if not java_paths or not frontend_paths:
+              raise SystemExit("SAST_INCONCLUSIVE: both Java and TS/TSX source coverage required")
+          if scan_exit != 0 or errors or findings:
+              raise SystemExit(f"SAST_BLOCKED: findings={len(findings)} scanner_exit={scan_exit} errors={len(errors)}")
+          print("SAST_GATE=PASS (covered sources, no rule matches)")
+          PY

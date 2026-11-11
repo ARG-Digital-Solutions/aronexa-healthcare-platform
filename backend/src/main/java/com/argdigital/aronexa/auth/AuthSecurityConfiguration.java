@@ -2,6 +2,8 @@ package com.argdigital.aronexa.auth;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.env.Environment;
+import org.springframework.core.env.Profiles;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
@@ -18,7 +20,8 @@ class AuthSecurityConfiguration {
     PasswordEncoder passwordEncoder() { return new BCryptPasswordEncoder(12); }
 
     @Bean
-    SecurityFilterChain securityFilterChain(HttpSecurity http, AuthService auth) throws Exception {
+    SecurityFilterChain securityFilterChain(HttpSecurity http, AuthService auth,
+                                            Environment environment) throws Exception {
         return http
                 .csrf(AbstractHttpConfigurer::disable)
                 .httpBasic(AbstractHttpConfigurer::disable)
@@ -30,9 +33,25 @@ class AuthSecurityConfiguration {
                         // Until P01-T05-C explicitly authorizes a resource, deny its HTTP route.
                         .requestMatchers(HttpMethod.GET,"/api/v1/auth/me").authenticated()
                         .requestMatchers(HttpMethod.POST,"/api/v1/auth/logout","/api/v1/auth/password").authenticated()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/branches/{branchId}/patient-registrations")
+                            .access((authn, request) -> new org.springframework.security.authorization.AuthorizationDecision(
+                                environment.acceptsProfiles(Profiles.of("test & c2-synthetic & !dev & !prod"))
+                                && authn.get().isAuthenticated()
+                                && authn.get().getPrincipal() instanceof AuthPrincipal))
                         .anyRequest().denyAll())
-                .exceptionHandling(e -> e.authenticationEntryPoint(
-                        (req,res,exc) -> res.sendError(401)))
+                // Sending servlet errors can redispatch /error without the
+                // original request's SecurityContext and rewrite an authenticated
+                // 403 denial as 401. Return explicit statuses with no error
+                // dispatch; the deny-all policy and bearer checks are unchanged.
+                .exceptionHandling(e -> e
+                        .authenticationEntryPoint((req,res,exc) -> {
+                            res.setStatus(401);
+                            res.setHeader("Cache-Control", "no-store");
+                        })
+                        .accessDeniedHandler((req,res,exc) -> {
+                            res.setStatus(403);
+                            res.setHeader("Cache-Control", "no-store");
+                        }))
                 .addFilterBefore(new BearerAuthenticationFilter(auth),
                         UsernamePasswordAuthenticationFilter.class)
                 .build();

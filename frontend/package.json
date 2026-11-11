@@ -5,8 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
-    "build": "tsc --noEmit && vite build",
-    "preview": "vite preview"
+    "build": "tsc --noEmit && vite build && npm test && npm run build:previews",
+    "test:reception": "node --experimental-strip-types --test test/reception-demo.test.mjs",
+    "preview": "vite preview",
+    "test": "node --experimental-strip-types --test test/*.test.mjs",
+    "build:previews": "vite build --config vite.consultation.config.ts && vite build --config vite.smart-rx.config.ts && vite build --config vite.billing.config.ts"
   },
   "dependencies": {
     "react": "19.2.0",

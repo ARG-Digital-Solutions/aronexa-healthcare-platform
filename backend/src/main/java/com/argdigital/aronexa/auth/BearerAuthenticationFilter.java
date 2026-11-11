@@ -33,7 +33,14 @@ final class BearerAuthenticationFilter extends OncePerRequestFilter {
                 // Forced password changes cannot be bypassed for future clinical routes.
                 if (principal.mustChangePassword() &&
                         !request.getRequestURI().substring(request.getContextPath().length()).startsWith("/api/v1/auth/")) {
-                    response.sendError(403); return;
+                    // sendError() dispatches to /error in embedded Tomcat. That
+                    // secondary dispatch can pass through Spring Security without
+                    // the first request's principal and rewrite 403 as 401.
+                    // The authenticated user is known, but must change their
+                    // password: deny here without delegating to /error.
+                    response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                    response.setHeader("Cache-Control", "no-store");
+                    return;
                 }
                 SecurityContextHolder.getContext().setAuthentication(
                         new UsernamePasswordAuthenticationToken(principal,null,
