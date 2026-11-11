@@ -229,6 +229,62 @@ class AppointmentPersistenceProofTests {
     }
 
     @Test
+    void reschedulePersistsNewSlotReleasesOldSlotAndRecordsExactRevisionAudit() {
+        Clinic f=seed();
+        UUID id=book(f);
+        LocalTime replacement=LocalTime.of(9,15);
+        assertThat(admin.update("""
+                UPDATE appointment_proof.appointment
+                   SET slot_start=?,revision=revision+1,updated_by_membership_id=?
+                 WHERE id=? AND revision=1 AND status='BOOKED'
+                """,replacement,f.receptionist(),id)).isOne();
+
+        assertThat(admin.queryForObject("""
+                SELECT slot_start FROM appointment_proof.appointment WHERE id=?
+                """,LocalTime.class,id)).isEqualTo(replacement);
+        assertThat(admin.queryForList("""
+                SELECT event_code FROM appointment_proof.event
+                 WHERE appointment_id=? ORDER BY revision
+                """,String.class,id)).containsExactly("BOOKED","RESCHEDULED");
+
+        // The moved-to slot remains occupied. The original is now free.
+        assertThatThrownBy(() -> book(f,f.doctor(),VISIT_DAY,replacement))
+                .isInstanceOf(DataAccessException.class);
+        UUID originalSlotNowFree=book(f);
+        assertThat(total(originalSlotNowFree)).isOne();
+
+        // A stale revision cannot overwrite a successfully rescheduled visit.
+        assertThat(admin.update("""
+                UPDATE appointment_proof.appointment
+                   SET slot_start=?,revision=revision+1,updated_by_membership_id=?
+                 WHERE id=? AND revision=1 AND status='BOOKED'
+                """,LocalTime.of(9,30),f.receptionist(),id)).isZero();
+        assertThat(events(id)).isEqualTo(2);
+    }
+
+    @Test
+    void rescheduleMustChangeSlotOrDoctorAndKeepSamePatient() {
+        Clinic f=seed();
+        UUID id=book(f);
+        assertThatThrownBy(() -> admin.update("""
+                UPDATE appointment_proof.appointment
+                   SET revision=revision+1,updated_by_membership_id=?
+                 WHERE id=? AND revision=1
+                """,f.receptionist(),id)).isInstanceOf(DataAccessException.class);
+        assertThatThrownBy(() -> admin.update("""
+                UPDATE appointment_proof.appointment
+                   SET patient_id=?,slot_start=?,revision=revision+1,
+                       updated_by_membership_id=?
+                 WHERE id=? AND revision=1
+                """,UUID.randomUUID(),LocalTime.of(9,15),f.receptionist(),id))
+                .isInstanceOf(DataAccessException.class);
+        assertThat(events(id)).isOne();
+        assertThat(admin.queryForObject("""
+                SELECT revision FROM appointment_proof.appointment WHERE id=?
+                """,Integer.class,id)).isEqualTo(1);
+    }
+
+    @Test
     void checkInIsTerminalAndDoctorSlotRemainsOccupied() {
         Clinic f=seed();
         UUID id=book(f);
