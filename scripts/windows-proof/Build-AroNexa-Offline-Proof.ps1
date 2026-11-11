@@ -21,7 +21,7 @@ foreach ($tool in @('java','mvn','jar','jpackage')) {
         throw "JDK 21 and Maven 3.9+ are required on the BUILD machine; missing $tool."
     }
 }
-$javaVersion = (& java -version 2>&1 | Select-Object -First 1).ToString()
+$javaVersion = (& java --version | Select-Object -First 1).ToString()
 if ($javaVersion -notmatch '"21\.') {
     throw "This proof requires JDK 21, received: $javaVersion"
 }
