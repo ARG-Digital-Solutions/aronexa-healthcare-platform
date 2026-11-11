@@ -1,0 +1,41 @@
+name: Windows Synthetic Offline App-Image Proof
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - 'backend/src/main/java/com/argdigital/aronexa/offlineproof/**'
+      - 'backend/src/test/java/com/argdigital/aronexa/offlineproof/**'
+      - 'scripts/windows-proof/**'
+      - 'docs/phases/COMM_V1_T09_WINDOWS_OFFLINE_PROOF.md'
+      - '.github/workflows/windows-offline-synthetic-proof.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  synthetic-jpackage:
+    name: Disposable Windows Java 21 app-image and crypto smoke
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact pull request source with no saved credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install Java 21 (build tool only)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Build synthetic app-image using Windows jpackage
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & "$env:GITHUB_WORKSPACE\scripts\windows-proof\Build-AroNexa-Offline-Proof.ps1" -RepoPath $env:GITHUB_WORKSPACE
+      - name: State exact evidence limit
+        shell: pwsh
+        run: |
+          Write-Host "Synthetic Java offline proof app-image built and self-checked on ephemeral Windows runner."
+          Write-Host "NO PostgreSQL, clinic app, customer installer, production license, original Windows DB, PHI, backup/restore, or deploy."
