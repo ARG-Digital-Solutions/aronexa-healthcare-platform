@@ -84,7 +84,9 @@ export const ACTORS: Readonly<Record<DemoRole, DemoActor>> = {
 };
 
 export function createJourney(context: SyntheticContext = FICTIONAL_CONTEXT): JourneyState {
-  if (!Object.values(context).every(value => typeof value === 'string' && /^SYN-[A-Z0-9-]{3,60}$/.test(value))) {
+  const keys: (keyof SyntheticContext)[] = ['tenantId', 'branchId', 'patientId', 'assignedDoctorId', 'encounterId'];
+  if (Object.keys(context).length !== keys.length ||
+    !keys.every(key => typeof context[key] === 'string' && /^SYN-[A-Z0-9-]{3,60}$/.test(context[key]))) {
     throw new Error('Only explicit synthetic context is supported.');
   }
   return { context: { ...context }, stage: 'INTAKE_REVIEW', revision: 0, history: [], syntheticOnly: true };
