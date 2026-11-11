@@ -90,7 +90,7 @@ def check_preflight(draft, labels, *, source_repo="example/product",
 plan_label = "qa-plan:P01_T07_INT_REG_01"
 result, outputs = check_preflight("true", [])
 assert result.returncode == 0 and "Central QA deferred" in result.stdout, result
-assert "dispatch=false\\n" in outputs, outputs
+assert "dispatch=false\n" in outputs, outputs
 assert "plan_id=" not in outputs, outputs
 
 for draft, labels, opts in [
@@ -108,9 +108,9 @@ for draft, labels, opts in [
 
 result, outputs = check_preflight("false", [plan_label])
 assert result.returncode == 0, result
-assert "dispatch=true\\n" in outputs, outputs
-assert "plan_id=P01_T07_INT_REG_01\\n" in outputs, outputs
-assert f"request_key={REQUEST}\\n" in outputs, outputs
+assert "dispatch=true\n" in outputs, outputs
+assert "plan_id=P01_T07_INT_REG_01\n" in outputs, outputs
+assert f"request_key={REQUEST}\n" in outputs, outputs
 print("PASS: ten draft/ready preflight cases incl stale states and exact plan")
 
 # Independently prove a missing or changed live QA plan never dispatches.
