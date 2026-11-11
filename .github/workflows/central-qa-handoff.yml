@@ -19,11 +19,8 @@ concurrency:
 jobs:
   dispatch-and-await:
     name: Await independently executed QA Central result
-    # Draft PRs remain internal and are not independently QA-approved.
-    # Every ready-for-review PR MUST execute and FAIL CLOSED if its plan is
-    # missing, unknown or rejected. GitHub skipped is never a QA PASS.
-    # ready_for_review and label events re-evaluate the current gate.
-    if: github.event.pull_request.draft == false
+    # Keep this job active so GitHub cannot count a skipped check as passing.
+    # Drafts stop in preflight before dispatch. Ready PRs require an exact QA receipt.
     runs-on: ubuntu-latest
     timeout-minutes: 48
     steps:
@@ -31,6 +28,7 @@ jobs:
         id: plan
         shell: bash
         env:
+          PR_DRAFT: ${{ toJSON(github.event.pull_request.draft) }}
           PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
           SOURCE_REPO: ${{ github.event.pull_request.head.repo.full_name }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -38,6 +36,10 @@ jobs:
           REQUEST_KEY: ${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           set -euo pipefail
+          if [[ "$PR_DRAFT" != false ]]; then
+            echo "::error title=Central QA deferred::Pull request is a draft or its state could not be confirmed. QA dispatch requires a ready-for-review pull request."
+            exit 1
+          fi
           test "$SOURCE_REPO" = "$GITHUB_REPOSITORY" || {
             echo "External/fork PRs are not authorized for cross-repo QA dispatch" >&2
             exit 1

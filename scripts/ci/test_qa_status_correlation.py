@@ -7,8 +7,11 @@ The filter is extracted from the workflow under test, not reimplemented here.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import subprocess
+from tempfile import TemporaryDirectory
+import textwrap
 
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE = (ROOT / ".github/workflows/central-qa-handoff.yml").read_text(encoding="utf-8")
@@ -26,6 +29,57 @@ assert 'if test "$MATCH" = "failure" || test "$MATCH" = "error"' in SOURCE, "Fai
 
 PLAN_CONTEXT = "aronexa/central-qa/P01_T07_INT_REG_01"
 REQUEST = "42595190272-2"
+
+
+# Execute the production preflight before any token-bearing step.
+job = SOURCE.split("  dispatch-and-await:\n", 1)[1]
+job_settings, steps = job.split("    steps:\n", 1)
+assert "\n    if:" not in job_settings, "A skipped required job can satisfy GitHub branch protection"
+preflight, _ = steps.split("\n      - name: Dispatch exact SHA", 1)
+assert "PR_DRAFT: ${{ toJSON(github.event.pull_request.draft) }}" in preflight
+preflight_script = textwrap.dedent(preflight.split("        run: |\n", 1)[1])
+
+def check_preflight(draft, labels, *, source_repo="example/product"):
+    with TemporaryDirectory() as directory:
+        output = Path(directory) / "outputs"
+        result = subprocess.run(
+            ["bash", "-c", preflight_script],
+            env={
+                **os.environ,
+                "PR_DRAFT": draft,
+                "PR_LABELS": json.dumps(labels),
+                "SOURCE_REPO": source_repo,
+                "GITHUB_REPOSITORY": "example/product",
+                "PR_NUMBER": "81",
+                "APP_SHA": "a" * 40,
+                "REQUEST_KEY": REQUEST,
+                "GITHUB_OUTPUT": str(output),
+            },
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        return result, output.read_text(encoding="utf-8") if output.exists() else ""
+
+plan_label = "qa-plan:P01_T07_INT_REG_01"
+for draft in ("true", "null"):
+    result, outputs = check_preflight(draft, [plan_label])
+    assert result.returncode == 1 and "Central QA deferred" in result.stdout, result
+    assert not outputs, outputs
+
+for labels, source_repo in [
+    ([], "example/product"),
+    ([plan_label, "qa-plan:ANOTHER_PLAN"], "example/product"),
+    ([plan_label], "example/fork"),
+]:
+    result, outputs = check_preflight("false", labels, source_repo=source_repo)
+    assert result.returncode != 0 and not outputs, result
+
+result, outputs = check_preflight("false", [plan_label])
+assert result.returncode == 0, result
+assert "plan_id=P01_T07_INT_REG_01\n" in outputs, outputs
+assert f"request_key={REQUEST}\n" in outputs, outputs
+print("PASS: six draft and ready-for-review preflight cases")
 
 def receipt(record_id, request=REQUEST, state="success", *, context=PLAN_CONTEXT,
             description=None):
