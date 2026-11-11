@@ -71,8 +71,19 @@ jobs:
             echo "The PR is unmergeable as a draft. This check is not independent QA acceptance or release authorization." >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
+          # A ready_for_review event may race with a later conversion back to
+          # draft. Re-check live state before dispatch: current draft is never
+          # eligible for independent QA, but is also not a missing-test failure.
+          # A future ready_for_review event must execute this gate again.
+          if [[ "$LIVE_DRAFT" == true ]]; then
+            echo "dispatch=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Central QA deferred (NOT TESTED)::PR returned to draft before dispatch; no test plan or QA receipt was accepted."
+            echo "### QA deferred — currently draft, NOT TESTED" >> "$GITHUB_STEP_SUMMARY"
+            echo "The stale ready-for-review event caused no QA dispatch. A new ready event must obtain an exact-SHA independent QA result." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           test "$LIVE_DRAFT" = false || {
-            echo "::error::PR is now a draft; refuse stale ready-for-review QA dispatch"
+            echo "::error::Unrecognized live draft state; fail closed"
             exit 1
           }
           PR_LABELS=$(jq -c '[.labels[]?.name]' <<< "$LIVE_PR")
