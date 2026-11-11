@@ -19,8 +19,10 @@ concurrency:
 jobs:
   dispatch-and-await:
     name: Await independently executed QA Central result
-    # Keep this job active so GitHub cannot count a skipped check as passing.
-    # Drafts stop in preflight before dispatch. Ready PRs require an exact QA receipt.
+    # Drafts are not candidates for merging and need no QA dispatch.
+    # A green DRAFT check means DEFERRED / NOT TESTED, NEVER QA acceptance.
+    # ready_for_review/labeled/synchronize always re-evaluate a live PR.
+    # Ready PRs fail closed without a valid independent exact-SHA QA receipt.
     runs-on: ubuntu-latest
     timeout-minutes: 48
     steps:
@@ -28,6 +30,7 @@ jobs:
         id: plan
         shell: bash
         env:
+          GH_TOKEN: ${{ github.token }}
           PR_DRAFT: ${{ toJSON(github.event.pull_request.draft) }}
           PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
           SOURCE_REPO: ${{ github.event.pull_request.head.repo.full_name }}
@@ -36,14 +39,43 @@ jobs:
           REQUEST_KEY: ${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           set -euo pipefail
-          if [[ "$PR_DRAFT" != false ]]; then
-            echo "::error title=Central QA deferred::Pull request is a draft or its state could not be confirmed. QA dispatch requires a ready-for-review pull request."
+          [[ "$PR_DRAFT" == true || "$PR_DRAFT" == false ]] || {
+            echo "::error::Unknown draft state; fail closed"
             exit 1
-          fi
+          }
           test "$SOURCE_REPO" = "$GITHUB_REPOSITORY" || {
             echo "External/fork PRs are not authorized for cross-repo QA dispatch" >&2
             exit 1
           }
+          [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]
+          [[ "$APP_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$REQUEST_KEY" =~ ^[0-9]+-[0-9]+$ ]]
+          # Event data can be stale: verify current immutable head and draft state.
+          LIVE_PR=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER")
+          jq -e --arg repo "$GITHUB_REPOSITORY" --arg sha "$APP_SHA" '
+            .state == "open" and .head.sha == $sha and
+            .head.repo.full_name == $repo
+          ' <<< "$LIVE_PR" >/dev/null || {
+            echo "::error::PR closed, forked or head changed; refuse stale QA result"
+            exit 1
+          }
+          LIVE_DRAFT=$(jq -r '.draft' <<< "$LIVE_PR")
+          if [[ "$PR_DRAFT" == true ]]; then
+            test "$LIVE_DRAFT" = true || {
+              echo "::error::PR transitioned to ready-for-review; require new exact-SHA QA run"
+              exit 1
+            }
+            echo "dispatch=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Central QA deferred (NOT TESTED)::Draft PR has no mandatory QA plan. No independent QA dispatched or approved."
+            echo "### QA deferred — draft only, NOT TESTED" >> "$GITHUB_STEP_SUMMARY"
+            echo "The PR is unmergeable as a draft. This check is not independent QA acceptance or release authorization." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          test "$LIVE_DRAFT" = false || {
+            echo "::error::PR is now a draft; refuse stale ready-for-review QA dispatch"
+            exit 1
+          }
+          PR_LABELS=$(jq -c '[.labels[]?.name]' <<< "$LIVE_PR")
           LABEL_COUNT=$(jq -r '[.[] | select(startswith("qa-plan:"))] | length' <<< "$PR_LABELS")
           test "$LABEL_COUNT" -eq 1 || { echo "Exactly one approved QA plan label is required" >&2; exit 1; }
           LABEL=$(jq -r '[.[] | select(startswith("qa-plan:"))][0]' <<< "$PR_LABELS")
@@ -52,12 +84,14 @@ jobs:
           [[ "$APP_SHA" =~ ^[0-9a-f]{40}$ ]]
           [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]
           [[ "$REQUEST_KEY" =~ ^[0-9]+-[0-9]+$ ]]
+          echo "dispatch=true" >> "$GITHUB_OUTPUT"
           echo "plan_id=$PLAN_ID" >> "$GITHUB_OUTPUT"
           echo "app_sha=$APP_SHA" >> "$GITHUB_OUTPUT"
           echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
           echo "request_key=$REQUEST_KEY" >> "$GITHUB_OUTPUT"
           echo "Current app SHA: $APP_SHA; QA plan: $PLAN_ID; no PR code checked out"
       - name: Dispatch exact SHA to independent QA Central
+        if: steps.plan.outputs.dispatch == 'true'
         shell: bash
         env:
           DISPATCH_TOKEN: ${{ secrets.ARONEXA_QA_DISPATCH_TOKEN }}
@@ -89,9 +123,11 @@ jobs:
             https://api.github.com/repos/ARG-Digital-Solutions/aronexa-qa-central/dispatches
           echo "QA Central dispatch accepted; no QA PASS implied"
       - name: Wait for matching QA status on this exact commit
+        if: steps.plan.outputs.dispatch == 'true'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.plan.outputs.pr_number }}
           APP_SHA: ${{ steps.plan.outputs.app_sha }}
           PLAN_ID: ${{ steps.plan.outputs.plan_id }}
           REQUEST_KEY: ${{ steps.plan.outputs.request_key }}
@@ -107,6 +143,17 @@ jobs:
               if . == null then "NOT_FOUND" else .state end
             ' <<< "$STATUS_JSON")
             if test "$MATCH" = "success"; then
+              # Refuse success if the source head, draft state or plan changed
+              # during the external test. Use live API state, never stale event JSON.
+              LIVE_PR=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER")
+              jq -e --arg sha "$APP_SHA" --arg plan "$PLAN_ID" '
+                .state == "open" and .draft == false and .head.sha == $sha and
+                ([.labels[]? | select(.name | startswith("qa-plan:"))] | length) == 1 and
+                any(.labels[]?; .name == ("qa-plan:" + $plan))
+              ' <<< "$LIVE_PR" >/dev/null || {
+                echo "::error::PR state, SHA or plan changed during QA; refuse stale success"
+                exit 1
+              }
               echo "Central QA PASS for $APP_SHA (request $REQUEST_KEY)"
               echo "Independent code review and release approval are still separate"
               exit 0
