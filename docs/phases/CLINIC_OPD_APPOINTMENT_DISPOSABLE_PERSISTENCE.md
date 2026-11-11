@@ -18,7 +18,7 @@ The SQL is applied by the JUnit fixture after the unchanged default V1–V9 migr
 1. Appointment booking, revision, staff/doctor/branch/patient linkage and metadata-only audit survive a different SQL connection.
 2. Appointments require a patient registered at that branch, an enabled branch-assigned DOCTOR membership and an enabled receptionist with explicit APPOINTMENT_BOOK permission.
 3. OPD module must be implemented/released, tenant-entitled/activated and clinically authorized. Test fixture enables OPD only in a brand-new disposable container.
-4. A partial UNIQUE PostgreSQL index disallows double booking across concurrent writers for the same tenant, branch, doctor, date and fifteen-minute slot. Cancellation frees a slot; check-in keeps it occupied.
+4. A partial UNIQUE PostgreSQL index disallows double booking across concurrent writers for the same tenant, branch, doctor, date and fifteen-minute slot. Cancellation frees a slot; check-in keeps it occupied. Successful rescheduling moves the slot, releases the original, creates a RESCHEDULED audit event and rejects stale revision or patient reassignment.
 5. Revision guard and transitions reject stale writes, cancelled/checked-in edits and patient/branch identity changes. Failed writes must not append audit rows.
 6. Composite foreign keys reject cross-tenant linking; unregistered patients, unassigned doctor, revoked membership or disabled OPD are denied by database constraints.
 7. A restricted no-BYPASSRLS read-only test role sees appointments only when transaction-local tenant and currently assigned receptionist branch match, cannot view patient names or modify appointment rows, and sees no appointments without tenant scope.
@@ -31,11 +31,11 @@ No real provider roster, staff leave calendars, duration overlaps beyond a singl
 
 ## Exact-source QA and release gates
 
-**At authoring:** T14 new test outcomes NOT RUN. Existing PR quality CI must be rerun at the new head; do not inherit older 204/204 counts. Focused command for disposable Java21 + Maven + Docker environment:
+**As of 2026-11-11:** T14 new test outcomes NOT RUN. All PR #102 GitHub Actions jobs have been failing BEFORE acquiring a runner or executing any steps, including one manual retry. Track [CI-OPS #105](https://github.com/ARG-Digital-Solutions/aronexa-healthcare-platform/issues/105). Do not misclassify this as a failing JUnit or a successful test. The focused command on a freshly created disposable Java21 + Maven + Docker VM is:
 
     mvn -B -f backend/pom.xml -Dtest=AppointmentPersistenceProofTests test
 
-The normal Maven verify includes these tests and the frontend build must remain green. Draft-deferred Central QA is NOT TESTED.
+The normal Maven verify includes these tests and the frontend build must remain green. Draft-deferred Central QA is NOT TESTED. The added SQL proof now has **18 focused JUnit methods** (including positive reschedule and immutable-patient negative cases). If CI remains unavailable, a **disposable Windows VM only** may run the guarded script `scripts/ci/Verify-Disposable-Appointment.ps1` with `ARONEXA_DISPOSABLE_QA_VM=YES` and `-DisposableVMConfirmed`, optionally `-ExpectedCommit <exact SHA>`. It rejects a dirty checkout, the wrong branch, original DB environment values and a remote Docker engine. The local result does **not** replace exact-head GitHub CI or independent QA.
 
 Original Windows migration #31 W3-E/W4 HOLD, independent patient security review #45, controlled merge #63, and independent clinical/Windows release requirements remain unchanged. No original/customer data, live SQL grants, merge, production migration, deployment or customer release is authorized.
 
