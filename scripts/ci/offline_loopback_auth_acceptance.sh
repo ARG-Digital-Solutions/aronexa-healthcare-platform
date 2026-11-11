@@ -157,9 +157,11 @@ assert j["membershipId"]==sys.argv[3]
 assert j["roles"]==["RECEPTION"]
 assert "ORG_READ" in j["permissions"]
 PY
-[[ "$(http_status -H "Authorization: Bearer $TOKEN" \
- "$API/api/v1/clinical/consultation")" == 403 ]] || {
- echo "Unknown clinical API was not denied"; exit 1;
+CLINICAL_STATUS="$(http_status -H "Authorization: Bearer $TOKEN" \
+ "$API/api/v1/clinical/future")"
+[[ "$CLINICAL_STATUS" == 403 ]] || {
+ echo "FAIL: unknown clinical API must return 403; observed HTTP $CLINICAL_STATUS" >&2
+ exit 1
 }
 curl -sS --max-time 5 -D "$WORK/cors.txt" -o /dev/null \
  -H "Origin: https://untrusted.invalid" -H "Authorization: Bearer $TOKEN" \
