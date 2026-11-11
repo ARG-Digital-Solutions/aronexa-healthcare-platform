@@ -35,7 +35,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * SQL pool and test-only V10 in fresh disposable Testcontainers PostgreSQL.
  * No production migration, patient data, web endpoint deployment or DB config.
  */
-@SpringBootTest
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+        properties = "server.address=127.0.0.1")
 @AutoConfigureMockMvc
 @Testcontainers
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
@@ -64,6 +65,8 @@ class SyntheticRegistrationHttpAcceptanceTests {
     @Autowired JdbcTemplate admin;
     @Autowired DataSource dataSource;
     @Autowired org.springframework.core.env.Environment environment;
+    @org.springframework.beans.factory.annotation.Value("${local.server.port}")
+    int serverPort;
 
     record Staff(UUID tenant, UUID branch, UUID membership, UUID user, String token) {}
 
@@ -126,6 +129,54 @@ class SyntheticRegistrationHttpAcceptanceTests {
     }
     private String route(UUID branch) {
         return "/api/v1/branches/"+branch+"/patient-registrations";
+    }
+
+    @Test void frontendClientRetriesCommittedWriteOverRealHttpWithoutCreatingSecondPatient()
+            throws Exception {
+        Staff allowed=staff(true,false), other=staff(true,false), revoked=staff(true,false);
+        admin.update("UPDATE auth_session SET revoked_at=now() WHERE membership_id=?",
+                revoked.membership());
+        var backend=java.nio.file.Path.of(System.getProperty("basedir",
+                System.getProperty("user.dir"))).toAbsolutePath();
+        var script=backend.resolve("../frontend/test/integration/registration-http.mjs").normalize();
+        assertThat(java.nio.file.Files.isRegularFile(script))
+                .as("Frontend HTTP acceptance runner must be available").isTrue();
+        var process=new ProcessBuilder("node","--experimental-strip-types",script.toString())
+                .redirectErrorStream(true).start();
+        try {
+            // All interpolated values are server-issued UUIDs, a numeric port,
+            // or locally generated base64url tokens. No external fixture input.
+            String fixture=String.format(java.util.Locale.ROOT,
+                    "{\"origin\":\"http://127.0.0.1:%d/\",\"branch\":\"%s\",\"token\":\"%s\","+
+                    "\"otherBranch\":\"%s\",\"revokedBranch\":\"%s\",\"revokedToken\":\"%s\"}",
+                    serverPort,allowed.branch(),allowed.token(),other.branch(),
+                    revoked.branch(),revoked.token());
+            try (var input=process.getOutputStream()) {
+                input.write(fixture.getBytes(StandardCharsets.UTF_8));
+            }
+            assertThat(process.waitFor(75,java.util.concurrent.TimeUnit.SECONDS))
+                    .as("Frontend HTTP acceptance must finish within 75 seconds").isTrue();
+            String result=new String(process.getInputStream().readAllBytes(),StandardCharsets.UTF_8);
+            assertThat(process.exitValue()).as("Frontend HTTP acceptance exit status").isZero();
+            assertThat(result.contains("REGISTRATION_WIRE_ACCEPTANCE_PASS"))
+                    .as("Frontend HTTP acceptance completion marker").isTrue();
+        } finally {
+            if(process.isAlive()) process.destroyForcibly();
+        }
+        // Independent SQL reads verify actual commits, not client-side state.
+        for(String table:new String[]{"patient","patient_registration",
+                "patient_registration_idempotency","patient_registration_write_audit"}) {
+            assertThat(admin.queryForObject("SELECT count(*) FROM public."+table+
+                    " WHERE tenant_id=?",Integer.class,allowed.tenant()))
+                    .as("Exactly one committed row in "+table).isEqualTo(1);
+        }
+        assertThat(admin.queryForObject("SELECT display_name FROM public.patient WHERE tenant_id=?",
+                String.class,allowed.tenant())).isEqualTo("Synthetic Wire Registration");
+        assertThat(admin.queryForObject("SELECT birth_date_precision FROM public.patient WHERE tenant_id=?",
+                String.class,allowed.tenant())).isEqualTo("EXACT");
+        assertThat(admin.queryForObject("SELECT date_of_birth FROM public.patient WHERE tenant_id=?",
+                java.time.LocalDate.class,allowed.tenant())).isEqualTo(java.time.LocalDate.of(1990,2,3));
+        assertNoRegistrationSideEffects(other,revoked);
     }
     private org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder request(
             Staff user, UUID branch, String key, String body) {
@@ -545,3 +596,4 @@ class SyntheticRegistrationHttpAcceptanceTests {
 
 
 }
+
