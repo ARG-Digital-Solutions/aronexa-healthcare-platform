@@ -1,0 +1,40 @@
+name: Disposable PostgreSQL Synthetic Recovery Proof
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - 'scripts/recovery-proof/**'
+      - 'docs/phases/COMM_V1_T11_DISPOSABLE_PG_RECOVERY.md'
+      - '.github/workflows/disposable-pg-recovery-proof.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  synthetic-pg-restore:
+    name: No-network PG17 encryption, restore and negative checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact PR source, no retained credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install Java 21 for isolated encryption proof
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Verify disposable Docker engine
+        run: docker info
+      - name: Run two brand-new PostgreSQL 17 containers, isolated from network
+        env:
+          CI: 'true'
+        run: bash scripts/recovery-proof/Run-Disposable-Pg-Recovery.sh
+      - name: Explicit evidence boundary
+        if: success()
+        run: |
+          echo "PG17 source and distinct target were both disposable Docker containers with --network none."
+          echo "Synthetic archive encryption, restore and limited FK/RLS/audit checks passed."
+          echo "NOT a production database backup, customer-recovery process or release acceptance."
