@@ -1,0 +1,50 @@
+name: Offline Clinic Loopback Authentication (Disposable PG17)
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - 'scripts/ci/offline_loopback_auth_acceptance.sh'
+      - 'docs/phases/COMM_V1_T13_DISPOSABLE_LOOPBACK_AUTH.md'
+      - '.github/workflows/offline-loopback-auth-proof.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  synthetic-local-runtime:
+    name: Real Spring auth and synthetic PG17 on localhost only
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout PR source without saved credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install Java 21 for disposable application runtime
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install Node.js 22 for foundation UI artifact
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build reproducible React scaffold
+        working-directory: frontend
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
+      - name: Verify the disposable Docker runner is available
+        run: docker info
+      - name: Start fresh PG17 and real Spring Boot auth on loopback, check revocation
+        env:
+          CI: 'true'
+        run: bash scripts/ci/offline_loopback_auth_acceptance.sh
+      - name: Declare evidence limits
+        if: success()
+        run: |
+          echo "Exact-PR-source CI tested real Spring Boot auth against fresh PostgreSQL 17."
+          echo "All generated Docker containers and anonymous volumes have been removed."
+          echo "The React UI is only a development scaffold and is NOT linked to clinical APIs."
+          echo "Not a Windows service, real patient OPD, original Windows DB, or customer release."
