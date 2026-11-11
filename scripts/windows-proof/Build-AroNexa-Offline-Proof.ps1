@@ -64,6 +64,13 @@ try {
         throw "Missing generated proof launcher: $launcher"
     }
     Write-Host "APP IMAGE GENERATED, LAUNCHER: $launcher"
+    # Execute the *bundled-runtime EXE*, not only java -jar, to confirm the
+    # actual Windows launcher starts and completes the synthetic selfcheck.
+    & $launcher
+    if ($LASTEXITCODE -ne 0) {
+        throw "Packaged Windows launcher selfcheck failed: $LASTEXITCODE"
+    }
+    Write-Host 'Packaged Windows launcher synthetic selfcheck: PASS'
     Write-Host 'NEXT: run this launcher on an offline DISPOSABLE Windows VM.'
     Write-Host 'NOT IMPLEMENTED: installer, local PG, DB recovery, entitlement enforcement, clinic wizard or signing.'
     Write-Host 'The original Windows database was not accessed.'
