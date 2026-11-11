@@ -96,7 +96,7 @@ public final class OfflineLicenseProof {
             Status status = LocalDate.now(clinicClock).isAfter(expires)
                     ? Status.EXPIRED_CONTINUITY : Status.ACTIVE;
             return new Decision(status, expires);
-        } catch (GeneralSecurityException | IllegalArgumentException exception) {
+        } catch (GeneralSecurityException | IllegalArgumentException | DateTimeParseException exception) {
             return new Decision(Status.INVALID, null);
         }
     }
