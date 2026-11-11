@@ -70,15 +70,18 @@ class SyntheticRegistrationHttpAcceptanceTests {
 
     record Staff(UUID tenant, UUID branch, UUID membership, UUID user, String token) {}
 
-    @BeforeAll void installProposedMigrationOnlyInEphemeralDatabase() {
+    @BeforeAll void installProposedMigrationOnlyInEphemeralDatabase() throws Exception {
         Flyway isolated = Flyway.configure().dataSource(dataSource)
                 .locations("classpath:db/migration", "classpath:db/proposed").load();
         assertThat(isolated.migrate().migrationsExecuted).isEqualTo(1);
         assertThat(isolated.info().current().getVersion().getVersion()).isEqualTo("10");
         assertThat(isolated.validateWithResult().validationSuccessful).isTrue();
         // Synthetic fixture only: no proof key is shipped by Flyway migration.
-        admin.update("INSERT INTO public.patient_registration_proof_key(id,secret) VALUES (1,?)",
-                EPHEMERAL_PROOF_KEY);
+        try(var connection=dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            RegistrationDatabaseProvisioner.installProofKey(connection,1,EPHEMERAL_PROOF_KEY);
+            connection.commit();
+        }
     }
 
     private static String suffix() { return UUID.randomUUID().toString().substring(0,8); }
