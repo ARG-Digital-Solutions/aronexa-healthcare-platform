@@ -81,9 +81,17 @@ for _ in $(seq 1 100); do
   sleep 2
 done
 [[ "$READY" == 1 ]] || { echo "Auth startup failed"; tail -n 70 "$WORK/backend.log"; exit 1; }
-ss -ltn "( sport = :$API_PORT )" | grep -Eq "127[.]0[.]0[.]1:$API_PORT([[:space:]]|$)" || {
-  echo "Spring server not bound only to IPv4 loopback"; exit 1;
-}
+SOCKETS="$(ss -ltnH "( sport = :$API_PORT )")"
+# Java on Linux can expose the *same IPv4-only* loopback bind as
+# [::ffff:127.0.0.1]:port. Accept both while rejecting 0.0.0.0/::/*.
+if ! grep -Eq "(^|[[:space:]])(\\[::ffff:)?127[.]0[.]0[.]1\\]?:$API_PORT([[:space:]]|$)" <<< "$SOCKETS"; then
+  echo "FAIL: expected exclusively IPv4 loopback listener" >&2
+  echo "Observed socket (no secrets): $SOCKETS" >&2
+  exit 1
+fi
+if grep -Eq "(0[.]0[.]0[.]0|\\[::\\]|\\*):$API_PORT([[:space:]]|$)" <<< "$SOCKETS"; then
+  echo "FAIL: externally reachable/wildcard listener" >&2; exit 1
+fi
 echo "PASS: actual Spring Boot startup on loopback with disposable PG17 V9"
 
 # Bcrypt fixture encodes PUBLIC SYNTHETIC password OfflineSynthetic_123!
