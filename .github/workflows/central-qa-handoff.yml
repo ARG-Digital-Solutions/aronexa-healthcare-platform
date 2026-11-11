@@ -99,7 +99,8 @@ jobs:
           for attempt in $(seq 1 110); do
             STATUS_JSON=$(gh api "repos/$GITHUB_REPOSITORY/commits/$APP_SHA/statuses?per_page=100")
             MATCH=$(jq -r --arg context "$CONTEXT" --arg request "$REQUEST_KEY" '
-              [.[] | select(.context == $context and ((.description // "") | contains($request)))] |
+              [.[] | select(.context == $context and
+                (.description == ("request=" + $request + "; qa=" + .state + "; release-not-authorized")))] |
               sort_by(.id) | last |
               if . == null then "NOT_FOUND" else .state end
             ' <<< "$STATUS_JSON")
