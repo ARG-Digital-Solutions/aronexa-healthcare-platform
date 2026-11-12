@@ -131,5 +131,7 @@ test('read-back requires explicit read permission and matches patient identity',
       json(receipt));
   separate.prepare(intake());
   await separate.submitReviewed();
-  assert.equal(await separate.verifySavedRegistration(),false);
+  await assert.rejects(separate.verifySavedRegistration(),denied('READBACK_MISMATCH'));
+  assert.equal(separate.snapshot().lastError,'READBACK_MISMATCH');
+  assert.throws(()=>separate.nextPatient(),denied('READBACK_MISMATCH'));
 });
