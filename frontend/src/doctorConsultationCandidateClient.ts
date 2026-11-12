@@ -72,10 +72,50 @@ export function createDoctorConsultationCandidateFlow(
     ||!validId(branchId)||!validId(appointmentId)
     ||!session.permissions.includes('OPD_DRAFT_WRITE'))
     throw new DoctorDraftError('NOT_AUTHORIZED');
-  const endpoint='/api/v1/branches/'+branchId+
-    '/appointments/'+appointmentId+'/consultation-draft';
+  const base='/api/v1/branches/'+branchId+'/appointments/'+appointmentId;
+  const endpoint=base+'/consultation-draft';
+  const identityEndpoint=base+'/consultation-context';
+  let expectedPatient:string|null=null;
   let current:DoctorConsultationDraft|null=null;
   let disposed=false,running=false;
+
+  /**
+   * Independent, doctor-authorized checked-in appointment identity from
+   * the canonical appointment row. A valid but unrelated patient UUID in
+   * the draft response must never be sufficient to display clinical notes.
+   */
+  async function readContext():Promise<string>{
+    let response:Response;
+    try{
+      response=await transport(identityEndpoint,{
+        method:'GET',mode:'same-origin',credentials:'omit',cache:'no-store',
+        redirect:'error',
+        headers:{Accept:'application/json',
+          Authorization:'Bearer '+session.accessToken},
+        signal:AbortSignal.timeout(15_000),
+      });
+    }catch{throw new DoctorDraftError('NETWORK_FAILURE');}
+    if(disposed)throw new DoctorDraftError('SESSION_EXPIRED');
+    if(response.status===401)throw new DoctorDraftError('SESSION_EXPIRED');
+    if(response.status===403)throw new DoctorDraftError('NOT_AUTHORIZED');
+    if(response.status===409)throw new DoctorDraftError('STATE_CONFLICT');
+    if(response.status!==200)throw new DoctorDraftError('UNVERIFIED_RESPONSE');
+    let data:unknown;
+    try{data=await response.json();}
+    catch{throw new DoctorDraftError('UNVERIFIED_RESPONSE');}
+    if(disposed)throw new DoctorDraftError('SESSION_EXPIRED');
+    if(!data||typeof data!=='object'||Array.isArray(data))
+      throw new DoctorDraftError('UNVERIFIED_RESPONSE');
+    const identity=data as Record<string,unknown>;
+    if(identity.tenantId!==session.tenantId
+      ||identity.branchId!==branchId
+      ||identity.appointmentId!==appointmentId
+      ||identity.doctorMembershipId!==session.membershipId
+      ||identity.appointmentStage!=='CHECKED_IN'
+      ||!validId(identity.patientId))
+      throw new DoctorDraftError('UNVERIFIED_RESPONSE');
+    return identity.patientId;
+  }
 
   async function request(method:'GET'|'POST',body?:unknown):Promise<DoctorConsultationDraft>{
     let response:Response;
@@ -102,17 +142,27 @@ export function createDoctorConsultationCandidateFlow(
     try{payload=await response.json();}
     catch{throw new DoctorDraftError('UNVERIFIED_RESPONSE');}
     if(disposed)throw new DoctorDraftError('SESSION_EXPIRED');
-    return verify(payload,session,branchId,appointmentId);
+    const receipt=verify(payload,session,branchId,appointmentId);
+    if(expectedPatient===null||receipt.patientId!==expectedPatient)
+      throw new DoctorDraftError('UNVERIFIED_RESPONSE');
+    return receipt;
   }
 
   async function open():Promise<DoctorConsultationDraft>{
     if(disposed)throw new DoctorDraftError('SESSION_EXPIRED');
     if(running)throw new DoctorDraftError('STATE_CONFLICT');
-    running=true;current=null;
+    running=true;current=null;expectedPatient=null;
     try{
+      // Both reads are authenticated and test-profile restricted; the
+      // context read supplies the patient reference, not a form field.
+      expectedPatient=await readContext();
       const state=await request('GET');
       if(disposed)throw new DoctorDraftError('SESSION_EXPIRED');
       current=state;return state;
+    }catch(failure){
+      expectedPatient=null;
+      current=null;
+      throw failure;
     }finally{running=false;}
   }
 
@@ -138,7 +188,7 @@ export function createDoctorConsultationCandidateFlow(
     }finally{running=false;}
   }
 
-  function dispose(){disposed=true;current=null;}
+  function dispose(){disposed=true;current=null;expectedPatient=null;}
   const snapshot=()=>Object.freeze({
     stage:current?.stage??null,revision:current?.revision??null,
     open:current!==null,
