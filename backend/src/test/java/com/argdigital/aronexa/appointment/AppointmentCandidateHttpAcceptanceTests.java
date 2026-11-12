@@ -12,6 +12,7 @@ import java.sql.Connection;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.ZoneId;
+import java.util.List;
 import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -100,6 +101,9 @@ class AppointmentCandidateHttpAcceptanceTests {
         record Book(UUID registrationId, UUID doctorMembershipId,
                     LocalDate visitDate, LocalTime slotStart, UUID requestId) {}
         record CheckIn(int expectedRevision) {}
+        record Reschedule(UUID doctorMembershipId, LocalDate visitDate,
+                          LocalTime slotStart, int expectedRevision) {}
+        record Cancel(int expectedRevision) {}
         record Receipt(UUID tenantId, UUID branchId, UUID patientId,
                        UUID registrationId, UUID appointmentId, UUID doctorMembershipId,
                        String stage, LocalDate visitDate, LocalTime slotStart,
@@ -308,6 +312,137 @@ class AppointmentCandidateHttpAcceptanceTests {
             return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(result);
         }
 
+        private static boolean withinVisitWindow(LocalDate day) {
+            LocalDate now=LocalDate.now(CLINIC_ZONE);
+            return day!=null && !day.isBefore(now) && !day.isAfter(now.plusDays(90));
+        }
+
+        /**
+         * Daily queue is a fresh branch-scoped SQL read, never a browser cache.
+         * Do not silently truncate a busy clinic's queue: 101 rows -> conflict.
+         * Excludes cancelled appointments, but retains them for UUID lookup.
+         */
+        @GetMapping
+        ResponseEntity<List<Receipt>> dailyQueue(
+                @PathVariable UUID branchId,
+                @RequestParam("visitDate")
+                @org.springframework.format.annotation.DateTimeFormat(
+                    iso=org.springframework.format.annotation.DateTimeFormat.ISO.DATE)
+                LocalDate visitDate) {
+            if(visitDate==null
+                    ||visitDate.isBefore(LocalDate.now(CLINIC_ZONE).minusDays(365))
+                    ||visitDate.isAfter(LocalDate.now(CLINIC_ZONE).plusDays(90)))
+                throw new IllegalArgumentException();
+            AuthPrincipal actor=access.requirePermission("APPOINTMENT_READ");
+            List<Receipt> records=transactions.execute(tx->{
+                requireCurrentSqlSession(actor,branchId,"APPOINTMENT_READ");
+                var rows=jdbc.query("""
+                    SELECT tenant_id,branch_id,patient_id,registration_id,id,
+                           doctor_membership_id,status,visit_date,slot_start,revision
+                      FROM appointment_proof.appointment
+                     WHERE tenant_id=? AND branch_id=? AND visit_date=?
+                       AND status IN ('BOOKED','CHECKED_IN')
+                     ORDER BY slot_start,id
+                     LIMIT 101
+                     FOR SHARE
+                    """,(rs,i)->new Receipt(rs.getObject("tenant_id",UUID.class),
+                    rs.getObject("branch_id",UUID.class),
+                    rs.getObject("patient_id",UUID.class),
+                    rs.getObject("registration_id",UUID.class),
+                    rs.getObject("id",UUID.class),
+                    rs.getObject("doctor_membership_id",UUID.class),
+                    rs.getString("status"),rs.getObject("visit_date",LocalDate.class),
+                    rs.getObject("slot_start",LocalTime.class),
+                    rs.getInt("revision"),false),
+                    actor.tenantId(),branchId,visitDate);
+                if(rows.size()>100)throw new Conflict();
+                for(Receipt item:rows) {
+                    jdbc.update("""
+                        INSERT INTO appointment_proof.read_audit
+                          (tenant_id,branch_id,appointment_id,actor_membership_id)
+                        VALUES (?,?,?,?)
+                        """,actor.tenantId(),branchId,item.appointmentId(),
+                            actor.membershipId());
+                }
+                return List.copyOf(rows);
+            });
+            return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+                    .body(records);
+        }
+
+        @PostMapping("/{appointmentId}/reschedule")
+        ResponseEntity<Receipt> reschedule(
+                @PathVariable UUID branchId,@PathVariable UUID appointmentId,
+                @RequestBody Reschedule input) {
+            required(appointmentId);
+            if(input==null || input.expectedRevision()<1
+                    ||!withinVisitWindow(input.visitDate())
+                    ||!validSlot(input.slotStart()))
+                throw new IllegalArgumentException();
+            required(input.doctorMembershipId());
+            AuthPrincipal actor=access.requirePermission("APPOINTMENT_RESCHEDULE");
+            Receipt updated;
+            try {
+                updated=transactions.execute(tx->{
+                    requireCurrentSqlSession(actor,branchId,"APPOINTMENT_RESCHEDULE");
+                    Receipt current=load(actor.tenantId(),branchId,appointmentId,false);
+                    if(current==null)throw new AccessDeniedException("Appointment denied");
+                    if(!"BOOKED".equals(current.stage())
+                       ||current.revision()!=input.expectedRevision()
+                       ||(current.doctorMembershipId().equals(input.doctorMembershipId())
+                          &&current.visitDate().equals(input.visitDate())
+                          &&current.slotStart().equals(input.slotStart())))
+                        throw new Conflict();
+                    requireDoctor(actor.tenantId(),branchId,input.doctorMembershipId());
+                    int changed=jdbc.update("""
+                        UPDATE appointment_proof.appointment
+                           SET doctor_membership_id=?,visit_date=?,slot_start=?,
+                               revision=revision+1,updated_by_membership_id=?
+                         WHERE id=? AND tenant_id=? AND branch_id=?
+                           AND status='BOOKED' AND revision=?
+                        """,input.doctorMembershipId(),input.visitDate(),
+                            input.slotStart(),actor.membershipId(),appointmentId,
+                            actor.tenantId(),branchId,input.expectedRevision());
+                    if(changed!=1)throw new Conflict();
+                    return load(actor.tenantId(),branchId,appointmentId,false);
+                });
+            } catch(DataIntegrityViolationException failure) {
+                // Database-enforced doctor-slot uniqueness; no SQL values leaked.
+                throw new Conflict();
+            }
+            return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(updated);
+        }
+
+        @PostMapping("/{appointmentId}/cancel")
+        ResponseEntity<Receipt> cancel(
+                @PathVariable UUID branchId,@PathVariable UUID appointmentId,
+                @RequestBody Cancel input) {
+            required(appointmentId);
+            if(input==null || input.expectedRevision()<1)
+                throw new IllegalArgumentException();
+            AuthPrincipal actor=access.requirePermission("APPOINTMENT_CANCEL");
+            Receipt cancelled=transactions.execute(tx->{
+                requireCurrentSqlSession(actor,branchId,"APPOINTMENT_CANCEL");
+                Receipt current=load(actor.tenantId(),branchId,appointmentId,false);
+                if(current==null)throw new AccessDeniedException("Appointment denied");
+                if(!"BOOKED".equals(current.stage())
+                        ||current.revision()!=input.expectedRevision())
+                    throw new Conflict();
+                int changed=jdbc.update("""
+                    UPDATE appointment_proof.appointment
+                       SET status='CANCELLED',revision=revision+1,
+                           updated_by_membership_id=?
+                     WHERE id=? AND tenant_id=? AND branch_id=?
+                       AND status='BOOKED' AND revision=?
+                    """,actor.membershipId(),appointmentId,actor.tenantId(),branchId,
+                    input.expectedRevision());
+                if(changed!=1)throw new Conflict();
+                return load(actor.tenantId(),branchId,appointmentId,false);
+            });
+            return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+                    .body(cancelled);
+        }
+
         @ExceptionHandler({IllegalArgumentException.class,
                 org.springframework.http.converter.HttpMessageNotReadableException.class})
         ResponseEntity<Error> invalid(Exception ignored) {
@@ -333,11 +468,13 @@ class AppointmentCandidateHttpAcceptanceTests {
         Path base=Path.of(System.getProperty("basedir",
                 System.getProperty("user.dir"))).toAbsolutePath();
         assertThat(Files.exists(base.resolve("src/test/resources/db/test/appointment-candidate-r104.sql"))).isTrue();
+        assertThat(Files.exists(base.resolve("src/test/resources/db/test/appointment-candidate-r105.sql"))).isTrue();
         try(Connection owner=ownerDataSource.getConnection()) {
             owner.setAutoCommit(false);
             try {
                 for(String file:new String[]{"db/test/appointment-persistence-proof.sql",
-                        "db/test/appointment-candidate-r104.sql"}) {
+                        "db/test/appointment-candidate-r104.sql",
+                        "db/test/appointment-candidate-r105.sql"}) {
                     ScriptUtils.executeSqlScript(owner,
                             new EncodedResource(new ClassPathResource(file)),
                             false,false,ScriptUtils.DEFAULT_COMMENT_PREFIX,
@@ -382,7 +519,8 @@ class AppointmentCandidateHttpAcceptanceTests {
         admin.update("INSERT INTO auth_role(id,tenant_id,code,display_name) "
                     +"VALUES (?,?,'RECEPTION','Synthetic receptionist')",role,tenant);
         if(withAccess)for(String permission:new String[]{"APPOINTMENT_BOOK",
-                "APPOINTMENT_READ","APPOINTMENT_CHECK_IN"}) {
+                "APPOINTMENT_READ","APPOINTMENT_CHECK_IN",
+                "APPOINTMENT_RESCHEDULE","APPOINTMENT_CANCEL"}) {
             admin.update("INSERT INTO auth_role_permission(tenant_id,role_id,permission_code) "
                         +"VALUES(?,?,?)",tenant,role,permission);
         }
