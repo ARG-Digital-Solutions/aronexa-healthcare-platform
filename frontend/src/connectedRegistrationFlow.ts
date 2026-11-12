@@ -35,13 +35,15 @@ export interface FlowSnapshot {
 }
 
 export class ConnectedFlowError extends Error {
-  readonly code: 'NOT_AUTHORIZED' | 'REVIEW_REQUIRED' | 'UNRESOLVED_SUBMISSION';
+  readonly code: 'NOT_AUTHORIZED' | 'REVIEW_REQUIRED' | 'UNRESOLVED_SUBMISSION' | 'READBACK_MISMATCH';
   constructor(code: ConnectedFlowError['code']) {
     super(code === 'NOT_AUTHORIZED'
       ? 'This staff account is not authorized for patient registration in this clinic.'
       : code === 'REVIEW_REQUIRED'
         ? 'Review and confirm the registration before saving.'
-        : 'The previous save is unresolved. Retry that same submission before starting another.');
+        : code === 'READBACK_MISMATCH'
+          ? 'The registration reference did not match the authorized server. Stop and escalate for review.'
+          : 'The previous save is unresolved. Retry that same submission before starting another.');
     this.name = 'ConnectedFlowError';
     this.code = code;
   }
@@ -70,6 +72,7 @@ export function createConnectedRegistrationFlow(
   let operation: ReturnType<typeof createRegistrationAttempt> | null = null;
   let reviewed: ReviewedRegistration | null = null;
   let inflight: Promise<OpdJourney> | null = null;
+  let referenceMismatch = false;
 
   function snapshot(): FlowSnapshot {
     return Object.freeze({status, journey, lastError});
@@ -140,6 +143,7 @@ export function createConnectedRegistrationFlow(
   }
 
   function nextPatient(): void {
+    if (referenceMismatch) throw new ConnectedFlowError('READBACK_MISMATCH');
     if (status !== 'REGISTERED') {
       throw new ConnectedFlowError('UNRESOLVED_SUBMISSION');
     }
@@ -148,6 +152,7 @@ export function createConnectedRegistrationFlow(
     journey = null;
     status = 'IDLE';
     lastError = null;
+    referenceMismatch = false;
   }
 
   /** Optional server read-back: only for staff with explicit read permission. */
@@ -162,7 +167,12 @@ export function createConnectedRegistrationFlow(
       tenantId: session.tenantId, branchId,
       registrationId: journey.registrationId,
     }, session.accessToken, transport);
-    return ref.patientId === journey.patientId;
+    if (ref.patientId !== journey.patientId) {
+      referenceMismatch = true;
+      lastError = 'READBACK_MISMATCH';
+      throw new ConnectedFlowError('READBACK_MISMATCH');
+    }
+    return true;
   }
 
   return Object.freeze({
