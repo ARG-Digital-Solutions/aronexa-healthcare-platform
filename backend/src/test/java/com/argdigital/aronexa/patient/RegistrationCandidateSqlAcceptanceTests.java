@@ -268,6 +268,49 @@ class RegistrationCandidateSqlAcceptanceTests {
     }
 
     @Test
+    void stolenPatientRuntimeLoginCannotForgeRegistrationBySettingSessionGucs() throws Exception {
+        Fixture f=fixture();
+        try(Connection stolen=DriverManager.getConnection(postgres.getJdbcUrl(),
+                "aronexa_patient_runtime","only-for-ephemeral-patient-role")) {
+            stolen.setAutoCommit(false);
+            try(var scope=stolen.prepareStatement("""
+                    SELECT set_config('aronexa.tenant_id',?,true),
+                           set_config('aronexa.membership_id',?,true)
+                    """)) {
+                scope.setString(1,f.tenant().toString());
+                scope.setString(2,f.membership().toString());
+                scope.executeQuery().close();
+            }
+            try(var forged=stolen.prepareStatement("""
+                    SELECT * FROM public.aronexa_register_patient(
+                      ?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    """)) {
+                forged.setObject(1,f.tenant());
+                forged.setObject(2,f.membership());
+                forged.setObject(3,f.session());
+                forged.setObject(4,f.branch());
+                forged.setString(5,"Fictional Forged Login");
+                forged.setString(6,"UNKNOWN");
+                forged.setNull(7,java.sql.Types.DATE);
+                forged.setString(8,"a".repeat(64));
+                forged.setString(9,"b".repeat(64));
+                forged.setString(10,"PAT-0123456789AB");
+                forged.setInt(11,1);
+                forged.setObject(12,UUID.randomUUID());
+                forged.setLong(13,java.time.Instant.now().plusSeconds(30).getEpochSecond());
+                forged.setString(14,"0".repeat(64));
+                assertThatThrownBy(forged::executeQuery)
+                        .isInstanceOf(java.sql.SQLException.class)
+                        .hasMessageContaining("REGISTRATION_PROOF_DENIED");
+            } finally {
+                stolen.rollback();
+            }
+        }
+        assertThat(admin.queryForObject("SELECT count(*) FROM patient WHERE tenant_id=?",
+                Integer.class,f.tenant())).isZero();
+    }
+
+    @Test
     void installingCandidateFromReviewFolderNeverApprovesProductionReadiness() throws Exception {
         try(Connection c=DriverManager.getConnection(postgres.getJdbcUrl(),
                 postgres.getUsername(),postgres.getPassword())) {
