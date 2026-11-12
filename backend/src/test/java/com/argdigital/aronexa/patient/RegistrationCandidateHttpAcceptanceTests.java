@@ -302,6 +302,14 @@ class RegistrationCandidateHttpAcceptanceTests {
     void connectedReceptionFrontendCompletesRealHttpRegistrationAndSqlCommit()
             throws Exception {
         Staff staff=staff(true);
+        // Only this disposable test staff role receives the separately gated
+        // read permission. Runtime grants and negative fixtures stay unchanged.
+        admin.update("""
+                INSERT INTO auth_role_permission(tenant_id,role_id,permission_code)
+                SELECT tenant_id,role_id,'PATIENT_REGISTRATION_READ'
+                  FROM auth_membership_role
+                 WHERE tenant_id=? AND membership_id=?
+                """,staff.tenant(),staff.member());
         Path base=Path.of(System.getProperty("basedir",
                 System.getProperty("user.dir"))).toAbsolutePath();
         Path script=base.resolve("../frontend/test/integration/"
@@ -327,6 +335,7 @@ class RegistrationCandidateHttpAcceptanceTests {
                     StandardCharsets.UTF_8);
             assertThat(process.exitValue()).as("Connected Reception Node exit").isZero();
             assertThat(output).contains("CONNECTED_RECEPTION_WIRE_PASS");
+            assertThat(output).contains("REGISTRATION_RELOGIN_READBACK_PASS");
         } finally {
             if(process.isAlive())process.destroyForcibly();
         }
@@ -343,6 +352,9 @@ class RegistrationCandidateHttpAcceptanceTests {
                 .isEqualTo("Fictional Connected Reception Wire");
         assertThat(admin.queryForObject(
                 "SELECT count(*) FROM auth_session WHERE tenant_id=? AND revoked_at IS NOT NULL",
+                Integer.class,staff.tenant())).isEqualTo(2);
+        assertThat(admin.queryForObject(
+                "SELECT count(*) FROM patient_registration_access_audit WHERE tenant_id=?",
                 Integer.class,staff.tenant())).isEqualTo(1);
     }
 
