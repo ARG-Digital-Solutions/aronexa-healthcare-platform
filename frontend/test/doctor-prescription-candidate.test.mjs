@@ -87,7 +87,7 @@ test('forged valid patient UUID in prescription never passes context validation'
 
 test('wrong identity or consultation stage stops before prescription network read',async()=>{
   for(const [overrides,consultOverride] of [
-    [{person:id(99)},{}],
+    [{}, {patientId:id(99)}],
     [{}, {stage:'CHECKED_IN',revision:0,consultationNote:''}],
   ]){
     let rxCalls=0;
