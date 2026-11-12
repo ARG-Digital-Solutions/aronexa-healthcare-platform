@@ -95,7 +95,7 @@ test('permission and branch gates reject demo identities without network calls',
     ()=>assert.fail('network call')),denied('NOT_AUTHORIZED'));
 });
 
-test('contact storage is not supported and changing review never posts',()=>{
+test('contact storage is not supported and changing review never posts',async()=>{
   let calls=0;
   const flow=createConnectedRegistrationFlow(session,branch,async()=>{calls++;return json(receipt);});
   assert.throws(()=>flow.prepare({...intake(),phone:'9000000000'}),
@@ -104,7 +104,7 @@ test('contact storage is not supported and changing review never posts',()=>{
   flow.cancelReview();
   assert.equal(flow.snapshot().status,'IDLE');
   assert.equal(calls,0);
-  assert.rejects(flow.submitReviewed(),denied('REVIEW_REQUIRED'));
+  await assert.rejects(flow.submitReviewed(),denied('REVIEW_REQUIRED'));
 });
 
 test('server conflict never creates a demo fallback identity',async()=>{
