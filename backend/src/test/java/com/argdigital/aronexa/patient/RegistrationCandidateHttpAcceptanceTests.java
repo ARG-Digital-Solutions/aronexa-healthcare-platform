@@ -97,13 +97,11 @@ class RegistrationCandidateHttpAcceptanceTests {
                     authorization,scope,patientJdbc,manager,IDEM,PROOF,1,
                     java.time.Clock.systemUTC());
         }
-        @Bean CandidateController candidateController(RegistrationWriteExecutor executor) {
-            return new CandidateController(executor);
-        }
     }
 
     /** Explicitly test-only HTTP adapter. No equivalent class exists in src/main. */
     @RestController
+    @Profile("test & registration-candidate & !dev & !prod")
     @RequestMapping("/api/v1/branches/{branchId}/patient-registrations")
     static class CandidateController {
         private final RegistrationWriteExecutor executor;
