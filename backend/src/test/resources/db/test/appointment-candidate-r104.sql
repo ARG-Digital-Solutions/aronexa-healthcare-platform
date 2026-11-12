@@ -20,6 +20,12 @@ ALTER TABLE appointment_proof.appointment
     ON DELETE RESTRICT,
   ADD CONSTRAINT uq_r104_booking_request UNIQUE(tenant_id,booking_request_id);
 
+-- R1-04 candidate-only permissions are never assigned to real tenants.
+INSERT INTO public.auth_permission(code,description) VALUES
+  ('APPOINTMENT_READ','Read branch-scoped appointment reference in disposable proof'),
+  ('APPOINTMENT_CHECK_IN','Perform receptionist check-in in disposable proof')
+ON CONFLICT(code) DO NOTHING;
+
 -- No direct appointment writes are granted to any runtime SQL login.
 -- Every write in this fixture uses an isolated test-only JDBC transaction
 -- after re-checking the current bearer session at the database boundary.
