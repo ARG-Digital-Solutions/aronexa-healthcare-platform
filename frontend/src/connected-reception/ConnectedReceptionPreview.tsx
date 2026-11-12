@@ -635,6 +635,41 @@ export default function ConnectedReceptionPreview(){
             reference cannot create an appointment or authorize clinical care.
           </p>
         </section>}
+      {screen==='APPOINTMENT_QUEUE'&&
+        <section className="connected-panel" aria-label="Daily appointment queue">
+          <h2>Branch appointments</h2>
+          <p className="connected-footnote">
+            Each refresh reads active appointments from the authorized
+            server and records an access audit. No patient names or contact
+            details are included. Cancelled visits remain in history by UUID.
+          </p>
+          <form onSubmit={loadQueue}>
+            <label htmlFor="queue-day">Clinic visit date</label>
+            <input id="queue-day" type="date" required
+              value={queueDate} onChange={e=>setQueueDate(e.target.value)}/>
+            <button className="solid" type="submit" disabled={busy}>
+              {busy?'Loading daily queue…':'Load daily queue'}
+            </button>
+          </form>
+          {queueLoaded&&queueRows.length===0&&
+            <p role="status">No active appointments for this date.</p>}
+          {queueLoaded&&queueRows.length>0&&
+            <ul aria-label="Appointments for selected day">
+              {queueRows.map(item=>
+                <li key={item.appointmentId} className="connected-queue-item">
+                  <p><strong>{item.slotStart.slice(0,5)} — {item.stage}</strong></p>
+                  <p className="mono">Appointment {item.appointmentId}</p>
+                  <p className="connected-footnote">
+                    Doctor membership: {item.doctorMembershipId}
+                  </p>
+                  {canBook&&<button className="outline" disabled={busy}
+                    onClick={()=>void openQueuedAppointment(item)}>
+                    Manage appointment
+                  </button>}
+                </li>)}
+            </ul>}
+        </section>}
+
       {screen==='APPOINTMENT'&&appointmentContext&&
         <section className="connected-panel" aria-label="Persistent appointment candidate">
           <h2>Book an appointment in disposable PostgreSQL</h2>
@@ -697,7 +732,64 @@ export default function ConnectedReceptionPreview(){
               <button className="solid" disabled={busy} onClick={()=>void checkInAppointment()}>
                 {busy?'Confirming check-in…':'Check in this appointment'}
               </button>}
+            {appointmentReceipt.stage==='BOOKED'&&
+              sessionRef.current?.permissions.includes('APPOINTMENT_RESCHEDULE')&&
+              <button className="outline" disabled={busy} onClick={prepareReschedule}>
+                Reschedule appointment
+              </button>}
+            {appointmentReceipt.stage==='BOOKED'&&
+              sessionRef.current?.permissions.includes('APPOINTMENT_CANCEL')&&
+              <button className="outline" disabled={busy}
+                onClick={()=>{setEditAppointment(false);setCancelConfirm(true);}}>
+                Cancel appointment
+              </button>}
+            {canReadAppointments&&
+              <button className="outline" disabled={busy} onClick={showQueue}>
+                Return to daily queue
+              </button>}
           </div>
+          {editAppointment&&appointmentReceipt.stage==='BOOKED'&&
+            <form onSubmit={submitReschedule} aria-label="Change appointment slot">
+              <h2>Choose another doctor or slot</h2>
+              <label htmlFor="reschedule-doctor">Doctor membership UUID</label>
+              <input id="reschedule-doctor" required value={newDoctor}
+                onChange={e=>setNewDoctor(e.target.value.trim())}/>
+              <label htmlFor="reschedule-date">New visit date</label>
+              <input id="reschedule-date" required type="date" min={localCalendarDate()}
+                value={newDate} onChange={e=>setNewDate(e.target.value)}/>
+              <label htmlFor="reschedule-slot">New visit slot</label>
+              <select id="reschedule-slot" value={newSlot}
+                onChange={e=>setNewSlot(e.target.value)}>
+                {Array.from({length:32},(_,i)=>{
+                  const time=String(9+Math.floor(i/4)).padStart(2,'0')+':'+
+                    String(i%4*15).padStart(2,'0');
+                  return <option key={time} value={time}>{time}</option>;
+                })}
+              </select>
+              <button className="solid" disabled={busy} type="submit">
+                Confirm reschedule
+              </button>
+              <button className="outline" disabled={busy} type="button"
+                onClick={()=>setEditAppointment(false)}>Keep existing appointment</button>
+            </form>}
+          {cancelConfirm&&appointmentReceipt.stage==='BOOKED'&&
+            <section aria-label="Confirm appointment cancellation">
+              <p role="status">
+                Cancellation releases the doctor slot. The audit history will
+                remain and this appointment cannot be checked in.
+              </p>
+              <button className="solid" disabled={busy}
+                onClick={()=>void confirmCancelAppointment()}>
+                Confirm cancellation
+              </button>
+              <button className="outline" disabled={busy}
+                onClick={()=>setCancelConfirm(false)}>
+                Keep appointment
+              </button>
+            </section>}
+          {appointmentReceipt.stage==='CANCELLED'&&
+            <p role="status">Cancelled. This slot is now released;
+              the appointment remains available in the audit history.</p>
           <p className="connected-footnote">
             Check-in is allowed only on the scheduled clinic-local date.
             Consultation, prescription and billing remain unavailable in this candidate.
