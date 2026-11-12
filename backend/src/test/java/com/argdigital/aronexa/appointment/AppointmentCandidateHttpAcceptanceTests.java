@@ -109,6 +109,8 @@ class AppointmentCandidateHttpAcceptanceTests {
         record ConsultationReceipt(UUID tenantId,UUID branchId,UUID patientId,
                 UUID appointmentId,UUID doctorMembershipId,String stage,
                 long revision,String consultationNote) {}
+        record ConsultationContext(UUID tenantId,UUID branchId,UUID patientId,
+                UUID appointmentId,UUID doctorMembershipId,String appointmentStage) {}
         record Receipt(UUID tenantId, UUID branchId, UUID patientId,
                        UUID registrationId, UUID appointmentId, UUID doctorMembershipId,
                        String stage, LocalDate visitDate, LocalTime slotStart,
@@ -483,6 +485,30 @@ class AppointmentCandidateHttpAcceptanceTests {
             return new ConsultationReceipt(scope.tenantId(),scope.branchId(),
                     scope.patientId(),scope.encounterId(),scope.doctorMembershipId(),
                     state.stage().name(),state.revision(),state.consultationNote());
+        }
+
+        /**
+         * A doctor-only independent checked-in appointment identity lookup.
+         * Neither the client nor the consultation response supplies trusted
+         * patient identity. This endpoint re-reads the assigned appointment.
+         */
+        @GetMapping("/{appointmentId}/consultation-context")
+        ResponseEntity<ConsultationContext> consultationContext(
+                @PathVariable UUID branchId,@PathVariable UUID appointmentId) {
+            required(appointmentId);
+            AuthPrincipal actor=access.requirePermission("OPD_DRAFT_WRITE");
+            ConsultationContext result=transactions.execute(tx->{
+                var visit=requireDoctorCheckedIn(actor,branchId,appointmentId);
+                jdbc.update("""
+                    INSERT INTO appointment_proof.consultation_read_audit
+                      (appointment_id,tenant_id,branch_id,actor_membership_id)
+                    VALUES (?,?,?,?)
+                    """,appointmentId,actor.tenantId(),branchId,actor.membershipId());
+                return new ConsultationContext(visit.tenantId(),visit.branchId(),
+                    visit.patientId(),visit.appointmentId(),
+                    visit.doctorMembershipId(),visit.stage());
+            });
+            return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(result);
         }
 
         @GetMapping("/{appointmentId}/consultation-draft")
@@ -1011,6 +1037,14 @@ class AppointmentCandidateHttpAcceptanceTests {
         UUID appointment=checkedInAppointment(f,reception,"13:00");
         String endpoint=consultationPath(f,appointment);
 
+        var identity=call("GET",url(f)+"/"+appointment+"/consultation-context",
+                doctor,null);
+        assertThat(identity.statusCode()).isEqualTo(200);
+        assertThat(identity.body()).contains(
+                "\"appointmentStage\":\"CHECKED_IN\"",
+                "\"patientId\":\"");
+        assertThat(call("GET",url(f)+"/"+appointment+"/consultation-context",
+                reception,null).statusCode()).isEqualTo(403);
         assertThat(call("GET",endpoint,reception,null).statusCode()).isEqualTo(403);
         var initial=call("GET",endpoint,doctor,null);
         assertThat(initial.statusCode()).isEqualTo(200);
@@ -1048,7 +1082,7 @@ class AppointmentCandidateHttpAcceptanceTests {
         assertThat(admin.queryForObject("""
             SELECT count(*) FROM appointment_proof.consultation_read_audit
              WHERE appointment_id=?
-            """,Integer.class,appointment)).isEqualTo(2);
+            """,Integer.class,appointment)).isEqualTo(3);
         assertThat(admin.queryForObject("""
             SELECT count(*) FROM appointment_proof.consultation_revision
              WHERE appointment_id=?
