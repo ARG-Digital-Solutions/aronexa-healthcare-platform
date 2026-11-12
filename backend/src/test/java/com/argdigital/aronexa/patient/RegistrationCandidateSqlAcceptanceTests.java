@@ -120,11 +120,11 @@ class RegistrationCandidateSqlAcceptanceTests {
                 """,facility,tenant,"f_"+suffix);
         admin.update("""
                 INSERT INTO branch(id,tenant_id,facility_id,code,display_name)
-                VALUES (?,?,?,'Synthetic branch')
+                VALUES (?,?,?,?,'Synthetic branch')
                 """,branch,tenant,facility,"b_"+suffix);
         admin.update("""
                 INSERT INTO branch(id,tenant_id,facility_id,code,display_name)
-                VALUES (?,?,?,'Other synthetic branch')
+                VALUES (?,?,?,?,'Other synthetic branch')
                 """,otherBranch,tenant,facility,"o_"+suffix);
         admin.update("""
                 INSERT INTO org_membership_branch_scope(tenant_id,membership_id,branch_id)
@@ -132,7 +132,7 @@ class RegistrationCandidateSqlAcceptanceTests {
                 """,tenant,member,branch);
         admin.update("""
                 INSERT INTO auth_role(id,tenant_id,code,display_name)
-                VALUES (?,?,?,'RECEPTION','Synthetic reception')
+                VALUES (?,?,'RECEPTION','Synthetic reception')
                 """,role,tenant);
         admin.update("""
                 INSERT INTO auth_role_permission(tenant_id,role_id,permission_code)
