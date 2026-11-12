@@ -66,6 +66,20 @@ class AuthSecurityConfiguration {
                                         "test & appointment-candidate & !dev & !prod"))
                                 && authn.get().isAuthenticated()
                                 && authn.get().getPrincipal() instanceof AuthPrincipal))
+                        .requestMatchers(HttpMethod.GET,
+                                "/api/v1/branches/{branchId}/appointments/{appointmentId}/consultation-draft")
+                            .access((authn, request) -> new org.springframework.security.authorization.AuthorizationDecision(
+                                environment.acceptsProfiles(Profiles.of(
+                                        "test & appointment-candidate & !dev & !prod"))
+                                && authn.get().isAuthenticated()
+                                && authn.get().getPrincipal() instanceof AuthPrincipal))
+                        .requestMatchers(HttpMethod.POST,
+                                "/api/v1/branches/{branchId}/appointments/{appointmentId}/consultation-draft")
+                            .access((authn, request) -> new org.springframework.security.authorization.AuthorizationDecision(
+                                environment.acceptsProfiles(Profiles.of(
+                                        "test & appointment-candidate & !dev & !prod"))
+                                && authn.get().isAuthenticated()
+                                && authn.get().getPrincipal() instanceof AuthPrincipal))
                         .anyRequest().denyAll())
                 // Sending servlet errors can redispatch /error without the
                 // original request's SecurityContext and rewrite an authenticated
