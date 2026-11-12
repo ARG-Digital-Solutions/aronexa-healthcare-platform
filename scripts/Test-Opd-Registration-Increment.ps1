@@ -79,8 +79,8 @@ if ($reportFiles.Count -eq 0) {
 $tests = 0; $failures = 0; $errors = 0; $skipped = 0
 foreach ($report in $reportFiles) {
     [xml]$document = Get-Content -LiteralPath $report.FullName -Raw
-    $suite = $document.SelectSingleNode("/testsuite")
-    if ($null -eq $suite) {
+    $suite = $document.DocumentElement
+    if ($null -eq $suite -or $suite.LocalName -ne "testsuite") {
         throw "Unexpected Surefire XML root in report $($report.Name)"
     }
     $tests += [int]$suite.GetAttribute("tests")
