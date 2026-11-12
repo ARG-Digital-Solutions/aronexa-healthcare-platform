@@ -3,10 +3,11 @@ import {signInStaff,revokeStaffToken,type StaffSession} from '../staffSessionCli
 import {
   createDoctorConsultationCandidateFlow,type DoctorConsultationDraft,
 } from '../doctorConsultationCandidateClient.ts';
+import DoctorPrescriptionPreview from './DoctorPrescriptionPreview.tsx';
 import '../connected-reception/connected-reception.css';
 import './doctor-preview.css';
 
-type Screen='SIGN_IN'|'LOOKUP'|'DRAFT';
+type Screen='SIGN_IN'|'LOOKUP'|'DRAFT'|'RX';
 type Credentials={tenantCode:string;username:string;password:string};
 const emptyCredentials=():Credentials=>({tenantCode:'',username:'',password:''});
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -141,13 +142,14 @@ export default function DoctorConsultationPreview(){
     <div className="connected-warning" role="status">
       <strong>TEST ONLY — NOT FOR REAL PATIENTS.</strong>
       {' '}This is a fictional, non-finalized consultation draft.
-      No prescription, signature or finalized medical record is produced.
+      No prescription is issued, signed, printed or shared. Drafts only.
     </div>
     <main className="connected-main">
       <div className="connected-heading">
         <p className="eyebrow">OPD CONSULTATION INTEGRATION</p>
         <h1>{screen==='SIGN_IN'?'Doctor sign-in'
           :screen==='LOOKUP'?'Open checked-in appointment'
+          :screen==='RX'?'Smart prescription draft'
           :'Consultation draft'}</h1>
         <p>Only the assigned doctor can reopen and revise this synthetic draft.</p>
       </div>
@@ -216,11 +218,21 @@ export default function DoctorConsultationPreview(){
               <button className="solid" type="submit" disabled={busy||!note.trim()}>
                 {busy?'Saving…':'Save consultation draft'}
               </button>
+              {draft.stage==='CONSULTATION_DRAFT'&&
+                sessionRef.current?.permissions.includes('OPD_RX_DRAFT_WRITE')&&
+                <button className="outline" type="button" disabled={busy}
+                  onClick={()=>{setError('');setSuccess('');setScreen('RX');}}>
+                  Open prescription draft
+                </button>}
               <button className="outline" type="button" disabled={busy}
                 onClick={backToLookup}>Close draft</button>
             </div>
           </form>
         </section>}
+      {screen==='RX'&&sessionRef.current&&
+        <DoctorPrescriptionPreview session={sessionRef.current}
+          branchId={branchId} appointmentId={appointmentId}
+          onClose={backToLookup}/>}
     </main>
     <footer className="connected-footer">
       Synthetic QA only · No patient care · No local storage · ARG Digital Technologies
