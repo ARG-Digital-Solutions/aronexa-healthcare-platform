@@ -33,10 +33,9 @@
    Both operations require OPD_RX_DRAFT_WRITE plus live staff session,
    enabled user/membership, authorized branch scope, DOCTOR role, current
    OPD entitlement, the exact assigned doctor, checked-in appointment and
-   a saved consultation draft. POST requires expectedRxRevision and
+   a saved consultation draft. POST requires expectedRevision and
    consultationRevision, validates the structured medicine fields and
    atomically appends a new snapshot under an appointment row lock.
-   NOTE: field actually named expectedRevision in the request payload.
 4. GET returns EMPTY_DRAFT/revision 0 before the first save; later returns
    RX_DRAFT/revision 1+. A consultation update after any Rx draft causes
    a conflict; no medication is automatically carried to a changed
