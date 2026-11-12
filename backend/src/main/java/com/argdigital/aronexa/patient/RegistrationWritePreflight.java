@@ -76,6 +76,8 @@ public final class RegistrationWritePreflight {
                         AND NOT r.rolbypassrls AND NOT r.rolcreatedb
                         AND NOT r.rolcreaterole AND NOT r.rolreplication
                         AND NOT r.rolinherit
+                        AND NOT has_schema_privilege(
+                          'aronexa_registration_writer','public','CREATE')
                         AND NOT EXISTS (
                           SELECT 1 FROM pg_catalog.pg_auth_members m
                           WHERE m.roleid=r.oid OR m.member=r.oid))
@@ -95,8 +97,14 @@ public final class RegistrationWritePreflight {
                         AND p.proname='aronexa_register_patient'
                         AND p.prosecdef AND p.provolatile='v'
                         AND r.rolname='aronexa_registration_writer'
-                        AND pg_catalog.pg_get_function_identity_arguments(p.oid) =
-                          'p_tenant uuid, p_actor uuid, p_session uuid, p_branch uuid, p_name text, p_precision text, p_dob date, p_key_hash text, p_payload_hash text, p_mrn text, p_key_id integer, p_nonce uuid, p_expires bigint, p_proof text'
+                        AND p.oid = pg_catalog.to_regprocedure(
+                          'public.aronexa_register_patient(uuid,uuid,uuid,uuid,text,text,date,text,text,text,integer,uuid,bigint,text)')
+                        AND NOT EXISTS (
+                          SELECT 1 FROM pg_catalog.aclexplode(
+                              COALESCE(p.proacl,
+                                  pg_catalog.acldefault('f',p.proowner))) acl
+                          WHERE acl.grantee=0 AND acl.privilege_type='EXECUTE'
+                        )
                       )
                     """);
             if (!function) {
@@ -120,6 +128,20 @@ public final class RegistrationWritePreflight {
                           OR has_table_privilege('aronexa_patient_runtime',
                           'public.patient_registration','INSERT')
                         """);
+                if (regclass(connection, "public.patient_registration_idempotency")) {
+                    directWrite |= bool(connection, """
+                            SELECT has_table_privilege('aronexa_patient_runtime',
+                              'public.patient_registration_idempotency','SELECT')
+                              OR has_table_privilege('aronexa_patient_runtime',
+                              'public.patient_registration_idempotency','INSERT')
+                            """);
+                }
+                if (regclass(connection, "public.patient_registration_proof_key")) {
+                    directWrite |= bool(connection, """
+                            SELECT has_table_privilege('aronexa_patient_runtime',
+                              'public.patient_registration_proof_key','SELECT')
+                            """);
+                }
                 if (directWrite) {
                     findings.add(Finding.PATIENT_RUNTIME_HAS_DIRECT_IDENTITY_WRITE);
                 }
