@@ -276,6 +276,17 @@ class RegistrationCandidateSqlAcceptanceTests {
             assertThat(status.ready()).isFalse();
             assertThat(status.findings()).contains(
                     RegistrationWritePreflight.Finding.APPROVED_FLYWAY_MIGRATION_MISSING);
+            // All structural checks should pass on the isolated SQL candidate;
+            // a missing APPROVED Flyway migration remains a hard release block.
+            assertThat(status.findings()).doesNotContain(
+                    RegistrationWritePreflight.Finding.REGISTRATION_FUNCTION_MISSING_OR_UNSAFE,
+                    RegistrationWritePreflight.Finding.RESTRICTED_WRITER_ROLE_MISSING_OR_UNSAFE,
+                    RegistrationWritePreflight.Finding.PATIENT_RUNTIME_HAS_DIRECT_IDENTITY_WRITE,
+                    RegistrationWritePreflight.Finding.PATIENT_RUNTIME_FUNCTION_EXECUTE_MISSING,
+                    RegistrationWritePreflight.Finding.PROOF_KEY_STORE_NOT_READY,
+                    RegistrationWritePreflight.Finding.REGISTRATION_AUDIT_NOT_READY,
+                    RegistrationWritePreflight.Finding.PATIENT_RLS_NOT_ENFORCED,
+                    RegistrationWritePreflight.Finding.DATABASE_PREFLIGHT_FAILED);
             c.rollback();
         }
     }
