@@ -2125,4 +2125,41 @@ class AppointmentCandidateHttpAcceptanceTests {
     }
 
 
+
+    @Test
+    void concurrentCashRequestsCannotOvercollectAndRecordOnlyOneEvent()
+            throws Exception {
+        Fixture f=fixture(true);
+        String reception=login(f),doctor=loginDoctor(f),cashier=loginBilling(f);
+        UUID appt=readyForRx(f,reception,doctor,"16:00");
+        var created=call("POST",billPath(f,appt),cashier,
+                billCreatePayload(UUID.randomUUID()));
+        assertThat(created.statusCode()).isEqualTo(201);
+        UUID invoice=id(created.body(),"invoiceId");
+        java.util.concurrent.Callable<Integer> post=()->call("POST",
+                billPath(f,appt)+"/cash",cashier,
+                cashPayload(invoice,UUID.randomUUID(),30000)).statusCode();
+        try(var workers=java.util.concurrent.Executors.newFixedThreadPool(2)) {
+            var first=workers.submit(post);
+            var second=workers.submit(post);
+            assertThat(List.of(first.get(),second.get()))
+                    .containsExactlyInAnyOrder(200,409);
+        }
+        var receipt=call("GET",billPath(f,appt),cashier,null);
+        assertThat(receipt.statusCode()).isEqualTo(200);
+        assertThat(receipt.body()).contains("\"paidPaise\":30000",
+                "\"outstandingPaise\":20000","\"status\":\"PARTIAL\"");
+        assertThat(admin.queryForObject("""
+            SELECT count(*) FROM appointment_proof.opd_cash_event
+            WHERE invoice_id=?
+            """,Integer.class,invoice)).isOne();
+        assertThat(call("POST",billPath(f,appt)+"/cash",cashier,
+                cashPayload(UUID.randomUUID(),UUID.randomUUID(),1))
+                .statusCode()).isEqualTo(403);
+        assertThat(call("POST",billPath(f,appt)+"/cash",cashier,
+                cashPayload(invoice,UUID.randomUUID(),0))
+                .statusCode()).isEqualTo(400);
+    }
+
+
 }
