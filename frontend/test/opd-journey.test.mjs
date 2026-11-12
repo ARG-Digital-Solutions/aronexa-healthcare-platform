@@ -130,7 +130,7 @@ test('later steps must retain every prior ID and revision exactly', () => {
   const consulted = consult(checkIn(book(start())));
   for (const alteration of [
     {appointmentId: id(99)}, {encounterId: id(99)},
-    {encounterRevision: 2}, {prescriptionId: id(99), prescriptionVersion: 1},
+    {encounterRevision: 2}, {invoiceId: id(99)},
   ]) {
     expectDenied(() => acceptOpdReceipt(consulted, baseReceipt(consulted, 'PRESCRIBED', {
       prescriptionId: id(7), prescriptionVersion: 1, ...alteration,
