@@ -60,7 +60,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 @SpringBootTest(webEnvironment=SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties="server.address=127.0.0.1")
 @ActiveProfiles({"test","registration-candidate"})
-@Import(RegistrationCandidateHttpAcceptanceTests.CandidateConfiguration.class)
+@Import({RegistrationCandidateHttpAcceptanceTests.CandidateConfiguration.class,
+        RegistrationCandidateHttpAcceptanceTests.CandidateController.class})
 @Testcontainers
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class RegistrationCandidateHttpAcceptanceTests {
@@ -82,6 +83,8 @@ class RegistrationCandidateHttpAcceptanceTests {
     @Autowired JdbcTemplate admin;
     @Autowired PasswordEncoder passwords;
     @Autowired javax.sql.DataSource ownerDataSource;
+    @Autowired org.springframework.context.ApplicationContext applicationContext;
+    @Autowired org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping handlerMapping;
     @Value("$"+"{local.server.port}") int port;
     private final HttpClient http=HttpClient.newHttpClient();
 
@@ -150,6 +153,20 @@ class RegistrationCandidateHttpAcceptanceTests {
 
     @BeforeAll
     void installOnlyInDisposableContainer() throws Exception {
+        // A nested test-only @RestController is not reliably discovered by
+        // default component scanning. Require exactly one registered adapter
+        // and a real POST handler instead of accepting an /error redispatch
+        // that can misleadingly surface as HTTP 401.
+        assertThat(applicationContext.getBeansOfType(CandidateController.class))
+                .hasSize(1);
+        assertThat(handlerMapping.getHandlerMethods().entrySet().stream()
+                .anyMatch(entry -> entry.getKey().getMethodsCondition()
+                        .getMethods().contains(org.springframework.web.bind.annotation.RequestMethod.POST)
+                    && entry.getKey().getPatternValues().contains(
+                        "/api/v1/branches/{branchId}/patient-registrations")
+                    && entry.getValue().getBeanType().equals(CandidateController.class)))
+                .as("Candidate POST must be mapped to test-only controller")
+                .isTrue();
         Path dir=Path.of(System.getProperty("basedir",System.getProperty("user.dir")))
                 .toAbsolutePath();
         Path sql=dir.resolve("../deploy/registration/review-only/"
