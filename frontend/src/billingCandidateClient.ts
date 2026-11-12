@@ -7,8 +7,8 @@ const date=/^\d{4}-\d{2}-\d{2}$/;
 const bearer=/^[A-Za-z0-9_-]{43}$/;
 const validId=(x:unknown):x is string=>typeof x==='string'&&uuid.test(x)
   &&x.toLowerCase()!=='00000000-0000-0000-0000-000000000000';
-const money=(x:unknown):x is number=>Number.isSafeInteger(x)
-  &&typeof x==='number'&&x>=0&&x<=10_000_000_000;
+const money=(x:unknown):x is number=>typeof x==='number'
+  &&Number.isSafeInteger(x)&&x>=0&&x<=10_000_000_000;
 
 export type BillingErrorCode='NOT_AUTHORIZED'|'SESSION_EXPIRED'|
   'STATE_CONFLICT'|'INVALID_REQUEST'|'NOT_FOUND'|
@@ -85,7 +85,8 @@ function receiptFrom(raw:unknown,context:BillingContext):BillReceipt{
     ||r.patientId!==context.patientId
     ||r.doctorMembershipId!==context.doctorMembershipId
     ||!validId(r.invoiceId)
-    ||!Number.isSafeInteger(r.invoiceNumber)||Number(r.invoiceNumber)<1
+    ||(typeof r.invoiceNumber!=='number'||!Number.isSafeInteger(r.invoiceNumber))
+    ||Number(r.invoiceNumber)<1
     ||r.serviceCode!==context.serviceCode
     ||r.serviceLabel!==context.serviceLabel
     ||r.totalPaise!==context.amountPaise
@@ -252,7 +253,8 @@ export async function loadDailyBillingCandidate(
   const r=reply.payload as Record<string,unknown>;
   if(r.date!==day||r.tenantId!==session.tenantId
     ||r.branchId!==branchId
-    ||!Number.isSafeInteger(r.invoiceCount)||Number(r.invoiceCount)<0
+    ||(typeof r.invoiceCount!=='number'||!Number.isSafeInteger(r.invoiceCount))
+    ||Number(r.invoiceCount)<0
     ||!money(r.billedPaise)||!money(r.collectionsPaise)
     ||!money(r.outstandingPaise))
     throw new BillingError('UNVERIFIED_RESPONSE');
