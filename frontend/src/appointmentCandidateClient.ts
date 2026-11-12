@@ -17,7 +17,7 @@ export interface AppointmentCandidateReceipt {
   readonly registrationId:string;
   readonly appointmentId:string;
   readonly doctorMembershipId:string;
-  readonly stage:'BOOKED'|'CHECKED_IN';
+  readonly stage:'BOOKED'|'CHECKED_IN'|'CANCELLED';
   readonly visitDate:string;
   readonly slotStart:string;
   readonly revision:number;
@@ -59,12 +59,12 @@ function verify(receipt:unknown,context:RegistrationReference):AppointmentCandid
     ||!valid(r.patientId)||r.patientId!==context.patientId
     ||!valid(r.registrationId)||r.registrationId!==context.registrationId
     ||!valid(r.appointmentId)||!valid(r.doctorMembershipId)
-    ||(r.stage!=='BOOKED'&&r.stage!=='CHECKED_IN')
+    ||(r.stage!=='BOOKED'&&r.stage!=='CHECKED_IN'&&r.stage!=='CANCELLED')
     ||typeof r.visitDate!=='string'||!date.test(r.visitDate)
     ||typeof r.slotStart!=='string'||!/^(09|1[0-5]|16):(00|15|30|45)(:00)?$/.test(r.slotStart)
     ||!Number.isSafeInteger(r.revision)||Number(r.revision)<1
     ||typeof r.replayed!=='boolean'
-    ||(r.stage==='CHECKED_IN'&&Number(r.revision)<2))
+    ||((r.stage==='CHECKED_IN'||r.stage==='CANCELLED')&&Number(r.revision)<2))
     throw new AppointmentCandidateError('UNVERIFIED_RESPONSE');
   return Object.freeze({
     tenantId:r.tenantId,branchId:r.branchId,patientId:r.patientId,
@@ -199,8 +199,112 @@ export function createAppointmentCandidateFlow(
     }catch(e){active=null;throw e;}
     finally{running=false;}
   }
+  async function reschedule(booking:CandidateBooking):Promise<AppointmentCandidateReceipt>{
+    if(disposed)throw new AppointmentCandidateError('SESSION_EXPIRED');
+    if(running||!active||active.stage!=='BOOKED')
+      throw new AppointmentCandidateError('INVALID_REQUEST');
+    if(!session.permissions.includes('APPOINTMENT_RESCHEDULE'))
+      throw new AppointmentCandidateError('NOT_AUTHORIZED');
+    if(!booking||!valid(booking.doctorMembershipId)
+      ||typeof booking.visitDate!=='string'||!date.test(booking.visitDate)
+      ||typeof booking.slotStart!=='string'||!slot.test(booking.slotStart))
+      throw new AppointmentCandidateError('INVALID_REQUEST');
+    const before=active;
+    if(before.doctorMembershipId===booking.doctorMembershipId
+      &&before.visitDate===booking.visitDate
+      &&before.slotStart.startsWith(booking.slotStart))
+      throw new AppointmentCandidateError('APPOINTMENT_CONFLICT');
+    running=true;
+    try{
+      const updated=await api(path+'/'+before.appointmentId+'/reschedule',
+        'POST',{...booking,expectedRevision:before.revision});
+      if(updated.stage!=='BOOKED'||updated.appointmentId!==before.appointmentId
+        ||updated.revision!==before.revision+1
+        ||updated.doctorMembershipId!==booking.doctorMembershipId
+        ||updated.visitDate!==booking.visitDate
+        ||!updated.slotStart.startsWith(booking.slotStart))
+        throw new AppointmentCandidateError('UNVERIFIED_RESPONSE');
+      active=updated;return updated;
+    }catch(e){active=null;throw e;}
+    finally{running=false;}
+  }
+
+  async function cancel():Promise<AppointmentCandidateReceipt>{
+    if(disposed)throw new AppointmentCandidateError('SESSION_EXPIRED');
+    if(running||!active||active.stage!=='BOOKED')
+      throw new AppointmentCandidateError('INVALID_REQUEST');
+    if(!session.permissions.includes('APPOINTMENT_CANCEL'))
+      throw new AppointmentCandidateError('NOT_AUTHORIZED');
+    const before=active;
+    running=true;
+    try {
+      const updated=await api(path+'/'+before.appointmentId+'/cancel',
+        'POST',{expectedRevision:before.revision});
+      if(updated.stage!=='CANCELLED'||updated.appointmentId!==before.appointmentId
+        ||updated.revision!==before.revision+1
+        ||updated.doctorMembershipId!==before.doctorMembershipId
+        ||updated.visitDate!==before.visitDate
+        ||updated.slotStart!==before.slotStart)
+        throw new AppointmentCandidateError('UNVERIFIED_RESPONSE');
+      active=updated;return updated;
+    }catch(e){active=null;throw e;}
+    finally{running=false;}
+  }
+
   function dispose(){
     disposed=true;active=null;requestId=null;attempted=null;
   }
-  return Object.freeze({book,reopen,checkIn,snapshot,dispose});
+  return Object.freeze({book,reopen,checkIn,reschedule,cancel,snapshot,dispose});
+}
+
+
+/**
+ * Fresh authorized daily Reception queue. Results are server-issued and
+ * include no demographic or clinical information. All items are checked for
+ * tenant/branch/date, uniqueness and a maximum of 100; partial queues fail.
+ * Do not cache or persist session, tokens, patient IDs or query responses.
+ */
+export async function loadAppointmentCandidateQueue(
+  session:StaffSession,branchId:string,visitDate:string,
+  transport:Transport=defaultTransport,
+):Promise<readonly AppointmentCandidateReceipt[]>{
+  if(!session||!bearer.test(session.accessToken)||!valid(session.tenantId)
+    ||!valid(branchId)||!session.permissions.includes('APPOINTMENT_READ'))
+    throw new AppointmentCandidateError('NOT_AUTHORIZED');
+  if(!date.test(visitDate))
+    throw new AppointmentCandidateError('INVALID_REQUEST');
+  let response:Response;
+  try{
+    response=await transport('/api/v1/branches/'+branchId+
+      '/appointments?visitDate='+encodeURIComponent(visitDate),
+      request(session.accessToken,'GET'));
+  }catch{throw new AppointmentCandidateError('NETWORK_FAILURE');}
+  if(response.status===401)throw new AppointmentCandidateError('SESSION_EXPIRED');
+  if(response.status===403)throw new AppointmentCandidateError('NOT_AUTHORIZED');
+  if(response.status===409)throw new AppointmentCandidateError('APPOINTMENT_CONFLICT');
+  if(response.status===400)throw new AppointmentCandidateError('INVALID_REQUEST');
+  if(response.status!==200)throw new AppointmentCandidateError('UNVERIFIED_RESPONSE');
+  let payload:unknown;
+  try{payload=await response.json();}
+  catch{throw new AppointmentCandidateError('UNVERIFIED_RESPONSE');}
+  if(!Array.isArray(payload)||payload.length>100)
+    throw new AppointmentCandidateError('UNVERIFIED_RESPONSE');
+  const seen=new Set<string>();
+  const records:AppointmentCandidateReceipt[]=[];
+  for(const item of payload){
+    if(!item||typeof item!=='object'||Array.isArray(item))
+      throw new AppointmentCandidateError('UNVERIFIED_RESPONSE');
+    const data=item as Record<string,unknown>;
+    const received=verify(data,{
+      tenantId:session.tenantId,branchId,
+      patientId:String(data.patientId||''),
+      registrationId:String(data.registrationId||''),
+    });
+    if(received.stage==='CANCELLED'||received.visitDate!==visitDate
+      ||seen.has(received.appointmentId.toLowerCase()))
+      throw new AppointmentCandidateError('UNVERIFIED_RESPONSE');
+    seen.add(received.appointmentId.toLowerCase());
+    records.push(received);
+  }
+  return Object.freeze(records);
 }

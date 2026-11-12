@@ -50,14 +50,17 @@ class AuthSecurityConfiguration {
                         // HTTP+PostgreSQL test profile is active. No dev/prod grant.
                         .requestMatchers(HttpMethod.POST,
                                 "/api/v1/branches/{branchId}/appointments",
-                                "/api/v1/branches/{branchId}/appointments/{appointmentId}/check-in")
+                                "/api/v1/branches/{branchId}/appointments/{appointmentId}/check-in",
+                                "/api/v1/branches/{branchId}/appointments/{appointmentId}/reschedule",
+                                "/api/v1/branches/{branchId}/appointments/{appointmentId}/cancel")
                             .access((authn, request) -> new org.springframework.security.authorization.AuthorizationDecision(
                                 environment.acceptsProfiles(Profiles.of(
                                         "test & appointment-candidate & !dev & !prod"))
                                 && authn.get().isAuthenticated()
                                 && authn.get().getPrincipal() instanceof AuthPrincipal))
                         .requestMatchers(HttpMethod.GET,
-                                "/api/v1/branches/{branchId}/appointments/{appointmentId}")
+                                "/api/v1/branches/{branchId}/appointments/{appointmentId}",
+                                "/api/v1/branches/{branchId}/appointments")
                             .access((authn, request) -> new org.springframework.security.authorization.AuthorizationDecision(
                                 environment.acceptsProfiles(Profiles.of(
                                         "test & appointment-candidate & !dev & !prod"))
