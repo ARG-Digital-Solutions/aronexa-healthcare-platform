@@ -2,7 +2,7 @@
 
 **Scope:** Patient Registration → Appointments → Doctor Consultation → Prescription → Billing.
 **Owner direction:** Windows offline first, one assisted pilot clinic; single-developer incremental delivery; data security and simple UX ahead of breadth.
-**Status (2026-11-12):** CONTRACT IMPLEMENTED FOR FRONTEND LINKAGE ONLY; PERSISTENT END-TO-END JOURNEY **NOT IMPLEMENTED**. NO PATIENT DATA. NO DEPLOYMENT.
+**Status (2026-11-12):** READ-ONLY AUTHORIZED REFERENCE ENDPOINT + FRONTEND LINK CONTRACT IMPLEMENTED; REGISTRATION WRITES AND PERSISTENT END-TO-END JOURNEY **NOT IMPLEMENTED**. NO PATIENT DATA. NO DEPLOYMENT.
 
 ## Current source reality
 
@@ -10,6 +10,10 @@
 - frontend/src/registrationClient.ts maps a narrow authorized registration request, validates the success receipt and retains one idempotency key for retry, but **is not invoked by the real receptionist UI**.
 - SyntheticRegistrationController and SyntheticRegistrationService are enabled **only** with test & c2-synthetic & !dev & !prod. The reviewed proposed registration writer DDL is backend/src/test/resources/db/proposed/V10__c2_synthetic_staff_registration.sql, not a production Flyway migration.
 - Default runtime SecurityFilterChain denies the registration route unless the synthetic test profile is active. Do NOT weaken that restriction or enable a real patient write on the basis of these tests.
+- A new read-only GET /api/v1/branches/{branchId}/patient-registrations/{registrationId} uses PatientAccessService for exact permission, tenant/branch SQL RLS, module entitlement, live session and append-only access audit. Only tenantId, branchId, patientId and registrationId are returned; no MRN, demographic or clinical data. It remains non-functional until a legitimately provisioned account and an approved active module exist. It deliberately does NOT enable patient creation.
+- frontend/src/registrationReferenceClient.ts verifies the authenticated read receipt with same-origin, no-store and no token persistence, and is NOT wired into the demo Reception UI yet.
+- Registration UUIDs in the API path are pseudonymous patient-linked identifiers: redact URL paths from HTTP/access logs, tracing and telemetry before operational use; do not embed names, phones or clinical details in URLs.
+- Real HTTP/Testcontainers acceptance tests for the read-only endpoint and frontend transport model tests are committed but NOT RUN in this tool session.
 - Encounter persistence exists as a tested contract/proof, not a completed clinical HTTP workspace. Consultation, Smart Rx and Billing are stand-alone synthetic previews.
 - Existing application CI and verified synthetic QA have been reported as passing locally by the owner, but these are not evidence of an integrated persistent workflow.
 
@@ -32,7 +36,7 @@ Only **server-issued UUIDs** may advance the journey; a synthetic DEMO-... ID mu
 
 ## Development sequence — one persistent vertical slice at a time
 
-1. **Registration production readiness (BLOCKED):** independently review a new forward-only migration/provisioning plan derived from the synthetic V10 proof. Preflight fresh database roles, scoped NOLOGIN writer, secret/key lifecycle, Flyway upgrade/rollback strategy, audit, idempotency, duplicate-review process, and tenant/branch/role/session checks. Implement authenticated clinical UI login and safe account provisioning. Only then introduce a real authenticated route and connect registrationClient; keep demo mode visibly separate.
+1. **Registration production readiness (BLOCKED):** preserve the new read-only reference endpoint and independently review a new forward-only migration/provisioning plan derived from the synthetic V10 proof. Preflight fresh database roles, scoped NOLOGIN writer, secret/key lifecycle, Flyway upgrade/rollback strategy, audit, idempotency, duplicate-review process, and tenant/branch/role/session checks. Implement authenticated clinical UI login and safe account provisioning. Only then introduce a real authenticated route and connect registrationClient; keep demo mode visibly separate.
 2. **Appointments (PENDING):** implement transactional PostgreSQL appointment/slot records referencing existing tenant+branch+patient+registration, real doctor assignment, database-enforced slot conflict exclusion, and audited book/reschedule/cancel/check-in. Prove two simultaneous booking attempts cannot win one slot.
 3. **Consultation (PENDING):** link checked-in appointment to an authorized doctor-owned encounter, record immutable audit, optimistic revision checks, server-computed timestamps and persistence across app restart. Return the encounterId with the SAME patientId.
 4. **Smart Prescription (PENDING):** link medicines, note and ink assets to the same encounter; store validated drafts with revision checks and immutable finalization/version history. Clinician signs; no issued prescription from demo previews.
@@ -61,6 +65,12 @@ From an isolated worktree on the current feature branch with Node 22+:
 
     cd frontend
     node --experimental-strip-types --test test/opd-journey.test.mjs
+
+Run the frontend reference client tests and backend HTTP acceptance tests as well:
+
+    node --experimental-strip-types --test test/registration-reference-client.test.mjs
+    cd ..
+    mvn.cmd -B -f backend/pom.xml -Dtest=PatientRegistrationReadHttpAcceptanceTests test
 
 Then run npm ci && npm run build to include all existing frontend model tests. Maven/Testcontainers and independent browser QA must also run on the accepted integrated SHA before any release determination. GitHub Actions billing failure is not permission to skip review or required security gates.
 
