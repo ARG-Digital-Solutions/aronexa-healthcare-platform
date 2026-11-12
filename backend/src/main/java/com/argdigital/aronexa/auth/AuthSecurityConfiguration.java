@@ -32,10 +32,17 @@ class AuthSecurityConfiguration {
                         .requestMatchers(HttpMethod.POST,"/api/v1/auth/login").permitAll()
                         // Until P01-T05-C explicitly authorizes a resource, deny its HTTP route.
                         .requestMatchers(HttpMethod.GET,"/api/v1/auth/me").authenticated()
+                        // A narrow read-only registration UUID lookup. The service
+                        // also requires PATIENT_REGISTRATION_READ, active module,
+                        // assigned branch and patient SQL RLS, with audit on success.
+                        // This does not authorize the registration POST route.
+                        .requestMatchers(HttpMethod.GET,
+                                "/api/v1/branches/{branchId}/patient-registrations/{registrationId}")
+                            .authenticated()
                         .requestMatchers(HttpMethod.POST,"/api/v1/auth/logout","/api/v1/auth/password").authenticated()
                         .requestMatchers(HttpMethod.POST, "/api/v1/branches/{branchId}/patient-registrations")
                             .access((authn, request) -> new org.springframework.security.authorization.AuthorizationDecision(
-                                environment.acceptsProfiles(Profiles.of("test & c2-synthetic & !dev & !prod"))
+                                environment.acceptsProfiles(Profiles.of("test & (c2-synthetic | registration-candidate) & !dev & !prod"))
                                 && authn.get().isAuthenticated()
                                 && authn.get().getPrincipal() instanceof AuthPrincipal))
                         .anyRequest().denyAll())

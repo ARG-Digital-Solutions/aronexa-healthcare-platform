@@ -18,6 +18,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.core.io.ClassPathResource;
+import org.springframework.core.io.support.EncodedResource;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.init.ScriptUtils;
@@ -56,8 +57,18 @@ class AppointmentPersistenceProofTests {
     @BeforeAll
     void installOnlyIntoNewContainer() throws Exception {
         try (Connection c = admin.getDataSource().getConnection()) {
+            // PostgreSQL PL/pgSQL dollar-quoted function bodies contain semicolons.
+            // Spring's default ';' splitter would truncate CREATE FUNCTION statements.
+            // Send the full synthetic-only script to pgJDBC, whose SQL parser handles
+            // dollar quoting correctly; never apply this to a real customer database.
             ScriptUtils.executeSqlScript(c,
-                new ClassPathResource("db/test/appointment-persistence-proof.sql"));
+                new EncodedResource(new ClassPathResource(
+                    "db/test/appointment-persistence-proof.sql")),
+                false, false,
+                ScriptUtils.DEFAULT_COMMENT_PREFIX,
+                ScriptUtils.EOF_STATEMENT_SEPARATOR,
+                ScriptUtils.DEFAULT_BLOCK_COMMENT_START_DELIMITER,
+                ScriptUtils.DEFAULT_BLOCK_COMMENT_END_DELIMITER);
         }
         // Database created by Testcontainers, never from any owner/dev/customer DB.
         admin.update("UPDATE module_registry SET implemented=true,released=true WHERE code='OPD'");
