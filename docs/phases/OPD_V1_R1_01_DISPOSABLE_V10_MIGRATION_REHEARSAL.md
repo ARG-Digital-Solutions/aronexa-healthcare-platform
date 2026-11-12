@@ -54,10 +54,18 @@ compatibility or performance with real data volumes.
 Use Docker Desktop, Java 21 and Maven in a clean worktree on this R1-01
 branch (not the old PR #108 worktree). Do not run a SQL script manually.
 
+Recommended: from the R1-01 repository root, invoke the provided PowerShell
+runner with the exact 40-character R1-01 HEAD:
+
+    powershell.exe -NoProfile -File .\scripts\Test-Opd-R1-01-V10-DisposableRehearsal.ps1 -ExpectedCommit FULL_R1_01_GIT_SHA
+
+It runs both the isolated rehearsal and full backend clean verification, saves
+each actual Maven log in the user's AroNexa-Local-QA evidence folder and counts
+the resulting fresh Surefire XML test reports.
+
+Equivalent manual commands:
+
     mvn.cmd -B -f backend/pom.xml "-Dtest=RegistrationV10DisposableUpgradeRehearsalTests" test
-
-Then full regression on exact same head:
-
     mvn.cmd -B -f backend/pom.xml clean verify
 
 A PASS requires the focused test, the existing 256-test regression and all
