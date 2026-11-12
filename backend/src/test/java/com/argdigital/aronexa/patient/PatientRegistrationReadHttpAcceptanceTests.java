@@ -164,6 +164,13 @@ class PatientRegistrationReadHttpAcceptanceTests {
                 "accessToken","password","membershipId","displayName","dateOfBirth");
         assertThat(auditCount(f)).isEqualTo(1);
 
+        // Even a fully authenticated/reception-authorized user cannot create
+        // a patient through the production/test profile registration POST.
+        var writeDenied=post("/api/v1/branches/"+f.branch()+"/patient-registrations",
+                "{\"displayName\":\"Fictional\"}",bearer);
+        assertThat(writeDenied.statusCode()).isEqualTo(403);
+        assertThat(auditCount(f)).isEqualTo(1);
+
         var foreignBranch=get(uriPath(f,f.otherBranch(),f.registration()),bearer);
         var missing=get(uriPath(f,f.branch(),UUID.randomUUID()),bearer);
         assertThat(foreignBranch.statusCode()).isEqualTo(404);
@@ -218,6 +225,17 @@ class PatientRegistrationReadHttpAcceptanceTests {
         var blocked=post("/api/v1/branches/"+f.branch()+"/patient-registrations",
                 "{\"displayName\":\"Fictional\"}",bearer);
         assertThat(blocked.statusCode()).isEqualTo(403);
+    }
+
+    @Test
+    void crossingTenantBoundariesNeverReturnsAnotherPatientsReference() throws Exception {
+        Fixture one=seed(true,true,false);
+        Fixture two=seed(true,true,false);
+        String token=login(one);
+        var denied=get(uriPath(two,two.branch(),two.registration()),token);
+        assertThat(denied.statusCode()).isEqualTo(404);
+        assertThat(auditCount(one)).isZero();
+        assertThat(auditCount(two)).isZero();
     }
 
     @Test
