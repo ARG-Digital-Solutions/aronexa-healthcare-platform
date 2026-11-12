@@ -15,7 +15,7 @@ import type {StaffSession} from './staffSessionClient.ts';
  */
 type Transport = (url: string, options: RequestInit) => Promise<Response>;
 const defaultTransport: Transport = (url, options) => fetch(url, options);
-const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const bearer = /^[A-Za-z0-9_-]{43}$/;
 
 export type FlowStatus =
