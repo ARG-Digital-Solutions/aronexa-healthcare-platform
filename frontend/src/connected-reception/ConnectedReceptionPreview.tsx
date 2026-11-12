@@ -9,9 +9,10 @@ import {
 import type {OpdJourney} from '../opdJourney.ts';
 import type {RegistrationReference} from '../registrationReferenceClient.ts';
 import {createRegistrationRecoveryFlow} from '../registrationRecoveryFlow.ts';
+import {createAppointmentCandidateFlow, type AppointmentCandidateReceipt} from '../appointmentCandidateClient.ts';
 import './connected-reception.css';
 
-type Screen='SIGN_IN'|'PATIENT_DETAILS'|'REVIEW'|'UNRESOLVED'|'REGISTERED'|'RECOVERY_LOOKUP'|'REFERENCE_FOUND';
+type Screen='SIGN_IN'|'PATIENT_DETAILS'|'REVIEW'|'UNRESOLVED'|'REGISTERED'|'RECOVERY_LOOKUP'|'REFERENCE_FOUND'|'APPOINTMENT'|'APPOINTMENT_BOOKED';
 type Credentials={tenantCode:string;username:string;password:string};
 const emptyCredentials=():Credentials=>({tenantCode:'',username:'',password:''});
 
@@ -30,6 +31,7 @@ export default function ConnectedReceptionPreview(){
   const sessionRef=useRef<StaffSession|null>(null);
   const flowRef=useRef<ConnectedRegistrationFlow|null>(null);
   const recoveryRef=useRef<ReturnType<typeof createRegistrationRecoveryFlow>|null>(null);
+  const appointmentRef=useRef<ReturnType<typeof createAppointmentCandidateFlow>|null>(null);
   const [screen,setScreen]=useState<Screen>('SIGN_IN');
   const [credentials,setCredentials]=useState<Credentials>(emptyCredentials);
   const [branchId,setBranchId]=useState('');
@@ -44,12 +46,20 @@ export default function ConnectedReceptionPreview(){
   const [lookupId,setLookupId]=useState('');
   const [foundReference,setFoundReference]=useState<RegistrationReference|null>(null);
   const [canRead,setCanRead]=useState(false);
+  const [canBook,setCanBook]=useState(false);
+  const [appointmentContext,setAppointmentContext]=useState<RegistrationReference|null>(null);
+  const [appointmentReceipt,setAppointmentReceipt]=useState<AppointmentCandidateReceipt|null>(null);
+  const [appointmentDoctor,setAppointmentDoctor]=useState('');
+  const [appointmentDate,setAppointmentDate]=useState(localCalendarDate());
+  const [appointmentSlot,setAppointmentSlot]=useState('09:00');
+  const [appointmentLookupId,setAppointmentLookupId]=useState('');
 
   function explain(failure:unknown){
     // Never render error stack traces, network paths, tokens or server payloads.
     return failure instanceof Error && (
       ['StaffSessionError','RegistrationError','RegistrationReferenceError',
-        'RegistrationRecoveryError','ConnectedFlowError','OpdLinkError'].includes(failure.name))
+        'RegistrationRecoveryError','AppointmentCandidateError',
+        'ConnectedFlowError','OpdLinkError'].includes(failure.name))
       ? failure.message
       : 'The operation could not be completed. Review its status before continuing.';
   }
@@ -63,6 +73,7 @@ export default function ConnectedReceptionPreview(){
       session=await signInStaff(credentials);
       const write=session.permissions.includes('PATIENT_REGISTER');
       const read=session.permissions.includes('PATIENT_REGISTRATION_READ');
+      const book=session.permissions.includes('APPOINTMENT_BOOK');
       if(!write&&!read)throw new Error('No patient registration permission');
       const flow=write?createConnectedRegistrationFlow(session,branchId):null;
       const recovery=read?createRegistrationRecoveryFlow(session,branchId):null;
@@ -70,6 +81,7 @@ export default function ConnectedReceptionPreview(){
       flowRef.current=flow;
       recoveryRef.current=recovery;
       setCanRead(read);
+      setCanBook(book);
       setStaffLabel(session.username);
       setCredentials(emptyCredentials());
       setScreen(write?'PATIENT_DETAILS':'RECOVERY_LOOKUP');
@@ -153,6 +165,10 @@ export default function ConnectedReceptionPreview(){
 
   function showRecovery(){
     if(busy||!recoveryRef.current)return;
+    appointmentRef.current?.dispose();
+    appointmentRef.current=null;
+    setAppointmentReceipt(null);
+    setAppointmentContext(null);
     setError('');
     setFoundReference(null);
     setLookupId('');
@@ -184,8 +200,72 @@ export default function ConnectedReceptionPreview(){
     }catch(failure){setError(explain(failure));}
   }
 
+  function openBooking(reference:RegistrationReference){
+    if(busy||!sessionRef.current||!canBook)return;
+    try{
+      appointmentRef.current?.dispose();
+      appointmentRef.current=createAppointmentCandidateFlow(sessionRef.current,reference);
+      setAppointmentContext(reference);
+      setAppointmentReceipt(null);
+      setAppointmentDoctor('');
+      setAppointmentDate(localCalendarDate());
+      setAppointmentSlot('09:00');
+      setAppointmentLookupId('');
+      setError('');
+      setScreen('APPOINTMENT');
+    }catch(failure){setError(explain(failure));}
+  }
+
+  function openSavedRegistrationBooking(){
+    if(!saved)return;
+    openBooking({tenantId:saved.tenantId,branchId:saved.branchId,
+      registrationId:saved.registrationId,patientId:saved.patientId});
+  }
+
+  async function submitAppointment(e:FormEvent<HTMLFormElement>){
+    e.preventDefault();
+    if(busy||!appointmentRef.current)return;
+    setBusy(true);setError('');
+    try{
+      const receipt=await appointmentRef.current.book({
+        doctorMembershipId:appointmentDoctor.trim(),
+        visitDate:appointmentDate,slotStart:appointmentSlot,
+      });
+      setAppointmentReceipt(receipt);
+      setScreen('APPOINTMENT_BOOKED');
+    }catch(failure){setAppointmentReceipt(null);setError(explain(failure));}
+    finally{setBusy(false);}
+  }
+
+  async function reopenAppointment(e:FormEvent<HTMLFormElement>){
+    e.preventDefault();
+    if(busy||!appointmentRef.current)return;
+    setBusy(true);setError('');setAppointmentReceipt(null);
+    try{
+      const receipt=await appointmentRef.current.reopen(appointmentLookupId.trim());
+      setAppointmentReceipt(receipt);
+      setScreen('APPOINTMENT_BOOKED');
+    }catch(failure){setError(explain(failure));}
+    finally{setBusy(false);}
+  }
+
+  async function checkInAppointment(){
+    if(busy||!appointmentRef.current)return;
+    setBusy(true);setError('');
+    try{
+      const receipt=await appointmentRef.current.checkIn();
+      setAppointmentReceipt(receipt);
+    }catch(failure){
+      setAppointmentReceipt(null);
+      setScreen('APPOINTMENT');
+      setError(explain(failure));
+    }finally{setBusy(false);}
+  }
+
   function signOut(){
     if(busy)return;
+    appointmentRef.current?.dispose();
+    appointmentRef.current=null;
     recoveryRef.current?.dispose();
     recoveryRef.current=null;
     const token=sessionRef.current?.accessToken;
@@ -200,6 +280,11 @@ export default function ConnectedReceptionPreview(){
     setFoundReference(null);
     setLookupId('');
     setCanRead(false);
+    setCanBook(false);
+    setAppointmentContext(null);
+    setAppointmentReceipt(null);
+    setAppointmentDoctor('');
+    setAppointmentLookupId('');
     setError('');
     setScreen('SIGN_IN');
     // Clear all UI context before requesting server-side revocation.
@@ -225,6 +310,8 @@ export default function ConnectedReceptionPreview(){
         <h1>{screen==='SIGN_IN'?'Staff sign-in':screen==='REGISTERED'?'Registration acknowledged':
           screen==='REFERENCE_FOUND'?'Existing registration found':
           screen==='RECOVERY_LOOKUP'?'Find an existing registration':
+          screen==='APPOINTMENT'?'Book or reopen a saved appointment':
+          screen==='APPOINTMENT_BOOKED'?'Saved appointment':
           screen==='REVIEW'?'Review proposed registration':
           screen==='UNRESOLVED'?'Save needs attention':'Register synthetic patient'}</h1>
         <p>One staff session · One patient identity · One controlled registration attempt.</p>
@@ -351,6 +438,9 @@ export default function ConnectedReceptionPreview(){
             {canRead&&<button className="outline" onClick={showRecovery}>
               Find existing registration
             </button>}
+            {canBook&&<button className="outline" onClick={openSavedRegistrationBooking}>
+              Book a test appointment
+            </button>}
             <button className="outline" disabled={busy} onClick={()=>void verifySaved()}>
               Verify authorized read-back
             </button>
@@ -402,6 +492,8 @@ export default function ConnectedReceptionPreview(){
             <button className="solid" disabled={busy} onClick={showRecovery}>
               Find another registration
             </button>
+            {canBook&&<button className="solid" disabled={busy}
+              onClick={()=>openBooking(foundReference)}>Book test appointment</button>}
             {flowRef.current&&<button className="outline" disabled={busy}
               onClick={returnToRegistration}>New registration</button>}
           </div>
@@ -410,6 +502,75 @@ export default function ConnectedReceptionPreview(){
             reference cannot create an appointment or authorize clinical care.
           </p>
         </section>}
+      {screen==='APPOINTMENT'&&appointmentContext&&
+        <section className="connected-panel" aria-label="Persistent appointment candidate">
+          <h2>Book an appointment in disposable PostgreSQL</h2>
+          <p className="connected-footnote">
+            Patient and registration references were issued by the server.
+            Only fictional appointments are permitted. An assigned doctor membership UUID
+            is required until the reviewed clinician-directory API is implemented.
+          </p>
+          <dl className="connected-summary">
+            <dt>Patient ID</dt><dd className="mono">{appointmentContext.patientId}</dd>
+            <dt>Registration ID</dt><dd className="mono">{appointmentContext.registrationId}</dd>
+          </dl>
+          <form onSubmit={submitAppointment}>
+            <label htmlFor="appointment-doctor">Assigned doctor membership UUID</label>
+            <input id="appointment-doctor" required autoComplete="off"
+              placeholder="Doctor membership UUID from disposable fixture"
+              value={appointmentDoctor}
+              onChange={e=>setAppointmentDoctor(e.target.value.trim())}/>
+            <label htmlFor="appointment-date">Visit date</label>
+            <input id="appointment-date" required type="date" min={localCalendarDate()}
+              value={appointmentDate} onChange={e=>setAppointmentDate(e.target.value)}/>
+            <label htmlFor="appointment-slot">Visit slot</label>
+            <select id="appointment-slot" value={appointmentSlot}
+              onChange={e=>setAppointmentSlot(e.target.value)}>
+              {Array.from({length:32},(_,i)=>(
+                <option key={i} value={String(9+Math.floor(i/4)).padStart(2,'0')+':'+String(i%4*15).padStart(2,'0')}>
+                  {String(9+Math.floor(i/4)).padStart(2,'0')+':'+String(i%4*15).padStart(2,'0')}
+                </option>))}
+            </select>
+            <button className="solid" type="submit" disabled={busy}>
+              {busy?'Saving appointment…':'Book test appointment'}
+            </button>
+          </form>
+          <p className="connected-footnote">
+            If the network fails after booking, retry the unchanged details.
+            The same request ID will be reused; changing patient/slot requires explicit review.
+          </p>
+          <form onSubmit={reopenAppointment}>
+            <label htmlFor="existing-appointment">Reopen appointment UUID</label>
+            <input id="existing-appointment" required autoComplete="off"
+              value={appointmentLookupId}
+              onChange={e=>setAppointmentLookupId(e.target.value.trim())}/>
+            <button className="outline" disabled={busy} type="submit">Reopen server appointment</button>
+          </form>
+        </section>}
+
+      {screen==='APPOINTMENT_BOOKED'&&appointmentReceipt&&
+        <section className="connected-panel" aria-label="Saved appointment">
+          <div className="connected-success">✓ Appointment verified by the server</div>
+          <dl className="connected-summary">
+            <dt>Appointment ID</dt><dd className="mono">{appointmentReceipt.appointmentId}</dd>
+            <dt>Patient ID</dt><dd className="mono">{appointmentReceipt.patientId}</dd>
+            <dt>Doctor membership ID</dt><dd className="mono">{appointmentReceipt.doctorMembershipId}</dd>
+            <dt>Date and slot</dt><dd>{appointmentReceipt.visitDate} · {appointmentReceipt.slotStart}</dd>
+            <dt>Status</dt><dd>{appointmentReceipt.stage}</dd>
+            <dt>Revision</dt><dd>{appointmentReceipt.revision}</dd>
+          </dl>
+          <div className="connected-actions">
+            {appointmentReceipt.stage==='BOOKED'&&
+              <button className="solid" disabled={busy} onClick={()=>void checkInAppointment()}>
+                {busy?'Confirming check-in…':'Check in this appointment'}
+              </button>}
+          </div>
+          <p className="connected-footnote">
+            Check-in is allowed only on the scheduled clinic-local date.
+            Consultation, prescription and billing remain unavailable in this candidate.
+          </p>
+        </section>}
+
     </main>
     <footer className="connected-footer">
       Internal QA preview only · No patient care · No browser persistence · ARG Digital Technologies
