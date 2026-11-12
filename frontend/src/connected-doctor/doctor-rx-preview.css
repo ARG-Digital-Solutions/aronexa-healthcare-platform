@@ -1,0 +1,12 @@
+.rx-entry-form{margin-top:22px;padding-top:12px;border-top:1px solid #dbe5ee}
+.rx-entry-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(205px,1fr));gap:8px 16px}
+.rx-entry-field{min-width:0;display:flex;flex-direction:column;gap:6px}
+.rx-entry-field label{font-size:13px;font-weight:700;color:#27435f}
+.rx-draft-list{margin-top:24px}
+.rx-draft-line{padding:13px 0;border-bottom:1px solid #dbe5ee;overflow-wrap:anywhere}
+.rx-draft-line p{font-size:13px;color:#455d75;line-height:1.6}
+.rx-invalid-watermark{margin-top:24px;padding:12px;background:#fff3d6;
+border:1px dashed #b37b28;color:#6f4700;font-size:14px;
+font-weight:800;letter-spacing:.03em;text-align:center}
+.rx-save-form{margin-top:18px}
+.rx-entry-form h3,.rx-draft-list h3{font-size:16px;color:#17395e;margin:14px 0}
