@@ -18,7 +18,8 @@
 - A **review-only** SQL candidate lives at deploy/registration/review-only/V10__approved_clinic_registration_writer.sql. This file is OUTSIDE backend/src/main/resources/db/migration and therefore is NOT an automatic Flyway migration. It is NOT approved for manual execution on persistent databases. It derives from the disposable synthetic C2 proof and uses distinct production function and proof-domain names.
 - RegistrationProductionProof and RegistrationWriteExecutor are **inert Java classes**, with no Spring @Service, controller, configuration activation, request route or runtime bean. RegistrationWriteExecutor calls only the separately named SQL candidate. The database function still rechecks bearer session, staff/tenant/branch, role/module, signed proof, idempotency, audit and duplicates. This has not been proven outside fresh disposable test containers.
 - RegistrationWritePreflight is read-only, not a Spring bean and requires an explicit read-only transaction. It structurally rejects the V9 database and this unapproved candidate, missing approved Flyway V10 entry/function/role/key, unsafe direct writes, missing audit and absent FORCE RLS. It **never** provisions roles or installs keys and cannot authenticate independent review.
-- RegistrationCandidateSqlAcceptanceTests and RegistrationWritePreflightTests are committed for PostgreSQL 17 Testcontainers. **NOT RUN HERE**: no successful result or runtime claim exists yet.
+- RegistrationCandidateSqlAcceptanceTests and RegistrationWritePreflightTests were **reported PASS by the owner** on commit 8485989684474c12d67f68581cefa7113c599412 on 2026-11-12; logs/JUnit not independently inspected. This does not establish PASS on later commits.
+- A new **isolated HTTP candidate test** is implemented in src/test/java as RegistrationCandidateHttpAcceptanceTests. The controller and bean wiring exist only in the test source set, guarded by profile test & registration-candidate & !dev & !prod. The normal runtime SecurityFilterChain continues to deny POST except under the two synthetic test profiles. Request body cap and per-actor rate limits also apply to this isolated test. The tests use real HTTP, real database-backed bearer sessions and fresh disposable PostgreSQL to verify successful durable registration/replay and negative authorization/admission cases. **THIS NEW SUITE HAS NOT BEEN RUN.** No normal runtime POST route is active.
 - Existing application CI and verified synthetic QA have been reported as passing locally by the owner, but these are not evidence of an integrated persistent workflow.
 
 ## Shared identity contract (new)
@@ -74,7 +75,7 @@ Run the frontend reference client tests and backend HTTP acceptance tests as wel
 
     node --experimental-strip-types --test test/registration-reference-client.test.mjs
     cd ..
-    mvn.cmd -B -f backend/pom.xml "-Dtest=PatientRegistrationReadHttpAcceptanceTests,RegistrationWritePreflightTests,RegistrationCandidateSqlAcceptanceTests" test
+    mvn.cmd -B -f backend/pom.xml "-Dtest=PatientRegistrationReadHttpAcceptanceTests,RegistrationWritePreflightTests,RegistrationCandidateSqlAcceptanceTests,RegistrationCandidateHttpAcceptanceTests" test
 
 Then run npm ci && npm run build to include all existing frontend model tests. Maven/Testcontainers and independent browser QA must also run on the accepted integrated SHA before any release determination. GitHub Actions billing failure is not permission to skip review or required security gates.
 
