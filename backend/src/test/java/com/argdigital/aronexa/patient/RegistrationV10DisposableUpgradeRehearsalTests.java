@@ -246,6 +246,25 @@ class RegistrationV10DisposableUpgradeRehearsalTests {
             assertThat(exists(reviewed,"public.patient_registration_idempotency")).isTrue();
             assertThat(exists(reviewed,"public.patient_registration_write_audit")).isTrue();
             assertThat(exists(reviewed,"public.patient_registration_proof_key")).isTrue();
+            assertThat(scalar(reviewed,
+                    "SELECT count(*) FROM pg_catalog.pg_proc p "
+                    +"JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace "
+                    +"JOIN pg_catalog.pg_roles r ON r.oid=p.proowner "
+                    +"WHERE n.nspname='public' AND p.proname='aronexa_register_patient' "
+                    +"AND p.prosecdef AND r.rolname='aronexa_registration_writer' "
+                    +"AND NOT r.rolcanlogin AND NOT r.rolsuper AND NOT r.rolbypassrls"))
+                    .as("Candidate SECURITY DEFINER owned by restricted NOLOGIN role")
+                    .isOne();
+            assertThat(scalar(reviewed,
+                    "SELECT count(*) FROM pg_catalog.pg_class "
+                    +"WHERE oid IN ('public.patient_registration_idempotency'::regclass,"
+                    +"'public.patient_registration_write_audit'::regclass) "
+                    +"AND relrowsecurity AND relforcerowsecurity")).isEqualTo(2);
+            assertThat(scalar(reviewed,
+                    "SELECT CASE WHEN has_table_privilege('aronexa_patient_runtime',"
+                    +"'public.patient','INSERT') OR has_table_privilege("
+                    +"'aronexa_patient_runtime','public.patient_registration','INSERT') "
+                    +"THEN 1 ELSE 0 END")).isZero();
             assertThat(value(reviewed,"SELECT version FROM public.flyway_schema_history "
                     +"WHERE success ORDER BY installed_rank DESC LIMIT 1")).isEqualTo("9");
             // In particular, no deployment approval follows merely from
