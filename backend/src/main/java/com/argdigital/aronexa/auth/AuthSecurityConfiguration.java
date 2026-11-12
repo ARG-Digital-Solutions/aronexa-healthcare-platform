@@ -42,7 +42,7 @@ class AuthSecurityConfiguration {
                         .requestMatchers(HttpMethod.POST,"/api/v1/auth/logout","/api/v1/auth/password").authenticated()
                         .requestMatchers(HttpMethod.POST, "/api/v1/branches/{branchId}/patient-registrations")
                             .access((authn, request) -> new org.springframework.security.authorization.AuthorizationDecision(
-                                environment.acceptsProfiles(Profiles.of("test & c2-synthetic & !dev & !prod"))
+                                environment.acceptsProfiles(Profiles.of("test & (c2-synthetic | registration-candidate) & !dev & !prod"))
                                 && authn.get().isAuthenticated()
                                 && authn.get().getPrincipal() instanceof AuthPrincipal))
                         .anyRequest().denyAll())
