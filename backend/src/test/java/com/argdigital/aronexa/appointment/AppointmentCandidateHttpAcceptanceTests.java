@@ -448,6 +448,112 @@ class AppointmentCandidateHttpAcceptanceTests {
                     .body(cancelled);
         }
 
+
+        private Receipt requireDoctorCheckedIn(AuthPrincipal doctor,
+                                                 UUID branchId,UUID appointmentId) {
+            requireCurrentSqlSession(doctor,branchId,"OPD_DRAFT_WRITE");
+            requireDoctor(doctor.tenantId(),branchId,doctor.membershipId());
+            Receipt appointment=load(doctor.tenantId(),branchId,appointmentId,false);
+            if(appointment==null
+                    ||!doctor.membershipId().equals(appointment.doctorMembershipId()))
+                throw new AccessDeniedException("Consultation scope denied");
+            if(!"CHECKED_IN".equals(appointment.stage()))throw new Conflict();
+            return appointment;
+        }
+
+        private EncounterDraftContract.Draft currentConsultation(Receipt visit) {
+            var scope=new EncounterDraftContract.Scope(visit.tenantId(),
+                    visit.branchId(),visit.patientId(),visit.appointmentId(),
+                    visit.doctorMembershipId());
+            var notes=jdbc.query("""
+                SELECT revision,consultation_note FROM appointment_proof.consultation_revision
+                 WHERE tenant_id=? AND branch_id=? AND appointment_id=?
+                 ORDER BY revision DESC LIMIT 1
+                """,(rs,i)->new EncounterDraftContract.Draft(scope,
+                    EncounterDraftContract.Stage.CONSULTATION_DRAFT,
+                    rs.getInt("revision"),rs.getString("consultation_note"),
+                    null,null),
+                visit.tenantId(),visit.branchId(),visit.appointmentId());
+            return notes.isEmpty()?EncounterDraftContract.checkedIn(scope):notes.getFirst();
+        }
+
+        private static ConsultationReceipt consultationReceipt(
+                EncounterDraftContract.Draft state) {
+            var scope=state.scope();
+            return new ConsultationReceipt(scope.tenantId(),scope.branchId(),
+                    scope.patientId(),scope.encounterId(),scope.doctorMembershipId(),
+                    state.stage().name(),state.revision(),state.consultationNote());
+        }
+
+        @GetMapping("/{appointmentId}/consultation-draft")
+        ResponseEntity<ConsultationReceipt> readConsultation(
+                @PathVariable UUID branchId,@PathVariable UUID appointmentId) {
+            required(appointmentId);
+            AuthPrincipal actor=access.requirePermission("OPD_DRAFT_WRITE");
+            ConsultationReceipt result=transactions.execute(tx->{
+                var visit=requireDoctorCheckedIn(actor,branchId,appointmentId);
+                var state=currentConsultation(visit);
+                jdbc.update("""
+                    INSERT INTO appointment_proof.consultation_read_audit
+                      (appointment_id,tenant_id,branch_id,actor_membership_id)
+                    VALUES (?,?,?,?)
+                    """,appointmentId,actor.tenantId(),branchId,actor.membershipId());
+                return consultationReceipt(state);
+            });
+            return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(result);
+        }
+
+        @PostMapping("/{appointmentId}/consultation-draft")
+        ResponseEntity<ConsultationReceipt> saveConsultation(
+                @PathVariable UUID branchId,@PathVariable UUID appointmentId,
+                @RequestBody SaveConsultation input) {
+            required(appointmentId);
+            if(input==null||input.expectedRevision()<0
+                    ||input.consultationNote()==null
+                    ||input.consultationNote().isBlank()
+                    ||input.consultationNote().length()>2000)
+                throw new IllegalArgumentException();
+            AuthPrincipal actor=access.requirePermission("OPD_DRAFT_WRITE");
+            ConsultationReceipt result;
+            try {
+                result=transactions.execute(tx->{
+                    requireCurrentSqlSession(actor,branchId,"OPD_DRAFT_WRITE");
+                    requireDoctor(actor.tenantId(),branchId,actor.membershipId());
+                    // Row lock serializes drafts even before revision 1 exists.
+                    // Never trust caller-supplied patient/doctor/tenant scope.
+                    var locked=jdbc.query("""
+                        SELECT id FROM appointment_proof.appointment
+                         WHERE tenant_id=? AND branch_id=? AND id=?
+                           AND doctor_membership_id=?
+                         FOR UPDATE
+                        """,(rs,i)->rs.getObject(1,UUID.class),
+                        actor.tenantId(),branchId,appointmentId,actor.membershipId());
+                    if(locked.isEmpty())
+                        throw new AccessDeniedException("Consultation scope denied");
+                    Receipt visit=requireDoctorCheckedIn(actor,branchId,appointmentId);
+                    var current=currentConsultation(visit);
+                    if(current.revision()!=input.expectedRevision())
+                        throw new Conflict();
+                    var updated=EncounterDraftContract.saveConsultation(current,
+                            input.expectedRevision(),input.consultationNote());
+                    jdbc.update("""
+                        INSERT INTO appointment_proof.consultation_revision
+                          (appointment_id,tenant_id,branch_id,patient_id,
+                           doctor_membership_id,revision,consultation_note,
+                           actor_membership_id)
+                        VALUES (?,?,?,?,?,?,?,?)
+                        """,appointmentId,actor.tenantId(),branchId,visit.patientId(),
+                            actor.membershipId(),updated.revision(),
+                            updated.consultationNote(),actor.membershipId());
+                    return consultationReceipt(updated);
+                });
+            } catch(DataIntegrityViolationException rejected) {
+                // Competing revision/constraint. Never return SQL or note text.
+                throw new Conflict();
+            }
+            return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(result);
+        }
+
         @ExceptionHandler({IllegalArgumentException.class,
                 org.springframework.http.converter.HttpMessageNotReadableException.class})
         ResponseEntity<Error> invalid(Exception ignored) {
