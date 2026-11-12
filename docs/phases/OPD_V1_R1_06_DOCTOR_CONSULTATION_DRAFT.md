@@ -26,14 +26,19 @@
   assigned doctor. A saved revision is inserted, never updated or deleted.
   Prior fictional note revisions remain available. This is NOT a signed EMR
   or an approved clinical retention policy.
-- GET/POST at /api/v1/branches/{branchId}/appointments/{appointmentId}/consultation-draft
+- GET consultation-context and GET/POST consultation-draft at /api/v1/branches/{branchId}/appointments/{appointmentId}/...
   exist only in the nested controller under src/test/java, active under
   test & appointment-candidate & !dev & !prod. Ordinary app/dev/prod deny all.
 - Synthetic doctor is granted OPD_DRAFT_WRITE by fixture only. On every
   read/save, backend rechecks live authenticated bearer/session, user and
   membership, branch scope, module entitlement, permission, DOCTOR role and
   that the doctor is the checked-in appointment's assigned member.
-- Initial GET returns CHECKED_IN/revision 0/blank note; after save, GET
+- Initial consultation-context GET independently reads the checked-in appointment's
+  canonical patient UUID (assigned doctor only). Client must compare subsequent
+  consultation draft patient ID to this reference, including when a forged
+  patient ID is another syntactically valid UUID. This is not proof against a
+  fully compromised backend; transactional authorization remains mandatory.
+- Initial draft GET returns CHECKED_IN/revision 0/blank note; after save, GET
   returns CONSULTATION_DRAFT/latest revision and fictional note, with
   separate append-only read access audit. POST performs revision comparison
   while holding the appointment row lock, then atomically inserts a new
@@ -46,8 +51,10 @@
   frontend/src/connected-doctor/DoctorConsultationPreview.tsx, Vite port 5177.
 - Doctor sign-in, checked-in UUID lookup, editable fictional note, new
   draft revision, signout and relogin; Reception never receives note editing.
-- New doctorConsultationCandidateClient.ts validates doctor membership,
-  patient/appointment/tenant/branch references, uses memory-only no-store
+- New doctorConsultationCandidateClient.ts makes two authorized no-store
+  GET requests (appointment context first, then clinical draft), validates
+  doctor membership and exact patient/appointment/tenant/branch references,
+  uses memory-only no-store
   requests and discards stale draft after uncertain save or signout.
 - No localStorage, cookies, patient notes persisted to browser or fake
   fallback. Never enter real patient information.
@@ -60,7 +67,8 @@
 2. Full R1-05 candidate+full regression script: frontend npm/build/unit,
    connected Reception preview, registration Node HTTP wire, backend Maven.
 3. New doctor preview build: npm.cmd run build:connected:doctor:test.
-4. New 7-case doctor client Node test suite, included in npm test.
+4. New 8-case doctor client Node test suite, including a valid wrong-patient
+   UUID rejected against independently checked-in context, included in npm test.
 5. Independent QA Central opt-in R1-06 Chromium 5-case MOCKED API suite.
    Mocked UI is not evidence of actual PostgreSQL persistence.
 
