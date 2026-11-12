@@ -87,6 +87,19 @@ test('double confirm sends at most one in-flight POST',async()=>{
   assert.equal(count,1);
 });
 
+test('canonical five-part UUIDs pass staff precheck, malformed UUIDs fail closed',()=>{
+  assert.doesNotThrow(()=>createConnectedRegistrationFlow(session,branch,async()=>
+    assert.fail('No HTTP should be called during flow creation')));
+  for(const invalid of [
+    '11111111-1111-4111-000000000000',
+    '11111111-1111-4111-8111',
+    'DEMO-BRANCH',
+  ]) {
+    assert.throws(()=>createConnectedRegistrationFlow(session,invalid,
+      async()=>assert.fail('No HTTP')),denied('NOT_AUTHORIZED'));
+  }
+});
+
 test('permission and branch gates reject demo identities without network calls',()=>{
   const deniedStaff={...session,permissions:['PATIENT_REGISTRATION_READ']};
   assert.throws(()=>createConnectedRegistrationFlow(deniedStaff,branch,
