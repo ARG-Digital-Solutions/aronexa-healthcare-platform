@@ -764,6 +764,283 @@ class AppointmentCandidateHttpAcceptanceTests {
                     .body(result);
         }
 
+
+        private void requireBillingActor(AuthPrincipal actor,UUID branchId,
+                                         String permission) {
+            requireCurrentSqlSession(actor,branchId,permission);
+            var roles=jdbc.queryForList("""
+                SELECT 1 FROM public.auth_membership_role mr
+                JOIN public.auth_role role ON role.id=mr.role_id
+                 AND role.tenant_id=mr.tenant_id
+                WHERE mr.tenant_id=? AND mr.membership_id=?
+                  AND role.code='BILLING'
+                FOR SHARE OF mr,role
+                """,Integer.class,actor.tenantId(),actor.membershipId());
+            if(roles.isEmpty())
+                throw new AccessDeniedException("Billing access denied");
+        }
+
+        private Receipt billableVisit(AuthPrincipal actor,UUID branchId,
+                                      UUID appointmentId,String permission) {
+            requireBillingActor(actor,branchId,permission);
+            Receipt visit=load(actor.tenantId(),branchId,appointmentId,false);
+            if(visit==null)
+                throw new AccessDeniedException("Billing access denied");
+            if(!"CHECKED_IN".equals(visit.stage())
+                ||currentConsultation(visit).stage()
+                    !=EncounterDraftContract.Stage.CONSULTATION_DRAFT)
+                throw new Conflict();
+            return visit;
+        }
+
+        private BillingContext feeContext(Receipt visit) {
+            var fees=jdbc.query("""
+                SELECT service_code,service_label,amount_paise
+                 FROM appointment_proof.fee_schedule
+                WHERE tenant_id=? AND branch_id=?
+                  AND service_code='OPD-CONSULTATION' AND enabled=true
+                """,(rs,i)->new BillingContext(visit.tenantId(),
+                    visit.branchId(),visit.patientId(),visit.appointmentId(),
+                    visit.doctorMembershipId(),rs.getString(1),
+                    rs.getString(2),rs.getLong(3)),
+                visit.tenantId(),visit.branchId());
+            if(fees.size()!=1)throw new Conflict();
+            return fees.getFirst();
+        }
+
+        private BillReceipt invoiceReceipt(UUID tenant,UUID branch,UUID appointment,
+                                           boolean replayed) {
+            var found=jdbc.query("""
+                SELECT id,invoice_number,patient_id,doctor_membership_id,
+                  service_code,service_label,total_paise,
+                  COALESCE((SELECT SUM(amount_paise)
+                    FROM appointment_proof.opd_cash_event e
+                    WHERE e.invoice_id=i.id AND e.tenant_id=i.tenant_id
+                      AND e.branch_id=i.branch_id),0) AS paid_paise
+                FROM appointment_proof.opd_invoice i
+                WHERE tenant_id=? AND branch_id=? AND appointment_id=?
+                """,(rs,i)->{
+                    long amount=rs.getLong("total_paise"),
+                         paid=rs.getLong("paid_paise");
+                    long outstanding=amount-paid;
+                    if(outstanding<0)throw new Conflict();
+                    return new BillReceipt(tenant,branch,
+                        rs.getObject("patient_id",UUID.class),appointment,
+                        rs.getObject("doctor_membership_id",UUID.class),
+                        rs.getObject("id",UUID.class),
+                        rs.getLong("invoice_number"),
+                        rs.getString("service_code"),
+                        rs.getString("service_label"),amount,paid,
+                        outstanding,paid==0?"UNPAID":
+                        outstanding==0?"PAID":"PARTIAL",replayed);
+                },tenant,branch,appointment);
+            return found.isEmpty()?null:found.getFirst();
+        }
+
+        @GetMapping("/{appointmentId}/billing-context")
+        ResponseEntity<BillingContext> readBillingContext(
+                @PathVariable UUID branchId,@PathVariable UUID appointmentId) {
+            required(appointmentId);
+            AuthPrincipal actor=access.requirePermission("OPD_BILL_READ");
+            BillingContext result=transactions.execute(tx->{
+                Receipt visit=billableVisit(actor,branchId,appointmentId,
+                        "OPD_BILL_READ");
+                BillingContext context=feeContext(visit);
+                jdbc.update("""
+                    INSERT INTO appointment_proof.opd_billing_read_audit
+                      (tenant_id,branch_id,actor_membership_id,appointment_id)
+                    VALUES(?,?,?,?)
+                    """,actor.tenantId(),branchId,actor.membershipId(),appointmentId);
+                return context;
+            });
+            return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(result);
+        }
+
+        @GetMapping("/{appointmentId}/bill")
+        ResponseEntity<BillReceipt> readBill(
+                @PathVariable UUID branchId,@PathVariable UUID appointmentId) {
+            required(appointmentId);
+            AuthPrincipal actor=access.requirePermission("OPD_BILL_READ");
+            BillReceipt result=transactions.execute(tx->{
+                Receipt visit=billableVisit(actor,branchId,appointmentId,
+                        "OPD_BILL_READ");
+                BillReceipt existing=invoiceReceipt(actor.tenantId(),
+                        branchId,appointmentId,false);
+                if(existing!=null&&
+                   !visit.patientId().equals(existing.patientId()))
+                    throw new AccessDeniedException("Billing scope denied");
+                jdbc.update("""
+                    INSERT INTO appointment_proof.opd_billing_read_audit
+                      (tenant_id,branch_id,actor_membership_id,appointment_id)
+                    VALUES(?,?,?,?)
+                    """,actor.tenantId(),branchId,actor.membershipId(),appointmentId);
+                return existing;
+            });
+            return result==null
+                    ?ResponseEntity.status(404).cacheControl(CacheControl.noStore()).build()
+                    :ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(result);
+        }
+
+        @PostMapping("/{appointmentId}/bill")
+        ResponseEntity<BillReceipt> createBill(
+                @PathVariable UUID branchId,@PathVariable UUID appointmentId,
+                @RequestBody BillCreate input) {
+            required(appointmentId);
+            if(input==null)throw new IllegalArgumentException();
+            required(input.requestId());
+            if(!"OPD-CONSULTATION".equals(input.serviceCode()))
+                throw new IllegalArgumentException();
+            AuthPrincipal actor=access.requirePermission("OPD_BILL_CREATE");
+            BillReceipt result;
+            try {
+                result=transactions.execute(tx->{
+                    requireBillingActor(actor,branchId,"OPD_BILL_CREATE");
+                    var locks=jdbc.query("""
+                        SELECT id FROM appointment_proof.appointment
+                        WHERE tenant_id=? AND branch_id=? AND id=?
+                          AND status='CHECKED_IN'
+                        FOR UPDATE
+                        """,(rs,i)->rs.getObject(1,UUID.class),
+                        actor.tenantId(),branchId,appointmentId);
+                    if(locks.isEmpty())throw new Conflict();
+                    Receipt visit=billableVisit(actor,branchId,appointmentId,
+                            "OPD_BILL_CREATE");
+                    BillingContext fee=feeContext(visit);
+                    BillReceipt previous=invoiceReceipt(actor.tenantId(),
+                            branchId,appointmentId,true);
+                    if(previous!=null) {
+                        var requests=jdbc.query("""
+                            SELECT invoice_request_id FROM appointment_proof.opd_invoice
+                            WHERE tenant_id=? AND branch_id=? AND appointment_id=?
+                            """,(rs,i)->rs.getObject(1,UUID.class),
+                            actor.tenantId(),branchId,appointmentId);
+                        if(requests.size()==1
+                            &&input.requestId().equals(requests.getFirst())
+                            &&input.serviceCode().equals(previous.serviceCode()))
+                            return previous;
+                        throw new Conflict();
+                    }
+                    jdbc.update("""
+                        INSERT INTO appointment_proof.opd_invoice
+                          (id,invoice_request_id,tenant_id,branch_id,appointment_id,
+                           patient_id,doctor_membership_id,service_code,
+                           service_label,total_paise,actor_membership_id)
+                        VALUES(?,?,?,?,?,?,?,?,?,?,?)
+                        """,UUID.randomUUID(),input.requestId(),actor.tenantId(),
+                        branchId,appointmentId,visit.patientId(),
+                        visit.doctorMembershipId(),fee.serviceCode(),
+                        fee.serviceLabel(),fee.amountPaise(),actor.membershipId());
+                    return invoiceReceipt(actor.tenantId(),branchId,appointmentId,false);
+                });
+            }catch(DataIntegrityViolationException denied){throw new Conflict();}
+            return ResponseEntity.status(result.replayed()?HttpStatus.OK:HttpStatus.CREATED)
+                    .cacheControl(CacheControl.noStore()).body(result);
+        }
+
+        @PostMapping("/{appointmentId}/bill/cash")
+        ResponseEntity<BillReceipt> recordCash(
+                @PathVariable UUID branchId,@PathVariable UUID appointmentId,
+                @RequestBody CashPost input) {
+            required(appointmentId);
+            if(input==null)throw new IllegalArgumentException();
+            required(input.requestId());
+            required(input.invoiceId());
+            if(input.amountPaise()==null||input.amountPaise()<1
+                    ||input.amountPaise()>10_000_000_000L)
+                throw new IllegalArgumentException();
+            AuthPrincipal actor=access.requirePermission("OPD_PAYMENT_POST");
+            BillReceipt result;
+            try{
+                result=transactions.execute(tx->{
+                    requireBillingActor(actor,branchId,"OPD_PAYMENT_POST");
+                    // The invoice row lock serializes cash postings and ensures
+                    // concurrent requests cannot overcollect the same invoice.
+                    var locked=jdbc.query("""
+                        SELECT id FROM appointment_proof.opd_invoice
+                         WHERE tenant_id=? AND branch_id=? AND appointment_id=?
+                           AND id=? FOR UPDATE
+                        """,(rs,i)->rs.getObject(1,UUID.class),
+                        actor.tenantId(),branchId,appointmentId,input.invoiceId());
+                    if(locked.isEmpty())
+                        throw new AccessDeniedException("Billing access denied");
+                    Receipt visit=billableVisit(actor,branchId,appointmentId,
+                            "OPD_PAYMENT_POST");
+                    BillReceipt before=invoiceReceipt(actor.tenantId(),
+                            branchId,appointmentId,false);
+                    if(before==null||!before.patientId().equals(visit.patientId()))
+                        throw new AccessDeniedException("Billing scope denied");
+                    var previous=jdbc.query("""
+                        SELECT invoice_id,amount_paise
+                        FROM appointment_proof.opd_cash_event
+                        WHERE tenant_id=? AND payment_request_id=?
+                        """,(rs,i)->new Object[]{
+                            rs.getObject(1,UUID.class),rs.getLong(2)},
+                        actor.tenantId(),input.requestId());
+                    if(!previous.isEmpty()){
+                        Object[] item=previous.getFirst();
+                        if(input.invoiceId().equals(item[0])
+                          &&input.amountPaise().equals(item[1]))
+                            return invoiceReceipt(actor.tenantId(),
+                                    branchId,appointmentId,true);
+                        throw new Conflict();
+                    }
+                    if(input.amountPaise()>before.outstandingPaise())
+                        throw new Conflict();
+                    jdbc.update("""
+                        INSERT INTO appointment_proof.opd_cash_event
+                          (id,tenant_id,branch_id,invoice_id,payment_request_id,
+                           amount_paise,actor_membership_id)
+                        VALUES(?,?,?,?,?,?,?)
+                        """,UUID.randomUUID(),actor.tenantId(),branchId,
+                        input.invoiceId(),input.requestId(),
+                        input.amountPaise(),actor.membershipId());
+                    return invoiceReceipt(actor.tenantId(),branchId,appointmentId,false);
+                });
+            }catch(DataIntegrityViolationException denied){throw new Conflict();}
+            return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(result);
+        }
+
+        ResponseEntity<BillingDaily> dailyReport(UUID branchId,LocalDate day) {
+            required(branchId);
+            if(day==null||day.isBefore(LocalDate.now(CLINIC_ZONE).minusDays(90))
+                    ||day.isAfter(LocalDate.now(CLINIC_ZONE).plusDays(1)))
+                throw new IllegalArgumentException();
+            AuthPrincipal actor=access.requirePermission("OPD_DAILY_REPORT_READ");
+            BillingDaily report=transactions.execute(tx->{
+                requireBillingActor(actor,branchId,"OPD_DAILY_REPORT_READ");
+                var counts=jdbc.query("""
+                    SELECT COUNT(*) AS count,
+                      COALESCE(SUM(i.total_paise),0) AS billed,
+                      COALESCE(SUM(i.total_paise-
+                        COALESCE((SELECT SUM(e.amount_paise)
+                          FROM appointment_proof.opd_cash_event e
+                          WHERE e.invoice_id=i.id AND e.tenant_id=i.tenant_id
+                            AND e.branch_id=i.branch_id),0)),0) AS outstanding
+                      FROM appointment_proof.opd_invoice i
+                    WHERE i.tenant_id=? AND i.branch_id=?
+                      AND (i.created_at AT TIME ZONE 'Asia/Kolkata')::date=?
+                    """,(rs,i)->new long[]{rs.getLong("count"),
+                        rs.getLong("billed"),rs.getLong("outstanding")},
+                    actor.tenantId(),branchId,day);
+                long[] amounts=counts.getFirst();
+                Long collected=jdbc.queryForObject("""
+                    SELECT COALESCE(SUM(amount_paise),0)
+                      FROM appointment_proof.opd_cash_event
+                    WHERE tenant_id=? AND branch_id=?
+                      AND (recorded_at AT TIME ZONE 'Asia/Kolkata')::date=?
+                    """,Long.class,actor.tenantId(),branchId,day);
+                jdbc.update("""
+                    INSERT INTO appointment_proof.opd_billing_read_audit
+                      (tenant_id,branch_id,actor_membership_id,report_day)
+                    VALUES(?,?,?,?)
+                    """,actor.tenantId(),branchId,actor.membershipId(),day);
+                return new BillingDaily(day,actor.tenantId(),branchId,
+                        amounts[0],amounts[1],
+                        collected==null?0:collected,amounts[2]);
+            });
+            return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(report);
+        }
+
         @ExceptionHandler({IllegalArgumentException.class,
                 org.springframework.http.converter.HttpMessageNotReadableException.class})
         ResponseEntity<Error> invalid(Exception ignored) {
@@ -779,6 +1056,24 @@ class AppointmentCandidateHttpAcceptanceTests {
         ResponseEntity<Error> conflict(Conflict ignored) {
             return ResponseEntity.status(409).cacheControl(CacheControl.noStore())
                     .body(new Error("APPOINTMENT_CONFLICT"));
+        }
+    }
+
+
+    /** Explicitly separated branch daily-report path; test profile only. */
+    @RestController
+    @Profile("test & appointment-candidate & !dev & !prod")
+    @RequestMapping("/api/v1/branches/{branchId}/billing")
+    static class DailyBillingController {
+        private final CandidateController candidate;
+        DailyBillingController(CandidateController candidate) {
+            this.candidate=candidate;
+        }
+        @GetMapping("/daily")
+        ResponseEntity<CandidateController.BillingDaily> daily(
+                @PathVariable UUID branchId,
+                @RequestParam LocalDate date) {
+            return candidate.dailyReport(branchId,date);
         }
     }
 
