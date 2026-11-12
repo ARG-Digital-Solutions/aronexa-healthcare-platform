@@ -223,9 +223,10 @@ class AppointmentCandidateHttpAcceptanceTests {
                     var old=jdbc.query("""
                         SELECT id FROM appointment_proof.appointment
                          WHERE tenant_id=? AND booking_request_id=?
+                           AND booked_by_membership_id=?
                          FOR UPDATE
                         """,(rs,i)->rs.getObject(1,UUID.class),
-                        actor.tenantId(),input.requestId());
+                        actor.tenantId(),input.requestId(),actor.membershipId());
                     if(!old.isEmpty()) {
                         Receipt previous=load(actor.tenantId(),branchId,old.getFirst(),true);
                         if(previous==null || !previous.patientId().equals(patient)
