@@ -2,7 +2,7 @@ import type {StaffSession} from './staffSessionClient.ts';
 import type {RegistrationReference} from './registrationReferenceClient.ts';
 
 type Transport=(url:string,options:RequestInit)=>Promise<Response>;
-const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const bearer=/^[A-Za-z0-9_-]{43}$/;
 const valid=(v:unknown):v is string=>typeof v==='string' && uuid.test(v)
   && v.toLowerCase()!=='00000000-0000-0000-0000-000000000000';
