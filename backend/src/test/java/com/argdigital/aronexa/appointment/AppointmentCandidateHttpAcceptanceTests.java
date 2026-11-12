@@ -1072,8 +1072,21 @@ class AppointmentCandidateHttpAcceptanceTests {
         @GetMapping("/daily")
         ResponseEntity<CandidateController.BillingDaily> daily(
                 @PathVariable UUID branchId,
-                @RequestParam LocalDate date) {
+                @RequestParam @org.springframework.format.annotation.DateTimeFormat(
+                    iso=org.springframework.format.annotation.DateTimeFormat.ISO.DATE)
+                    LocalDate date) {
             return candidate.dailyReport(branchId,date);
+        }
+        @ExceptionHandler(AccessDeniedException.class)
+        ResponseEntity<CandidateController.Error> denied(AccessDeniedException ignored) {
+            return ResponseEntity.status(403).cacheControl(CacheControl.noStore())
+                    .body(new CandidateController.Error("BILLING_DENIED"));
+        }
+        @ExceptionHandler({IllegalArgumentException.class,
+                 org.springframework.web.method.annotation.MethodArgumentTypeMismatchException.class})
+        ResponseEntity<CandidateController.Error> invalid(Exception ignored) {
+            return ResponseEntity.badRequest().cacheControl(CacheControl.noStore())
+                    .body(new CandidateController.Error("INVALID_REPORT_DATE"));
         }
     }
 
