@@ -1893,4 +1893,223 @@ class AppointmentCandidateHttpAcceptanceTests {
     }
 
 
+
+    private String loginBilling(Fixture f) throws Exception {
+        String suffix=f.username().substring("r104_".length());
+        String body="{\"tenantCode\":\""+f.tenantCode()
+                +"\",\"username\":\"billing_"+suffix
+                +"\",\"password\":\"DisposableBilling-Only123!\"}";
+        var response=call("POST","/api/v1/auth/login",null,body);
+        assertThat(response.statusCode()).isEqualTo(200);
+        var match=Pattern.compile("\"accessToken\"\\s*:\\s*\"([A-Za-z0-9_-]{43})\"")
+                .matcher(response.body());
+        assertThat(match.find()).isTrue();
+        return match.group(1);
+    }
+
+    private String billPath(Fixture f,UUID appointment) {
+        return url(f)+"/"+appointment+"/bill";
+    }
+    private String billCreatePayload(UUID requestId) {
+        return "{\"requestId\":\""+requestId
+                +"\",\"serviceCode\":\"OPD-CONSULTATION\"}";
+    }
+    private String cashPayload(UUID invoiceId,UUID requestId,long amount) {
+        return "{\"invoiceId\":\""+invoiceId+"\",\"requestId\":\""+requestId
+                +"\",\"amountPaise\":"+amount+"}";
+    }
+    private String billDailyUrl(Fixture f,LocalDate date) {
+        return "/api/v1/branches/"+f.branch()+"/billing/daily?date="+date;
+    }
+
+    @Test
+    void billingUsesServerFeeAndSameVisitWithIdempotentInvoiceReference()
+            throws Exception {
+        Fixture f=fixture(true);
+        String reception=login(f),doctor=loginDoctor(f),cashier=loginBilling(f);
+        UUID appt=readyForRx(f,reception,doctor,"15:00");
+        var context=call("GET",url(f)+"/"+appt+"/billing-context",cashier,null);
+        assertThat(context.statusCode()).isEqualTo(200);
+        assertThat(context.headers().firstValue("Cache-Control")).contains("no-store");
+        assertThat(context.body()).contains("\"patientId\":",
+                "\"amountPaise\":50000","\"serviceCode\":\"OPD-CONSULTATION\"");
+        assertThat(context.body()).contains("\"appointmentId\":\""+appt+"\"");
+
+        String path=billPath(f,appt);
+        assertThat(call("GET",path,cashier,null).statusCode()).isEqualTo(404);
+        UUID request=UUID.randomUUID();
+        var created=call("POST",path,cashier,billCreatePayload(request));
+        assertThat(created.statusCode()).isEqualTo(201);
+        assertThat(created.body()).contains("\"totalPaise\":50000",
+                "\"paidPaise\":0","\"outstandingPaise\":50000",
+                "\"status\":\"UNPAID\"","\"replayed\":false");
+        UUID invoice=id(created.body(),"invoiceId");
+        assertThat(created.body()).contains("\"appointmentId\":\""+appt+"\"");
+        var replay=call("POST",path,cashier,billCreatePayload(request));
+        assertThat(replay.statusCode()).isEqualTo(200);
+        assertThat(replay.body()).contains("\"invoiceId\":\""+invoice+"\"",
+                "\"replayed\":true");
+        assertThat(call("POST",path,cashier,billCreatePayload(UUID.randomUUID()))
+                .statusCode()).isEqualTo(409);
+        assertThat(call("POST",path,cashier,
+                "{\"requestId\":\""+UUID.randomUUID()
+                +"\",\"serviceCode\":\"OPD-OVERRIDE\"}").statusCode())
+                .isEqualTo(400);
+        var reopened=call("GET",path,cashier,null);
+        assertThat(reopened.statusCode()).isEqualTo(200);
+        assertThat(reopened.body()).contains("\"invoiceId\":\""+invoice+"\"");
+        assertThat(admin.queryForObject("""
+            SELECT count(*) FROM appointment_proof.opd_invoice
+            WHERE appointment_id=?
+            """,Integer.class,appt)).isOne();
+        // Server-issued invoice number is immutable and never supplied by UI.
+        org.assertj.core.api.Assertions.assertThatThrownBy(()->admin.update("""
+            UPDATE appointment_proof.opd_invoice SET total_paise=1
+            WHERE appointment_id=?
+            """,appt)).isInstanceOf(org.springframework.dao.DataAccessException.class);
+    }
+
+    @Test
+    void billingCashPartialAndFinalEventsAreIdempotentAndReportedByClinicDate()
+            throws Exception {
+        Fixture f=fixture(true);
+        String reception=login(f),doctor=loginDoctor(f),cashier=loginBilling(f);
+        UUID appt=readyForRx(f,reception,doctor,"15:15");
+        LocalDate today=LocalDate.now(CLINIC_ZONE);
+        var zero=call("GET",billDailyUrl(f,today),cashier,null);
+        assertThat(zero.statusCode()).isEqualTo(200);
+        assertThat(zero.body()).contains("\"invoiceCount\":0",
+                "\"collectionsPaise\":0","\"billedPaise\":0");
+        var created=call("POST",billPath(f,appt),cashier,
+                billCreatePayload(UUID.randomUUID()));
+        assertThat(created.statusCode()).isEqualTo(201);
+        UUID invoice=id(created.body(),"invoiceId");
+        UUID pay1=UUID.randomUUID();
+        var partial=call("POST",billPath(f,appt)+"/cash",cashier,
+                cashPayload(invoice,pay1,20000));
+        assertThat(partial.statusCode()).isEqualTo(200);
+        assertThat(partial.body()).contains("\"status\":\"PARTIAL\"",
+                "\"paidPaise\":20000","\"outstandingPaise\":30000");
+        var retry=call("POST",billPath(f,appt)+"/cash",cashier,
+                cashPayload(invoice,pay1,20000));
+        assertThat(retry.statusCode()).isEqualTo(200);
+        assertThat(retry.body()).contains("\"replayed\":true",
+                "\"paidPaise\":20000");
+        assertThat(call("POST",billPath(f,appt)+"/cash",cashier,
+                cashPayload(invoice,pay1,10000)).statusCode()).isEqualTo(409);
+        assertThat(call("POST",billPath(f,appt)+"/cash",cashier,
+                cashPayload(invoice,UUID.randomUUID(),30001)).statusCode())
+                .isEqualTo(409);
+        var paid=call("POST",billPath(f,appt)+"/cash",cashier,
+                cashPayload(invoice,UUID.randomUUID(),30000));
+        assertThat(paid.statusCode()).isEqualTo(200);
+        assertThat(paid.body()).contains("\"status\":\"PAID\"",
+                "\"paidPaise\":50000","\"outstandingPaise\":0");
+        assertThat(call("POST",billPath(f,appt)+"/cash",cashier,
+                cashPayload(invoice,UUID.randomUUID(),1)).statusCode())
+                .isEqualTo(409);
+
+        var report=call("GET",billDailyUrl(f,today),cashier,null);
+        assertThat(report.statusCode()).isEqualTo(200);
+        assertThat(report.body()).contains("\"invoiceCount\":1",
+                "\"billedPaise\":50000","\"collectionsPaise\":50000",
+                "\"outstandingPaise\":0");
+        var otherDay=call("GET",billDailyUrl(f,today.minusDays(1)),cashier,null);
+        assertThat(otherDay.statusCode()).isEqualTo(200);
+        assertThat(otherDay.body()).contains("\"invoiceCount\":0",
+                "\"collectionsPaise\":0");
+        assertThat(admin.queryForObject("""
+            SELECT count(*) FROM appointment_proof.opd_cash_event
+            WHERE invoice_id=?
+            """,Integer.class,invoice)).isEqualTo(2);
+        org.assertj.core.api.Assertions.assertThatThrownBy(()->admin.update("""
+            DELETE FROM appointment_proof.opd_cash_event WHERE invoice_id=?
+            """,invoice)).isInstanceOf(org.springframework.dao.DataAccessException.class);
+    }
+
+    @Test
+    void billingDeniedBeforeConsultationAndAcrossTenantBranchRoles()
+            throws Exception {
+        Fixture f=fixture(true),foreign=fixture(true);
+        String receptionist=login(f),doctor=loginDoctor(f),cashier=loginBilling(f);
+        var booked=call("POST",url(f),receptionist,
+                payload(f,UUID.randomUUID(),f.doctor(),f.registration(),
+                    LocalDate.now(CLINIC_ZONE),"15:30"));
+        assertThat(booked.statusCode()).isEqualTo(201);
+        UUID appt=id(booked.body(),"appointmentId");
+        String path=billPath(f,appt);
+        assertThat(call("GET",url(f)+"/"+appt+"/billing-context",cashier,null)
+                .statusCode()).isEqualTo(409);
+        assertThat(call("POST",path,cashier,
+                billCreatePayload(UUID.randomUUID())).statusCode()).isEqualTo(409);
+        assertThat(call("POST",url(f)+"/"+appt+"/check-in",receptionist,
+                "{\"expectedRevision\":1}").statusCode()).isEqualTo(200);
+        assertThat(call("POST",path,cashier,
+                billCreatePayload(UUID.randomUUID())).statusCode()).isEqualTo(409);
+        assertThat(call("GET",url(f)+"/"+appt+"/billing-context",receptionist,null)
+                .statusCode()).isEqualTo(403);
+        assertThat(call("GET",url(f)+"/"+appt+"/billing-context",doctor,null)
+                .statusCode()).isEqualTo(403);
+        assertThat(call("GET",url(f)+"/"+appt+"/billing-context",
+                loginBilling(foreign),null).statusCode()).isEqualTo(403);
+        assertThat(call("POST",
+                "/api/v1/branches/"+f.otherBranch()+"/appointments/"+appt+"/bill",
+                cashier,billCreatePayload(UUID.randomUUID())).statusCode())
+                .isEqualTo(403);
+        assertThat(call("GET",billDailyUrl(f,LocalDate.now(CLINIC_ZONE)),
+                receptionist,null).statusCode()).isEqualTo(403);
+        assertThat(call("GET",
+                "/api/v1/branches/"+f.otherBranch()+"/billing/daily?date="
+                +LocalDate.now(CLINIC_ZONE),cashier,null).statusCode())
+                .isEqualTo(403);
+        assertThat(admin.queryForObject("""
+            SELECT count(*) FROM appointment_proof.opd_invoice
+            WHERE appointment_id=?
+            """,Integer.class,appt)).isZero();
+    }
+
+    @Test
+    void billingLivePermissionModuleAndLogoutRevocationDenyFinancialRecords()
+            throws Exception {
+        Fixture f=fixture(true);
+        String receptionist=login(f),doctor=loginDoctor(f),cashier=loginBilling(f);
+        UUID appt=readyForRx(f,receptionist,doctor,"15:45");
+        String path=billPath(f,appt);
+        var created=call("POST",path,cashier,billCreatePayload(UUID.randomUUID()));
+        assertThat(created.statusCode()).isEqualTo(201);
+        UUID invoice=id(created.body(),"invoiceId");
+
+        admin.update("""
+            DELETE FROM auth_role_permission WHERE tenant_id=?
+             AND permission_code='OPD_PAYMENT_POST'
+            """,f.tenant());
+        assertThat(call("POST",path+"/cash",cashier,
+                cashPayload(invoice,UUID.randomUUID(),1000)).statusCode())
+                .isEqualTo(403);
+        admin.update("""
+            DELETE FROM auth_role_permission WHERE tenant_id=?
+             AND permission_code='OPD_DAILY_REPORT_READ'
+            """,f.tenant());
+        assertThat(call("GET",billDailyUrl(f,LocalDate.now(CLINIC_ZONE)),
+                cashier,null).statusCode()).isEqualTo(403);
+        admin.update("""
+            UPDATE tenant_module_state SET activated=false WHERE tenant_id=?
+             AND module_code='OPD'
+            """,f.tenant());
+        assertThat(call("GET",path,cashier,null).statusCode()).isEqualTo(403);
+        admin.update("""
+            UPDATE tenant_module_state SET activated=true WHERE tenant_id=?
+             AND module_code='OPD'
+            """,f.tenant());
+        assertThat(call("GET",path,cashier,null).statusCode()).isEqualTo(200);
+        assertThat(call("POST","/api/v1/auth/logout",cashier,"{}")
+                .statusCode()).isBetween(200,204);
+        assertThat(call("GET",path,cashier,null).statusCode()).isEqualTo(401);
+        assertThat(admin.queryForObject("""
+            SELECT count(*) FROM appointment_proof.opd_cash_event
+            WHERE invoice_id=?
+            """,Integer.class,invoice)).isZero();
+    }
+
+
 }
