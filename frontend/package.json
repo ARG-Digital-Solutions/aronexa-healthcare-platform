@@ -13,7 +13,9 @@
     "dev:connected:test": "vite --config vite.connected-reception.config.ts",
     "build:connected:test": "tsc --noEmit && vite build --config vite.connected-reception.config.ts",
     "dev:connected:doctor:test": "vite --config vite.connected-doctor.config.ts",
-    "build:connected:doctor:test": "tsc --noEmit && vite build --config vite.connected-doctor.config.ts"
+    "build:connected:doctor:test": "tsc --noEmit && vite build --config vite.connected-doctor.config.ts",
+    "dev:connected:billing:test": "vite --config vite.connected-billing.config.ts",
+    "build:connected:billing:test": "tsc --noEmit && vite build --config vite.connected-billing.config.ts"
   },
   "dependencies": {
     "react": "19.2.0",
