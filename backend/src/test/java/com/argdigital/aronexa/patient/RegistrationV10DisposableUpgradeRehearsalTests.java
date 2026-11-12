@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.support.EncodedResource;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -79,6 +80,9 @@ class RegistrationV10DisposableUpgradeRehearsalTests {
                 +"V10__approved_clinic_registration_writer.sql").normalize();
         assertThat(Files.isRegularFile(file))
                 .as("The review candidate must be outside normal Flyway locations").isTrue();
+        assertThat(new ClassPathResource("db/migration/"
+                +"V10__approved_clinic_registration_writer.sql").exists())
+                .as("Production migration must NOT be promoted by R1-01").isFalse();
         return file;
     }
 
