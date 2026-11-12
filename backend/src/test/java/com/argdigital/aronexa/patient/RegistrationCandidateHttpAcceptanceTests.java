@@ -299,6 +299,54 @@ class RegistrationCandidateHttpAcceptanceTests {
     }
 
     @Test
+    void connectedReceptionFrontendCompletesRealHttpRegistrationAndSqlCommit()
+            throws Exception {
+        Staff staff=staff(true);
+        Path base=Path.of(System.getProperty("basedir",
+                System.getProperty("user.dir"))).toAbsolutePath();
+        Path script=base.resolve("../frontend/test/integration/"
+                +"connected-reception-wire.mjs").normalize();
+        assertThat(Files.isRegularFile(script))
+                .as("Connected Reception wire test must be present").isTrue();
+
+        var process=new ProcessBuilder("node","--experimental-strip-types",
+                script.toString()).redirectErrorStream(true).start();
+        try {
+            String fixture=String.format(java.util.Locale.ROOT,
+                    "{\"origin\":\"http://127.0.0.1:%d/\",\"branchId\":\"%s\","
+                    +"\"tenantCode\":\"%s\",\"username\":\"%s\",\"password\":\"%s\"}",
+                    port,staff.branch(),staff.tenantCode(),staff.username(),staff.password());
+            // The only credentials in this fixture belong to fictional disposable
+            // test accounts. Deliver via process stdin, not command-line argv.
+            try(var stdin=process.getOutputStream()) {
+                stdin.write(fixture.getBytes(StandardCharsets.UTF_8));
+            }
+            assertThat(process.waitFor(90,java.util.concurrent.TimeUnit.SECONDS))
+                    .as("Connected Reception Node acceptance must terminate").isTrue();
+            String output=new String(process.getInputStream().readAllBytes(),
+                    StandardCharsets.UTF_8);
+            assertThat(process.exitValue()).as("Connected Reception Node exit").isZero();
+            assertThat(output).contains("CONNECTED_RECEPTION_WIRE_PASS");
+        } finally {
+            if(process.isAlive())process.destroyForcibly();
+        }
+
+        for(String table:new String[]{"patient","patient_identifier",
+                "patient_registration","patient_registration_idempotency",
+                "patient_registration_write_audit"}) {
+            assertThat(count(staff.tenant(),table))
+                    .as("One durable row in "+table).isEqualTo(1);
+        }
+        assertThat(admin.queryForObject(
+                "SELECT display_name FROM patient WHERE tenant_id=?",
+                String.class,staff.tenant()))
+                .isEqualTo("Fictional Connected Reception Wire");
+        assertThat(admin.queryForObject(
+                "SELECT count(*) FROM auth_session WHERE tenant_id=? AND revoked_at IS NOT NULL",
+                Integer.class,staff.tenant())).isEqualTo(1);
+    }
+
+    @Test
     void duplicateOrChangedRequestDoesNotCreateSecondPatient() throws Exception {
         Staff staff=staff(true);
         String token=login(staff),key=idem(),name="Fictional Candidate Wire Duplicate";
