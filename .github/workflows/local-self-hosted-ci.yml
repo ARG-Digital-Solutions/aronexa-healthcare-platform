@@ -1,0 +1,66 @@
+name: AroNexa Isolated Windows CI (manual, non-release)
+
+# Deliberately NEVER run unreviewed pull_request or pull_request_target code on
+# a persistent self-hosted machine. This is an opt-in, exact-commit check.
+on:
+  workflow_dispatch:
+    inputs:
+      app_sha:
+        description: 'Reviewed application commit SHA (40 lowercase hex characters)'
+        required: true
+        type: string
+      disposable_only_ack:
+        description: 'I confirm isolated, synthetic-only VM; no patient data or production credentials'
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aronexa-isolated-ci-${{ inputs.app_sha }}
+  cancel-in-progress: false
+
+jobs:
+  application-ci:
+    name: Application tests only - not customer-release approval
+    runs-on: [self-hosted, Windows, X64, aronexa-isolated-ci]
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    env:
+      CI: 'true'
+      EXPECTED_APP_SHA: ${{ inputs.app_sha }}
+      DISPOSABLE_ACK: ${{ inputs.disposable_only_ack }}
+    steps:
+      - name: Fail closed on unsafe or ambiguous invocation
+        shell: powershell
+        run: |
+          if ($env:DISPOSABLE_ACK -ne 'true') { throw 'Isolated synthetic runner acknowledgement required' }
+          if ($env:EXPECTED_APP_SHA -cnotmatch '^[0-9a-f]{40}$') { throw 'Full lowercase commit SHA required' }
+      - name: Checkout reviewed exact source SHA without stored token
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.app_sha }}
+          persist-credentials: false
+          clean: true
+          fetch-depth: 1
+      - name: Verify checked-out commit SHA
+        shell: powershell
+        run: |
+          $actual = (& git rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $actual -cne $env:EXPECTED_APP_SHA) { throw "Checked-out SHA mismatch: $actual" }
+      - name: Execute local gates with Testcontainers and locked frontend dependencies
+        shell: powershell
+        run: |
+          $evidence = Join-Path $env:RUNNER_TEMP ("aronexa-ci-" + $env:GITHUB_RUN_ID + '-' + $env:GITHUB_RUN_ATTEMPT)
+          & .\scripts\ci\Invoke-AroNexa-LocalCI.ps1 -RepoPath $env:GITHUB_WORKSPACE -ExpectedSha $env:EXPECTED_APP_SHA -EvidenceDirectory $evidence
+          if ($LASTEXITCODE -ne 0) { throw 'AroNexa application CI gate failed' }
+          Write-Host "Application evidence remains on isolated runner: $evidence"
+      - name: Reinforce release boundary
+        if: always()
+        shell: powershell
+        run: |
+          Write-Host 'NO DEPLOYMENT, NO ORIGINAL DATABASE ACCESS, NO CUSTOMER RELEASE AUTHORIZATION.'
+          Write-Host 'Independent QA Central evidence, clinical review, security review and explicit owner release approval remain mandatory.'
