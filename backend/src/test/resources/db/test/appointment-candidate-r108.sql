@@ -37,6 +37,7 @@ CREATE TABLE appointment_proof.opd_invoice (
  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
  CONSTRAINT uq_r108_invoice_appointment UNIQUE(tenant_id,branch_id,appointment_id),
  CONSTRAINT uq_r108_invoice_request UNIQUE(tenant_id,invoice_request_id),
+ CONSTRAINT uq_r108_invoice_scope UNIQUE(id,tenant_id,branch_id),
  CONSTRAINT fk_r108_exact_visit FOREIGN KEY(
   appointment_id,tenant_id,branch_id,patient_id,doctor_membership_id)
  REFERENCES appointment_proof.appointment
@@ -59,13 +60,15 @@ CREATE TABLE appointment_proof.opd_cash_event (
  payment_reference BIGINT GENERATED ALWAYS AS IDENTITY UNIQUE,
  tenant_id UUID NOT NULL,
  branch_id UUID NOT NULL,
- invoice_id UUID NOT NULL REFERENCES appointment_proof.opd_invoice(id)
-   ON DELETE RESTRICT,
+ invoice_id UUID NOT NULL,
  payment_request_id UUID NOT NULL,
  amount_paise BIGINT NOT NULL CHECK(amount_paise BETWEEN 1 AND 10000000000),
  actor_membership_id UUID NOT NULL,
  recorded_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
  CONSTRAINT uq_r108_payment_request UNIQUE(tenant_id,payment_request_id),
+ CONSTRAINT fk_r108_payment_invoice_scope FOREIGN KEY(invoice_id,tenant_id,branch_id)
+  REFERENCES appointment_proof.opd_invoice(id,tenant_id,branch_id)
+  ON DELETE RESTRICT,
  CONSTRAINT fk_r108_cash_actor FOREIGN KEY(tenant_id,actor_membership_id)
  REFERENCES public.user_tenant_membership(tenant_id,id) ON DELETE RESTRICT
 );
