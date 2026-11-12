@@ -9,10 +9,11 @@ import {
 import type {OpdJourney} from '../opdJourney.ts';
 import type {RegistrationReference} from '../registrationReferenceClient.ts';
 import {createRegistrationRecoveryFlow} from '../registrationRecoveryFlow.ts';
-import {createAppointmentCandidateFlow, type AppointmentCandidateReceipt} from '../appointmentCandidateClient.ts';
+import {createAppointmentCandidateFlow, loadAppointmentCandidateQueue,
+  type AppointmentCandidateReceipt} from '../appointmentCandidateClient.ts';
 import './connected-reception.css';
 
-type Screen='SIGN_IN'|'PATIENT_DETAILS'|'REVIEW'|'UNRESOLVED'|'REGISTERED'|'RECOVERY_LOOKUP'|'REFERENCE_FOUND'|'APPOINTMENT'|'APPOINTMENT_BOOKED';
+type Screen='SIGN_IN'|'PATIENT_DETAILS'|'REVIEW'|'UNRESOLVED'|'REGISTERED'|'RECOVERY_LOOKUP'|'REFERENCE_FOUND'|'APPOINTMENT'|'APPOINTMENT_BOOKED'|'APPOINTMENT_QUEUE';
 type Credentials={tenantCode:string;username:string;password:string};
 const emptyCredentials=():Credentials=>({tenantCode:'',username:'',password:''});
 
@@ -47,6 +48,15 @@ export default function ConnectedReceptionPreview(){
   const [foundReference,setFoundReference]=useState<RegistrationReference|null>(null);
   const [canRead,setCanRead]=useState(false);
   const [canBook,setCanBook]=useState(false);
+  const [canReadAppointments,setCanReadAppointments]=useState(false);
+  const [queueDate,setQueueDate]=useState(localCalendarDate());
+  const [queueRows,setQueueRows]=useState<readonly AppointmentCandidateReceipt[]>([]);
+  const [queueLoaded,setQueueLoaded]=useState(false);
+  const [editAppointment,setEditAppointment]=useState(false);
+  const [cancelConfirm,setCancelConfirm]=useState(false);
+  const [newDoctor,setNewDoctor]=useState('');
+  const [newDate,setNewDate]=useState(localCalendarDate());
+  const [newSlot,setNewSlot]=useState('09:00');
   const [appointmentContext,setAppointmentContext]=useState<RegistrationReference|null>(null);
   const [appointmentReceipt,setAppointmentReceipt]=useState<AppointmentCandidateReceipt|null>(null);
   const [appointmentDoctor,setAppointmentDoctor]=useState('');
@@ -74,7 +84,9 @@ export default function ConnectedReceptionPreview(){
       const write=session.permissions.includes('PATIENT_REGISTER');
       const read=session.permissions.includes('PATIENT_REGISTRATION_READ');
       const book=session.permissions.includes('APPOINTMENT_BOOK');
-      if(!write&&!read)throw new Error('No patient registration permission');
+      const readAppointments=session.permissions.includes('APPOINTMENT_READ');
+      if(!write&&!read&&!readAppointments)
+        throw new Error('No patient or appointment permission');
       const flow=write?createConnectedRegistrationFlow(session,branchId):null;
       const recovery=read?createRegistrationRecoveryFlow(session,branchId):null;
       sessionRef.current=session;
@@ -82,9 +94,13 @@ export default function ConnectedReceptionPreview(){
       recoveryRef.current=recovery;
       setCanRead(read);
       setCanBook(book);
+      setCanReadAppointments(readAppointments);
+      setQueueRows([]);
+      setQueueLoaded(false);
+      setQueueDate(localCalendarDate());
       setStaffLabel(session.username);
       setCredentials(emptyCredentials());
-      setScreen(write?'PATIENT_DETAILS':'RECOVERY_LOOKUP');
+      setScreen(write?'PATIENT_DETAILS':read?'RECOVERY_LOOKUP':'APPOINTMENT_QUEUE');
     }catch(failure){
       if(session)await revokeStaffToken(session.accessToken);
       setCredentials(old=>({...old,password:''}));
@@ -262,6 +278,112 @@ export default function ConnectedReceptionPreview(){
     }finally{setBusy(false);}
   }
 
+  function showQueue(){
+    if(busy||!canReadAppointments)return;
+    appointmentRef.current?.dispose();
+    appointmentRef.current=null;
+    setAppointmentReceipt(null);
+    setAppointmentContext(null);
+    setQueueRows([]);
+    setQueueLoaded(false);
+    setQueueDate(localCalendarDate());
+    setEditAppointment(false);
+    setCancelConfirm(false);
+    setError('');
+    setScreen('APPOINTMENT_QUEUE');
+  }
+
+  async function loadQueue(e:FormEvent<HTMLFormElement>){
+    e.preventDefault();
+    if(busy||!sessionRef.current||!canReadAppointments)return;
+    setBusy(true);setError('');setQueueRows([]);setQueueLoaded(false);
+    try{
+      const rows=await loadAppointmentCandidateQueue(
+        sessionRef.current,branchId,queueDate);
+      setQueueRows(rows);
+      setQueueLoaded(true);
+    }catch(failure){setQueueRows([]);setError(explain(failure));}
+    finally{setBusy(false);}
+  }
+
+  async function openQueuedAppointment(item:AppointmentCandidateReceipt){
+    if(busy||!sessionRef.current||!canBook)return;
+    setBusy(true);setError('');setAppointmentReceipt(null);
+    try{
+      appointmentRef.current?.dispose();
+      const next=createAppointmentCandidateFlow(sessionRef.current,{
+        tenantId:item.tenantId,branchId:item.branchId,
+        patientId:item.patientId,registrationId:item.registrationId,
+      });
+      appointmentRef.current=next;
+      const fresh=await next.reopen(item.appointmentId);
+      if(fresh.patientId!==item.patientId
+         ||fresh.registrationId!==item.registrationId)
+        throw new Error('Appointment record changed');
+      setAppointmentContext({tenantId:fresh.tenantId,branchId:fresh.branchId,
+        patientId:fresh.patientId,registrationId:fresh.registrationId});
+      setAppointmentReceipt(fresh);
+      setEditAppointment(false);
+      setCancelConfirm(false);
+      setScreen('APPOINTMENT_BOOKED');
+    }catch(failure){
+      appointmentRef.current?.dispose();
+      appointmentRef.current=null;
+      setAppointmentReceipt(null);
+      setQueueRows([]);
+      setQueueLoaded(false);
+      setScreen('APPOINTMENT_QUEUE');
+      setError(explain(failure));
+    }finally{setBusy(false);}
+  }
+
+  function prepareReschedule(){
+    if(busy||!appointmentReceipt||appointmentReceipt.stage!=='BOOKED')return;
+    setNewDoctor(appointmentReceipt.doctorMembershipId);
+    setNewDate(appointmentReceipt.visitDate);
+    setNewSlot(appointmentReceipt.slotStart.slice(0,5));
+    setCancelConfirm(false);
+    setEditAppointment(true);
+    setError('');
+  }
+
+  async function submitReschedule(e:FormEvent<HTMLFormElement>){
+    e.preventDefault();
+    if(busy||!appointmentRef.current)return;
+    setBusy(true);setError('');
+    try{
+      const receipt=await appointmentRef.current.reschedule({
+        doctorMembershipId:newDoctor.trim(),visitDate:newDate,slotStart:newSlot,
+      });
+      setAppointmentReceipt(receipt);
+      setEditAppointment(false);
+      setCancelConfirm(false);
+    }catch(failure){
+      setAppointmentReceipt(null);
+      setScreen('APPOINTMENT_QUEUE');
+      setQueueRows([]);
+      setQueueLoaded(false);
+      setError(explain(failure));
+    }finally{setBusy(false);}
+  }
+
+  async function confirmCancelAppointment(){
+    if(busy||!appointmentRef.current||!cancelConfirm)return;
+    setBusy(true);setError('');
+    try{
+      const receipt=await appointmentRef.current.cancel();
+      setAppointmentReceipt(receipt);
+      setCancelConfirm(false);
+      setEditAppointment(false);
+    }catch(failure){
+      setAppointmentReceipt(null);
+      setScreen('APPOINTMENT_QUEUE');
+      setQueueRows([]);
+      setQueueLoaded(false);
+      setError(explain(failure));
+    }finally{setBusy(false);}
+  }
+
   function signOut(){
     if(busy)return;
     appointmentRef.current?.dispose();
@@ -281,6 +403,12 @@ export default function ConnectedReceptionPreview(){
     setLookupId('');
     setCanRead(false);
     setCanBook(false);
+    setCanReadAppointments(false);
+    setQueueRows([]);
+    setQueueLoaded(false);
+    setQueueDate(localCalendarDate());
+    setEditAppointment(false);
+    setCancelConfirm(false);
     setAppointmentContext(null);
     setAppointmentReceipt(null);
     setAppointmentDoctor('');
@@ -296,8 +424,12 @@ export default function ConnectedReceptionPreview(){
     <header className="connected-header">
       <div className="connected-brand"><span className="brand-symbol">✚</span>
         <span>AroNexa <small>Reception integration test</small></span></div>
-      <div>{active&&<button className="outline" disabled={busy} onClick={signOut}>
-        Sign out{staffLabel?' · '+staffLabel:''}</button>}</div>
+      <div className="connected-actions">
+          {active&&canReadAppointments&&<button className="outline" disabled={busy}
+            onClick={showQueue}>Daily appointments</button>}
+          {active&&<button className="outline" disabled={busy} onClick={signOut}>
+            Sign out{staffLabel?' · '+staffLabel:''}</button>}
+        </div>
     </header>
     <div className="connected-warning" role="status">
       <strong>TEST ONLY — NOT FOR REAL PATIENTS.</strong>
@@ -312,6 +444,7 @@ export default function ConnectedReceptionPreview(){
           screen==='RECOVERY_LOOKUP'?'Find an existing registration':
           screen==='APPOINTMENT'?'Book or reopen a saved appointment':
           screen==='APPOINTMENT_BOOKED'?'Saved appointment':
+          screen==='APPOINTMENT_QUEUE'?'Daily appointment queue':
           screen==='REVIEW'?'Review proposed registration':
           screen==='UNRESOLVED'?'Save needs attention':'Register synthetic patient'}</h1>
         <p>One staff session · One patient identity · One controlled registration attempt.</p>
