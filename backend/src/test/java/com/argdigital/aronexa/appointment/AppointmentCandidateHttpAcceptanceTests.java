@@ -1415,17 +1415,20 @@ class AppointmentCandidateHttpAcceptanceTests {
         assertThat(reopened.statusCode()).isEqualTo(200);
         assertThat(reopened.body()).contains("\"revision\":1",
                 "\"consultationRevision\":1","FICTIONAL medicine Alpha");
+        UUID secondEntry=UUID.randomUUID();
         var revised=call("POST",endpoint,newToken,
-                rxInput(1,1,"["+rxMedicineJson(entry,"FICTIONAL medicine Beta")+"]"));
+                rxInput(1,1,"["+rxMedicineJson(entry,"FICTIONAL medicine Beta")
+                    +","+rxMedicineJson(secondEntry,"FICTIONAL medicine Gamma")+"]"));
         assertThat(revised.statusCode()).isEqualTo(200);
         assertThat(revised.body()).contains("\"revision\":2",
-                "FICTIONAL medicine Beta");
+                "FICTIONAL medicine Beta","FICTIONAL medicine Gamma");
 
         assertThat(admin.queryForList("""
             SELECT m.medicine FROM appointment_proof.rx_draft_medicine m
              WHERE appointment_id=? ORDER BY revision,line_order
             """,String.class,appt)).containsExactly(
-                "FICTIONAL medicine Alpha","FICTIONAL medicine Beta");
+                "FICTIONAL medicine Alpha","FICTIONAL medicine Beta",
+                "FICTIONAL medicine Gamma");
         assertThat(admin.queryForObject("""
             SELECT count(*) FROM appointment_proof.rx_draft_revision
              WHERE appointment_id=?
@@ -1540,6 +1543,16 @@ class AppointmentCandidateHttpAcceptanceTests {
              WHERE tenant_id=? AND module_code='OPD'
             """,f.tenant());
         assertThat(call("GET",endpoint,doctor,null).statusCode()).isEqualTo(403);
+        // Restore the synthetic test-only module, then prove logout revocation
+        // rejects the previous bearer token even when the doctor role is live.
+        admin.update("""
+            UPDATE tenant_module_state SET activated=true
+             WHERE tenant_id=? AND module_code='OPD'
+            """,f.tenant());
+        assertThat(call("GET",endpoint,doctor,null).statusCode()).isEqualTo(200);
+        assertThat(call("POST","/api/v1/auth/logout",doctor,"{}")
+                .statusCode()).isBetween(200,204);
+        assertThat(call("GET",endpoint,doctor,null).statusCode()).isEqualTo(401);
         assertThat(admin.queryForObject("""
             SELECT count(*) FROM appointment_proof.rx_draft_revision
              WHERE appointment_id=?
