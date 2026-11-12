@@ -699,4 +699,157 @@ class AppointmentCandidateHttpAcceptanceTests {
         }
         assertThat(count("appointment",f.tenant())).isZero();
     }
+
+    private String modifyPayload(UUID doctor, LocalDate day,String slot,int revision) {
+        return "{\"doctorMembershipId\":\""+doctor+"\",\"visitDate\":\""+day+
+                "\",\"slotStart\":\""+slot+"\",\"expectedRevision\":"+revision+"}";
+    }
+
+    @Test
+    void rescheduleMovesDurableSlotAndDailyQueueReadsOnlyCurrentActiveRows() throws Exception {
+        Fixture f=fixture(true);
+        String token=login(f);
+        LocalDate today=LocalDate.now(CLINIC_ZONE);
+        var booked=call("POST",url(f),token,payload(f,UUID.randomUUID(),
+                f.doctor(),f.registration(),today,"10:00"));
+        assertThat(booked.statusCode()).isEqualTo(201);
+        UUID id=id(booked.body(),"appointmentId");
+        var moved=call("POST",url(f)+"/"+id+"/reschedule",token,
+                modifyPayload(f.doctor(),today,"10:15",1));
+        assertThat(moved.statusCode()).isEqualTo(200);
+        assertThat(moved.body()).contains("\"stage\":\"BOOKED\"","\"revision\":2",
+                "\"slotStart\":\"10:15:00\"");
+        assertThat(admin.queryForList("SELECT event_code FROM appointment_proof.event "
+                +"WHERE appointment_id=? ORDER BY revision",String.class,id))
+                .containsExactly("BOOKED","RESCHEDULED");
+
+        // The original slot is free, while the new one remains occupied.
+        assertThat(call("POST",url(f),token,payload(f,UUID.randomUUID(),
+                f.doctor(),f.registration(),today,"10:00")).statusCode())
+                .isEqualTo(201);
+        assertThat(call("POST",url(f),token,payload(f,UUID.randomUUID(),
+                f.doctor(),f.registration(),today,"10:15")).statusCode())
+                .isEqualTo(409);
+
+        var queue=call("GET",url(f)+"?visitDate="+today,token,null);
+        assertThat(queue.statusCode()).isEqualTo(200);
+        assertThat(queue.headers().firstValue("Cache-Control")).contains("no-store");
+        assertThat(queue.body()).contains(id.toString(),"\"stage\":\"BOOKED\"");
+        assertThat(count("appointment",f.tenant())).isEqualTo(2);
+        assertThat(count("read_audit",f.tenant())).isEqualTo(2);
+
+        // A different local date does not return today's visits.
+        var nextDay=call("GET",url(f)+"?visitDate="+today.plusDays(1),token,null);
+        assertThat(nextDay.statusCode()).isEqualTo(200);
+        assertThat(nextDay.body()).isEqualTo("[]");
+    }
+
+    @Test
+    void cancellationReleasesSlotButImmutableAuditAndIdLookupRemain() throws Exception {
+        Fixture f=fixture(true);
+        String token=login(f);
+        LocalDate today=LocalDate.now(CLINIC_ZONE);
+        var booked=call("POST",url(f),token,payload(f,UUID.randomUUID(),
+                f.doctor(),f.registration(),today,"10:30"));
+        assertThat(booked.statusCode()).isEqualTo(201);
+        UUID appointment=id(booked.body(),"appointmentId");
+        var cancelled=call("POST",url(f)+"/"+appointment+"/cancel",token,
+                "{\"expectedRevision\":1}");
+        assertThat(cancelled.statusCode()).isEqualTo(200);
+        assertThat(cancelled.body()).contains("\"stage\":\"CANCELLED\"","\"revision\":2");
+        assertThat(call("POST",url(f)+"/"+appointment+"/cancel",token,
+                "{\"expectedRevision\":1}").statusCode()).isEqualTo(409);
+        assertThat(call("POST",url(f)+"/"+appointment+"/check-in",token,
+                "{\"expectedRevision\":1}").statusCode()).isEqualTo(409);
+        assertThat(admin.queryForList("SELECT event_code FROM appointment_proof.event "
+                +"WHERE appointment_id=? ORDER BY revision",String.class,appointment))
+                .containsExactly("BOOKED","CANCELLED");
+        assertThat(call("GET",url(f)+"?visitDate="+today,token,null).body())
+                .isEqualTo("[]");
+        var history=call("GET",url(f)+"/"+appointment,token,null);
+        assertThat(history.statusCode()).isEqualTo(200);
+        assertThat(history.body()).contains("\"stage\":\"CANCELLED\"");
+        assertThat(call("POST",url(f),token,payload(f,UUID.randomUUID(),
+                f.doctor(),f.registration(),today,"10:30")).statusCode())
+                .isEqualTo(201);
+        assertThat(count("event",f.tenant())).isEqualTo(3);
+    }
+
+    @Test
+    void collisionNoopStaleRevisionAndCheckedInTransitionNeverOverwrite() throws Exception {
+        Fixture f=fixture(true);
+        String token=login(f);
+        LocalDate today=LocalDate.now(CLINIC_ZONE);
+        var first=call("POST",url(f),token,payload(f,UUID.randomUUID(),
+                f.doctor(),f.registration(),today,"11:00"));
+        var second=call("POST",url(f),token,payload(f,UUID.randomUUID(),
+                f.doctor(),f.registration(),today,"11:15"));
+        assertThat(first.statusCode()).isEqualTo(201);
+        assertThat(second.statusCode()).isEqualTo(201);
+        UUID appointment=id(first.body(),"appointmentId");
+        assertThat(call("POST",url(f)+"/"+appointment+"/reschedule",token,
+                modifyPayload(f.doctor(),today,"11:15",1)).statusCode())
+                .isEqualTo(409);
+        assertThat(call("POST",url(f)+"/"+appointment+"/reschedule",token,
+                modifyPayload(f.doctor(),today,"11:00",1)).statusCode())
+                .isEqualTo(409);
+        assertThat(count("event",f.tenant())).isEqualTo(2);
+
+        assertThat(call("POST",url(f)+"/"+appointment+"/reschedule",token,
+                modifyPayload(f.doctor(),today,"11:30",1)).statusCode())
+                .isEqualTo(200);
+        assertThat(call("POST",url(f)+"/"+appointment+"/reschedule",token,
+                modifyPayload(f.doctor(),today,"11:45",1)).statusCode())
+                .isEqualTo(409);
+        assertThat(call("POST",url(f)+"/"+appointment+"/cancel",token,
+                "{\"expectedRevision\":1}").statusCode()).isEqualTo(409);
+        assertThat(call("POST",url(f)+"/"+appointment+"/check-in",token,
+                "{\"expectedRevision\":2}").statusCode()).isEqualTo(200);
+        assertThat(call("POST",url(f)+"/"+appointment+"/reschedule",token,
+                modifyPayload(f.doctor(),today,"11:45",3)).statusCode())
+                .isEqualTo(409);
+        assertThat(call("POST",url(f)+"/"+appointment+"/cancel",token,
+                "{\"expectedRevision\":3}").statusCode()).isEqualTo(409);
+        assertThat(admin.queryForList("SELECT event_code FROM appointment_proof.event "
+                +"WHERE appointment_id=? ORDER BY revision",String.class,appointment))
+                .containsExactly("BOOKED","RESCHEDULED","CHECKED_IN");
+    }
+
+    @Test
+    void queueAndMutationsFailClosedOnWrongBranchTenantRevokedPermissionAndModule()
+            throws Exception {
+        Fixture f=fixture(true),foreign=fixture(true),denied=fixture(false);
+        String token=login(f);
+        LocalDate today=LocalDate.now(CLINIC_ZONE);
+        var booked=call("POST",url(f),token,payload(f,UUID.randomUUID(),
+                f.doctor(),f.registration(),today,"12:00"));
+        assertThat(booked.statusCode()).isEqualTo(201);
+        UUID appointment=id(booked.body(),"appointmentId");
+        assertThat(call("GET","/api/v1/branches/"+f.otherBranch()
+                +"/appointments?visitDate="+today,token,null).statusCode())
+                .isEqualTo(403);
+        assertThat(call("GET",url(f)+"?visitDate="+today,login(foreign),null)
+                .statusCode()).isEqualTo(403);
+        assertThat(call("GET",url(denied)+"?visitDate="+today,login(denied),null)
+                .statusCode()).isEqualTo(403);
+        assertThat(call("POST",url(f)+"/"+appointment+"/cancel",login(foreign),
+                "{\"expectedRevision\":1}").statusCode()).isEqualTo(403);
+
+        // Live role revocation must be enforced after initial session login.
+        admin.update("DELETE FROM auth_role_permission WHERE tenant_id=? "
+                +"AND permission_code='APPOINTMENT_RESCHEDULE'",f.tenant());
+        assertThat(call("POST",url(f)+"/"+appointment+"/reschedule",token,
+                modifyPayload(f.doctor(),today,"12:15",1)).statusCode())
+                .isEqualTo(403);
+        admin.update("DELETE FROM auth_role_permission WHERE tenant_id=? "
+                +"AND permission_code='APPOINTMENT_CANCEL'",f.tenant());
+        assertThat(call("POST",url(f)+"/"+appointment+"/cancel",token,
+                "{\"expectedRevision\":1}").statusCode()).isEqualTo(403);
+        admin.update("UPDATE tenant_module_state SET activated=false "
+                +"WHERE tenant_id=? AND module_code='OPD'",f.tenant());
+        assertThat(call("GET",url(f)+"?visitDate="+today,token,null).statusCode())
+                .isEqualTo(403);
+        assertThat(count("event",f.tenant())).isOne();
+    }
+
 }
