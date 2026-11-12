@@ -17,7 +17,7 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
  * Not multi-instance safe, no reverse-proxy identity assumptions, not for prod.
  */
 @Configuration(proxyBeanMethods = false)
-@Profile("test & c2-synthetic & !dev & !prod")
+@Profile("test & (c2-synthetic | registration-candidate) & !dev & !prod")
 class SyntheticRegistrationThrottleConfiguration implements WebMvcConfigurer {
     private final SyntheticRegistrationAttemptLimiter limiter =
             SyntheticRegistrationAttemptLimiter.syntheticDefaults();
