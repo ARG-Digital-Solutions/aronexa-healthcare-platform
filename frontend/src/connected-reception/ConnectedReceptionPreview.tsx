@@ -789,7 +789,7 @@ export default function ConnectedReceptionPreview(){
             </section>}
           {appointmentReceipt.stage==='CANCELLED'&&
             <p role="status">Cancelled. This slot is now released;
-              the appointment remains available in the audit history.</p>
+              the appointment remains available in the audit history.</p>}
           <p className="connected-footnote">
             Check-in is allowed only on the scheduled clinic-local date.
             Consultation, prescription and billing remain unavailable in this candidate.
