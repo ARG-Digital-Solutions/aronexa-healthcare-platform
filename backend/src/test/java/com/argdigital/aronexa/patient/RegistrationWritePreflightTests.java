@@ -2,7 +2,6 @@ package com.argdigital.aronexa.patient;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
-import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
@@ -76,9 +75,10 @@ class RegistrationWritePreflightTests {
                     RegistrationWritePreflight.Finding.RESTRICTED_WRITER_ROLE_MISSING_OR_UNSAFE,
                     RegistrationWritePreflight.Finding.PATIENT_RLS_NOT_ENFORCED,
                     RegistrationWritePreflight.Finding.PATIENT_RUNTIME_HAS_DIRECT_IDENTITY_WRITE);
-            assertThat(result.findings()).isUnmodifiable();
-            assertThat(result.findings().stream().map(Enum::name))
-                    .allMatch(name -> name.matches("[A-Z_]+"));
+            assertThatThrownBy(() -> result.findings().add(RegistrationWritePreflight.Finding.DATABASE_PREFLIGHT_FAILED))
+                    .isInstanceOf(UnsupportedOperationException.class);
+            assertThat(result.findings())
+                    .allSatisfy(finding -> assertThat(finding.name()).matches("[A-Z_]+"));
             c.rollback();
         }
     }
