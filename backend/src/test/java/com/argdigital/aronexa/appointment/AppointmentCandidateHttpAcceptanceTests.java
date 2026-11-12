@@ -967,4 +967,188 @@ class AppointmentCandidateHttpAcceptanceTests {
         assertThat(count("event",f.tenant())).isOne();
     }
 
+
+    private String loginDoctor(Fixture f) throws Exception {
+        String suffix=f.username().substring("r104_".length());
+        String body="{\"tenantCode\":\""+f.tenantCode()
+                +"\",\"username\":\"doctor_"+suffix
+                +"\",\"password\":\"DisposableDoctor-Only123!\"}";
+        var response=call("POST","/api/v1/auth/login",null,body);
+        assertThat(response.statusCode()).isEqualTo(200);
+        var match=Pattern.compile("\"accessToken\"\\s*:\\s*\"([A-Za-z0-9_-]{43})\"")
+                .matcher(response.body());
+        assertThat(match.find()).isTrue();
+        return match.group(1);
+    }
+
+    private String consultationPath(Fixture f,UUID appointment) {
+        return url(f)+"/"+appointment+"/consultation-draft";
+    }
+
+    private static String consultationInput(int revision,String note) {
+        // Fictional values ONLY in tests. No real name/clinical note in logs.
+        return "{\"expectedRevision\":"+revision
+                +",\"consultationNote\":\""+note+"\"}";
+    }
+
+    private UUID checkedInAppointment(Fixture f,String reception,String slot)
+            throws Exception {
+        LocalDate day=LocalDate.now(CLINIC_ZONE);
+        var booked=call("POST",url(f),reception,payload(f,UUID.randomUUID(),
+                f.doctor(),f.registration(),day,slot));
+        assertThat(booked.statusCode()).isEqualTo(201);
+        UUID id=id(booked.body(),"appointmentId");
+        assertThat(call("POST",url(f)+"/"+id+"/check-in",reception,
+                "{\"expectedRevision\":1}").statusCode()).isEqualTo(200);
+        return id;
+    }
+
+    @Test
+    void assignedDoctorSavesDurableConsultationRevisionsAcrossIndependentLogin()
+            throws Exception {
+        Fixture f=fixture(true);
+        String reception=login(f),doctor=loginDoctor(f);
+        UUID appointment=checkedInAppointment(f,reception,"13:00");
+        String endpoint=consultationPath(f,appointment);
+
+        assertThat(call("GET",endpoint,reception,null).statusCode()).isEqualTo(403);
+        var initial=call("GET",endpoint,doctor,null);
+        assertThat(initial.statusCode()).isEqualTo(200);
+        assertThat(initial.headers().firstValue("Cache-Control")).contains("no-store");
+        assertThat(initial.body()).contains("\"stage\":\"CHECKED_IN\"",
+                "\"revision\":0","\"consultationNote\":\"\"");
+
+        var first=call("POST",endpoint,doctor,
+                consultationInput(0,"SYNTHETIC OPD note version one"));
+        assertThat(first.statusCode()).isEqualTo(200);
+        assertThat(first.body()).contains("\"stage\":\"CONSULTATION_DRAFT\"",
+                "\"revision\":1","SYNTHETIC OPD note version one");
+
+        assertThat(call("POST","/api/v1/auth/logout",doctor,"{}").statusCode())
+                .isBetween(200,204);
+        assertThat(call("GET",endpoint,doctor,null).statusCode()).isEqualTo(401);
+
+        String nextDoctor=loginDoctor(f);
+        var recovered=call("GET",endpoint,nextDoctor,null);
+        assertThat(recovered.statusCode()).isEqualTo(200);
+        assertThat(recovered.body()).contains("\"revision\":1",
+                "SYNTHETIC OPD note version one");
+        var updated=call("POST",endpoint,nextDoctor,
+                consultationInput(1,"SYNTHETIC OPD note version two"));
+        assertThat(updated.statusCode()).isEqualTo(200);
+        assertThat(updated.body()).contains("\"revision\":2",
+                "SYNTHETIC OPD note version two");
+
+        assertThat(admin.queryForList("""
+            SELECT consultation_note FROM appointment_proof.consultation_revision
+            WHERE appointment_id=? ORDER BY revision
+            """,String.class,appointment))
+            .containsExactly("SYNTHETIC OPD note version one",
+                             "SYNTHETIC OPD note version two");
+        assertThat(admin.queryForObject("""
+            SELECT count(*) FROM appointment_proof.consultation_read_audit
+             WHERE appointment_id=?
+            """,Integer.class,appointment)).isEqualTo(2);
+        assertThat(admin.queryForObject("""
+            SELECT count(*) FROM appointment_proof.consultation_revision
+             WHERE appointment_id=?
+            """,Integer.class,appointment)).isEqualTo(2);
+    }
+
+    @Test
+    void consultationDraftStaleRevisionAndInvalidNotesFailWithoutHistoryChange()
+            throws Exception {
+        Fixture f=fixture(true);
+        String reception=login(f),doctor=loginDoctor(f);
+        UUID appointment=checkedInAppointment(f,reception,"13:15");
+        String endpoint=consultationPath(f,appointment);
+        assertThat(call("POST",endpoint,doctor,
+                consultationInput(0,"SYNTHETIC original note")).statusCode())
+                .isEqualTo(200);
+        assertThat(call("POST",endpoint,doctor,
+                consultationInput(0,"SYNTHETIC stale overwrite")).statusCode())
+                .isEqualTo(409);
+        assertThat(call("POST",endpoint,doctor,
+                consultationInput(1,"    ")).statusCode()).isEqualTo(400);
+        assertThat(call("POST",endpoint,doctor,
+                consultationInput(1,"x".repeat(2001))).statusCode()).isEqualTo(400);
+        assertThat(admin.queryForList("""
+            SELECT consultation_note FROM appointment_proof.consultation_revision
+            WHERE appointment_id=? ORDER BY revision
+            """,String.class,appointment)).containsExactly("SYNTHETIC original note");
+        assertThat(call("GET",endpoint,doctor,null).body())
+                .contains("\"revision\":1","SYNTHETIC original note");
+
+        // Revision rows are append-only, including old note versions.
+        org.assertj.core.api.Assertions.assertThatThrownBy(()->admin.update("""
+            UPDATE appointment_proof.consultation_revision
+               SET consultation_note='WRONG' WHERE appointment_id=?
+            """,appointment)).isInstanceOf(org.springframework.dao.DataAccessException.class);
+        org.assertj.core.api.Assertions.assertThatThrownBy(()->admin.update("""
+            DELETE FROM appointment_proof.consultation_revision WHERE appointment_id=?
+            """,appointment)).isInstanceOf(org.springframework.dao.DataAccessException.class);
+    }
+
+    @Test
+    void doctorCannotOpenBookedCancelledForeignOrWrongBranchConsultation()
+            throws Exception {
+        Fixture f=fixture(true),foreign=fixture(true);
+        String reception=login(f),doctor=loginDoctor(f),otherDoctor=loginDoctor(foreign);
+        LocalDate today=LocalDate.now(CLINIC_ZONE);
+        var booked=call("POST",url(f),reception,payload(f,UUID.randomUUID(),
+                f.doctor(),f.registration(),today,"13:30"));
+        assertThat(booked.statusCode()).isEqualTo(201);
+        UUID appointment=id(booked.body(),"appointmentId");
+        String endpoint=consultationPath(f,appointment);
+
+        assertThat(call("GET",endpoint,doctor,null).statusCode()).isEqualTo(409);
+        assertThat(call("POST",endpoint,doctor,
+                consultationInput(0,"SYNTHETIC premature")).statusCode()).isEqualTo(409);
+        assertThat(call("POST",url(f)+"/"+appointment+"/cancel",reception,
+                "{\"expectedRevision\":1}").statusCode()).isEqualTo(200);
+        assertThat(call("GET",endpoint,doctor,null).statusCode()).isEqualTo(409);
+        assertThat(call("GET",endpoint,otherDoctor,null).statusCode()).isEqualTo(403);
+        assertThat(call("GET",
+                "/api/v1/branches/"+f.otherBranch()+"/appointments/"
+                +appointment+"/consultation-draft",doctor,null).statusCode())
+                .isEqualTo(403);
+        assertThat(admin.queryForObject("""
+            SELECT count(*) FROM appointment_proof.consultation_revision
+            WHERE appointment_id=?
+            """,Integer.class,appointment)).isZero();
+    }
+
+    @Test
+    void consultationRespectsLiveDoctorPermissionAndOpdModuleRevocation()
+            throws Exception {
+        Fixture f=fixture(true);
+        String reception=login(f),doctor=loginDoctor(f);
+        UUID appointment=checkedInAppointment(f,reception,"13:45");
+        String endpoint=consultationPath(f,appointment);
+        assertThat(call("POST",endpoint,doctor,
+                consultationInput(0,"SYNTHETIC saved before revocation"))
+                .statusCode()).isEqualTo(200);
+
+        admin.update("""
+            DELETE FROM auth_role_permission
+             WHERE tenant_id=? AND permission_code='OPD_DRAFT_WRITE'
+            """,f.tenant());
+        assertThat(call("GET",endpoint,doctor,null).statusCode()).isEqualTo(403);
+        assertThat(call("POST",endpoint,doctor,
+                consultationInput(1,"SYNTHETIC denied")).statusCode()).isEqualTo(403);
+
+        admin.update("""
+            INSERT INTO auth_role_permission (tenant_id,role_id,permission_code)
+            SELECT ?,id,'OPD_DRAFT_WRITE' FROM auth_role
+            WHERE tenant_id=? AND code='DOCTOR'
+            """,f.tenant(),f.tenant());
+        admin.update("UPDATE tenant_module_state SET activated=false "
+                +"WHERE tenant_id=? AND module_code='OPD'",f.tenant());
+        assertThat(call("GET",endpoint,doctor,null).statusCode()).isEqualTo(403);
+        assertThat(admin.queryForObject("""
+            SELECT count(*) FROM appointment_proof.consultation_revision
+             WHERE appointment_id=?
+            """,Integer.class,appointment)).isOne();
+    }
+
 }
