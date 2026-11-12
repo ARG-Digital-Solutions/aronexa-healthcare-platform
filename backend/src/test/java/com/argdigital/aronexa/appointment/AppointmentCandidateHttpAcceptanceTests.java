@@ -2,6 +2,7 @@ package com.argdigital.aronexa.appointment;
 
 import com.argdigital.aronexa.auth.AuthPrincipal;
 import com.argdigital.aronexa.auth.TenantAuthorization;
+import com.argdigital.aronexa.encounter.EncounterDraftContract;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -104,6 +105,10 @@ class AppointmentCandidateHttpAcceptanceTests {
         record Reschedule(UUID doctorMembershipId, LocalDate visitDate,
                           LocalTime slotStart, int expectedRevision) {}
         record Cancel(int expectedRevision) {}
+        record SaveConsultation(int expectedRevision,String consultationNote) {}
+        record ConsultationReceipt(UUID tenantId,UUID branchId,UUID patientId,
+                UUID appointmentId,UUID doctorMembershipId,String stage,
+                long revision,String consultationNote) {}
         record Receipt(UUID tenantId, UUID branchId, UUID patientId,
                        UUID registrationId, UUID appointmentId, UUID doctorMembershipId,
                        String stage, LocalDate visitDate, LocalTime slotStart,
@@ -469,12 +474,14 @@ class AppointmentCandidateHttpAcceptanceTests {
                 System.getProperty("user.dir"))).toAbsolutePath();
         assertThat(Files.exists(base.resolve("src/test/resources/db/test/appointment-candidate-r104.sql"))).isTrue();
         assertThat(Files.exists(base.resolve("src/test/resources/db/test/appointment-candidate-r105.sql"))).isTrue();
+        assertThat(Files.exists(base.resolve("src/test/resources/db/test/appointment-candidate-r106.sql"))).isTrue();
         try(Connection owner=ownerDataSource.getConnection()) {
             owner.setAutoCommit(false);
             try {
                 for(String file:new String[]{"db/test/appointment-persistence-proof.sql",
                         "db/test/appointment-candidate-r104.sql",
-                        "db/test/appointment-candidate-r105.sql"}) {
+                        "db/test/appointment-candidate-r105.sql",
+                        "db/test/appointment-candidate-r106.sql"}) {
                     ScriptUtils.executeSqlScript(owner,
                             new EncodedResource(new ClassPathResource(file)),
                             false,false,ScriptUtils.DEFAULT_COMMENT_PREFIX,
@@ -539,6 +546,8 @@ class AppointmentCandidateHttpAcceptanceTests {
                     +"VALUES(?,?,?)",tenant,doctor,doctorRole);
         admin.update("INSERT INTO org_membership_branch_scope(tenant_id,membership_id,branch_id) "
                     +"VALUES(?,?,?)",tenant,doctor,branch);
+        admin.update("INSERT INTO auth_role_permission(tenant_id,role_id,permission_code) "
+                    +"VALUES(?,?,'OPD_DRAFT_WRITE')",tenant,doctorRole);
         admin.update("INSERT INTO tenant_module_state(tenant_id,module_code,entitled,activated,clinically_authorized) "
                     +"VALUES(?,'OPD',true,true,true)",tenant);
         admin.update("INSERT INTO patient(id,tenant_id,display_name) "
