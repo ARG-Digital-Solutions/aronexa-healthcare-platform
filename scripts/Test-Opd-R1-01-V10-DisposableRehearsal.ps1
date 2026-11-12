@@ -30,7 +30,7 @@ Write-Host "Git SHA: $head"
 Write-Host "Evidence: $folder"
 
 function Run-Gate {
-    param([string]$Gate,[string[]]$Args)
+    param([string]$Gate,[string[]]$CommandArguments)
     $log = Join-Path $folder ($Gate + ".log")
     Write-Host "Running: $Gate" -ForegroundColor Cyan
     $old = $ErrorActionPreference
@@ -39,7 +39,7 @@ function Run-Gate {
         $ErrorActionPreference = "Continue"
         Push-Location $repo
         try {
-            & mvn.cmd @Args *> $log
+            & mvn.cmd @CommandArguments *> $log
             $exit = $LASTEXITCODE
         } finally {
             Pop-Location
