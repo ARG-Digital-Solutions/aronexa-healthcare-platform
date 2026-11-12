@@ -61,7 +61,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 @SpringBootTest(webEnvironment=SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties={"server.address=127.0.0.1","server.error.include-message=never"})
 @ActiveProfiles({"test","appointment-candidate"})
-@Import(AppointmentCandidateHttpAcceptanceTests.CandidateController.class)
+@Import({AppointmentCandidateHttpAcceptanceTests.CandidateController.class,
+        AppointmentCandidateHttpAcceptanceTests.DailyBillingController.class})
 @Testcontainers
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class AppointmentCandidateHttpAcceptanceTests {
@@ -119,6 +120,19 @@ class AppointmentCandidateHttpAcceptanceTests {
         record RxReceipt(UUID tenantId,UUID branchId,UUID patientId,
                 UUID appointmentId,UUID doctorMembershipId,String stage,
                 int revision,int consultationRevision,List<RxMedicine> medicines) {}
+        record BillCreate(UUID requestId,String serviceCode) {}
+        record CashPost(UUID requestId,UUID invoiceId,Long amountPaise) {}
+        record BillingContext(UUID tenantId,UUID branchId,UUID patientId,
+                UUID appointmentId,UUID doctorMembershipId,
+                String serviceCode,String serviceLabel,long amountPaise) {}
+        record BillReceipt(UUID tenantId,UUID branchId,UUID patientId,
+                UUID appointmentId,UUID doctorMembershipId,UUID invoiceId,
+                long invoiceNumber,String serviceCode,String serviceLabel,
+                long totalPaise,long paidPaise,long outstandingPaise,
+                String status,boolean replayed) {}
+        record BillingDaily(LocalDate date,UUID tenantId,UUID branchId,
+                long invoiceCount,long billedPaise,long collectionsPaise,
+                long outstandingPaise) {}
         record Receipt(UUID tenantId, UUID branchId, UUID patientId,
                        UUID registrationId, UUID appointmentId, UUID doctorMembershipId,
                        String stage, LocalDate visitDate, LocalTime slotStart,
@@ -778,6 +792,7 @@ class AppointmentCandidateHttpAcceptanceTests {
         assertThat(Files.exists(base.resolve("src/test/resources/db/test/appointment-candidate-r105.sql"))).isTrue();
         assertThat(Files.exists(base.resolve("src/test/resources/db/test/appointment-candidate-r106.sql"))).isTrue();
         assertThat(Files.exists(base.resolve("src/test/resources/db/test/appointment-candidate-r107.sql"))).isTrue();
+        assertThat(Files.exists(base.resolve("src/test/resources/db/test/appointment-candidate-r108.sql"))).isTrue();
         try(Connection owner=ownerDataSource.getConnection()) {
             owner.setAutoCommit(false);
             try {
@@ -785,7 +800,8 @@ class AppointmentCandidateHttpAcceptanceTests {
                         "db/test/appointment-candidate-r104.sql",
                         "db/test/appointment-candidate-r105.sql",
                         "db/test/appointment-candidate-r106.sql",
-                        "db/test/appointment-candidate-r107.sql"}) {
+                        "db/test/appointment-candidate-r107.sql",
+                        "db/test/appointment-candidate-r108.sql"}) {
                     ScriptUtils.executeSqlScript(owner,
                             new EncodedResource(new ClassPathResource(file)),
                             false,false,ScriptUtils.DEFAULT_COMMENT_PREFIX,
@@ -811,6 +827,8 @@ class AppointmentCandidateHttpAcceptanceTests {
              user=UUID.randomUUID(),membership=UUID.randomUUID(),
              doctorUser=UUID.randomUUID(),doctor=UUID.randomUUID(),
              role=UUID.randomUUID(),doctorRole=UUID.randomUUID(),
+             billingUser=UUID.randomUUID(),billing=UUID.randomUUID(),
+             billingRole=UUID.randomUUID(),
              patient=UUID.randomUUID(),registration=UUID.randomUUID();
         String username="r104_"+suffix,tenantCode="r104_"+suffix;
         String password="DisposableR104-Only123!";
@@ -854,6 +872,26 @@ class AppointmentCandidateHttpAcceptanceTests {
                     +"VALUES(?,?,'OPD_DRAFT_WRITE')",tenant,doctorRole);
         admin.update("INSERT INTO auth_role_permission(tenant_id,role_id,permission_code) "
                     +"VALUES(?,?,'OPD_RX_DRAFT_WRITE')",tenant,doctorRole);
+        admin.update("INSERT INTO app_user(id,username,password_hash,must_change_password) "
+                    +"VALUES(?,?,?,false)",billingUser,"billing_"+suffix,
+                    passwords.encode("DisposableBilling-Only123!"));
+        admin.update("INSERT INTO user_tenant_membership(id,user_id,tenant_id) VALUES(?,?,?)",
+                    billing,billingUser,tenant);
+        admin.update("INSERT INTO auth_role(id,tenant_id,code,display_name) "
+                    +"VALUES(?,?,'BILLING','Synthetic cash recorder')",billingRole,tenant);
+        admin.update("INSERT INTO auth_membership_role(tenant_id,membership_id,role_id) "
+                    +"VALUES(?,?,?)",tenant,billing,billingRole);
+        admin.update("INSERT INTO org_membership_branch_scope(tenant_id,membership_id,branch_id) "
+                    +"VALUES(?,?,?)",tenant,billing,branch);
+        for(String permission:new String[]{"OPD_BILL_CREATE","OPD_BILL_READ",
+                "OPD_PAYMENT_POST","OPD_DAILY_REPORT_READ"}) {
+            admin.update("INSERT INTO auth_role_permission(tenant_id,role_id,permission_code) "
+                        +"VALUES(?,?,?)",tenant,billingRole,permission);
+        }
+        admin.update("INSERT INTO appointment_proof.fee_schedule "
+                    +"(tenant_id,branch_id,service_code,service_label,amount_paise,enabled) "
+                    +"VALUES(?,?,'OPD-CONSULTATION','Fictional OPD Consultation',50000,true)",
+                    tenant,branch);
         admin.update("INSERT INTO tenant_module_state(tenant_id,module_code,entitled,activated,clinically_authorized) "
                     +"VALUES(?,'OPD',true,true,true)",tenant);
         admin.update("INSERT INTO patient(id,tenant_id,display_name) "
