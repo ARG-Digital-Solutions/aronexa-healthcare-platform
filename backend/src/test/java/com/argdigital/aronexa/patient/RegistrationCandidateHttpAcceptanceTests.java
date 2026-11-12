@@ -248,7 +248,17 @@ class RegistrationCandidateHttpAcceptanceTests {
         Matcher matcher=Pattern.compile("\"accessToken\"\\s*:\\s*\"([A-Za-z0-9_-]{43})\"")
                 .matcher(response.body());
         assertThat(matcher.find()).isTrue();
-        return matcher.group(1);
+        String token=matcher.group(1);
+        // Verify the login has created a usable DB-backed bearer session.
+        // A success response from /auth/login alone is insufficient proof.
+        var me=http.send(HttpRequest.newBuilder(
+                URI.create("http://127.0.0.1:"+port+"/api/v1/auth/me"))
+                .header("Authorization","Bearer "+token).GET().build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertThat(me.statusCode())
+                .as("Just-issued staff bearer token must authorize /auth/me")
+                .isEqualTo(200);
+        return token;
     }
     private String path(UUID branch) {
         return "/api/v1/branches/"+branch+"/patient-registrations";
