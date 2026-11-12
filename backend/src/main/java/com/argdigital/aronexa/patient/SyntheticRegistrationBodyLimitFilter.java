@@ -26,7 +26,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
  */
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE)
-@Profile("test & c2-synthetic & !dev & !prod")
+@Profile("test & (c2-synthetic | registration-candidate) & !dev & !prod")
 final class SyntheticRegistrationBodyLimitFilter extends OncePerRequestFilter {
     static final int MAX_BODY_BYTES = 4096;
 
