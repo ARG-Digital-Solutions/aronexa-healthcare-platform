@@ -45,6 +45,24 @@ class AuthSecurityConfiguration {
                                 environment.acceptsProfiles(Profiles.of("test & (c2-synthetic | registration-candidate) & !dev & !prod"))
                                 && authn.get().isAuthenticated()
                                 && authn.get().getPrincipal() instanceof AuthPrincipal))
+                        // R1-04 candidate only: these routes have NO production
+                        // controller and stay denied unless the specific disposable
+                        // HTTP+PostgreSQL test profile is active. No dev/prod grant.
+                        .requestMatchers(HttpMethod.POST,
+                                "/api/v1/branches/{branchId}/appointments",
+                                "/api/v1/branches/{branchId}/appointments/{appointmentId}/check-in")
+                            .access((authn, request) -> new org.springframework.security.authorization.AuthorizationDecision(
+                                environment.acceptsProfiles(Profiles.of(
+                                        "test & appointment-candidate & !dev & !prod"))
+                                && authn.get().isAuthenticated()
+                                && authn.get().getPrincipal() instanceof AuthPrincipal))
+                        .requestMatchers(HttpMethod.GET,
+                                "/api/v1/branches/{branchId}/appointments/{appointmentId}")
+                            .access((authn, request) -> new org.springframework.security.authorization.AuthorizationDecision(
+                                environment.acceptsProfiles(Profiles.of(
+                                        "test & appointment-candidate & !dev & !prod"))
+                                && authn.get().isAuthenticated()
+                                && authn.get().getPrincipal() instanceof AuthPrincipal))
                         .anyRequest().denyAll())
                 // Sending servlet errors can redispatch /error without the
                 // original request's SecurityContext and rewrite an authenticated
