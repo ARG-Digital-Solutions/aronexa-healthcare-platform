@@ -81,6 +81,21 @@ class AuthSecurityConfiguration {
                                         "test & appointment-candidate & !dev & !prod"))
                                 && authn.get().isAuthenticated()
                                 && authn.get().getPrincipal() instanceof AuthPrincipal))
+                        // R1-07 structured prescription DRAFT: TEST ONLY.
+                        .requestMatchers(HttpMethod.GET,
+                                "/api/v1/branches/{branchId}/appointments/{appointmentId}/prescription-draft")
+                            .access((authn, request) -> new org.springframework.security.authorization.AuthorizationDecision(
+                                environment.acceptsProfiles(Profiles.of(
+                                        "test & appointment-candidate & !dev & !prod"))
+                                && authn.get().isAuthenticated()
+                                && authn.get().getPrincipal() instanceof AuthPrincipal))
+                        .requestMatchers(HttpMethod.POST,
+                                "/api/v1/branches/{branchId}/appointments/{appointmentId}/prescription-draft")
+                            .access((authn, request) -> new org.springframework.security.authorization.AuthorizationDecision(
+                                environment.acceptsProfiles(Profiles.of(
+                                        "test & appointment-candidate & !dev & !prod"))
+                                && authn.get().isAuthenticated()
+                                && authn.get().getPrincipal() instanceof AuthPrincipal))
                         .anyRequest().denyAll())
                 // Sending servlet errors can redispatch /error without the
                 // original request's SecurityContext and rewrite an authenticated
