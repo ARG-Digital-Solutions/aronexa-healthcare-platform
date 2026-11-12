@@ -2,7 +2,7 @@
 
 **Scope:** Patient Registration → Appointments → Doctor Consultation → Prescription → Billing.
 **Owner direction:** Windows offline first, one assisted pilot clinic; single-developer incremental delivery; data security and simple UX ahead of breadth.
-**Status (2026-11-12):** READ-ONLY AUTHORIZED REFERENCE ENDPOINT + FRONTEND LINK CONTRACT IMPLEMENTED; REGISTRATION WRITES AND PERSISTENT END-TO-END JOURNEY **NOT IMPLEMENTED**. NO PATIENT DATA. NO DEPLOYMENT.
+**Status (2026-11-12):** AUTHORIZED REFERENCE READ + REVIEW-ONLY PERSISTENT REGISTRATION WRITER CANDIDATE COMMITTED, NOT EXECUTED OR ENABLED OUTSIDE TESTS. PRODUCTION REGISTRATION WRITES AND THE FULL PERSISTENT JOURNEY **NOT IMPLEMENTED**. NO PATIENT DATA. NO DEPLOYMENT.
 
 ## Current source reality
 
@@ -15,6 +15,10 @@
 - Registration UUIDs in the API path are pseudonymous patient-linked identifiers: redact URL paths from HTTP/access logs, tracing and telemetry before operational use; do not embed names, phones or clinical details in URLs.
 - Real HTTP/Testcontainers acceptance tests for the read-only endpoint and frontend transport model tests are committed but NOT RUN in this tool session.
 - Encounter persistence exists as a tested contract/proof, not a completed clinical HTTP workspace. Consultation, Smart Rx and Billing are stand-alone synthetic previews.
+- A **review-only** SQL candidate lives at deploy/registration/review-only/V10__approved_clinic_registration_writer.sql. This file is OUTSIDE backend/src/main/resources/db/migration and therefore is NOT an automatic Flyway migration. It is NOT approved for manual execution on persistent databases. It derives from the disposable synthetic C2 proof and uses distinct production function and proof-domain names.
+- RegistrationProductionProof and RegistrationWriteExecutor are **inert Java classes**, with no Spring @Service, controller, configuration activation, request route or runtime bean. RegistrationWriteExecutor calls only the separately named SQL candidate. The database function still rechecks bearer session, staff/tenant/branch, role/module, signed proof, idempotency, audit and duplicates. This has not been proven outside fresh disposable test containers.
+- RegistrationWritePreflight is read-only, not a Spring bean and requires an explicit read-only transaction. It structurally rejects the V9 database and this unapproved candidate, missing approved Flyway V10 entry/function/role/key, unsafe direct writes, missing audit and absent FORCE RLS. It **never** provisions roles or installs keys and cannot authenticate independent review.
+- RegistrationCandidateSqlAcceptanceTests and RegistrationWritePreflightTests are committed for PostgreSQL 17 Testcontainers. **NOT RUN HERE**: no successful result or runtime claim exists yet.
 - Existing application CI and verified synthetic QA have been reported as passing locally by the owner, but these are not evidence of an integrated persistent workflow.
 
 ## Shared identity contract (new)
@@ -36,7 +40,7 @@ Only **server-issued UUIDs** may advance the journey; a synthetic DEMO-... ID mu
 
 ## Development sequence — one persistent vertical slice at a time
 
-1. **Registration production readiness (BLOCKED):** preserve the new read-only reference endpoint and independently review a new forward-only migration/provisioning plan derived from the synthetic V10 proof. Preflight fresh database roles, scoped NOLOGIN writer, secret/key lifecycle, Flyway upgrade/rollback strategy, audit, idempotency, duplicate-review process, and tenant/branch/role/session checks. Implement authenticated clinical UI login and safe account provisioning. Only then introduce a real authenticated route and connect registrationClient; keep demo mode visibly separate.
+1. **Registration production readiness (BLOCKED):** preserve the read-only reference endpoint and independently review the staged V10 SQL candidate. Rehearse fresh and existing V9 database backups/upgrades with a separate migration-owner connection. Before Flyway, provision and verify the scoped NOLOGIN writer in a controlled installer transaction. After migration, install the 32-byte verifier key from protected per-installation storage and verify the same key ID/domain/configuration with the application, with a documented rotation and encrypted-backup recovery plan. Require the RegistrationWritePreflight structural checks and a separate checksum/approval record. Verify SQL object privileges, triggers, race/revocation behavior, request body/admission limits, clinic auth and patient privacy before enabling any POST. Implement authenticated clinical UI login and account provisioning; do not enable synthetic test profiles for real use. Only then connect registrationClient to an approved real HTTP route.
 2. **Appointments (PENDING):** implement transactional PostgreSQL appointment/slot records referencing existing tenant+branch+patient+registration, real doctor assignment, database-enforced slot conflict exclusion, and audited book/reschedule/cancel/check-in. Prove two simultaneous booking attempts cannot win one slot.
 3. **Consultation (PENDING):** link checked-in appointment to an authorized doctor-owned encounter, record immutable audit, optimistic revision checks, server-computed timestamps and persistence across app restart. Return the encounterId with the SAME patientId.
 4. **Smart Prescription (PENDING):** link medicines, note and ink assets to the same encounter; store validated drafts with revision checks and immutable finalization/version history. Clinician signs; no issued prescription from demo previews.
@@ -70,7 +74,7 @@ Run the frontend reference client tests and backend HTTP acceptance tests as wel
 
     node --experimental-strip-types --test test/registration-reference-client.test.mjs
     cd ..
-    mvn.cmd -B -f backend/pom.xml -Dtest=PatientRegistrationReadHttpAcceptanceTests test
+    mvn.cmd -B -f backend/pom.xml "-Dtest=PatientRegistrationReadHttpAcceptanceTests,RegistrationWritePreflightTests,RegistrationCandidateSqlAcceptanceTests" test
 
 Then run npm ci && npm run build to include all existing frontend model tests. Maven/Testcontainers and independent browser QA must also run on the accepted integrated SHA before any release determination. GitHub Actions billing failure is not permission to skip review or required security gates.
 
