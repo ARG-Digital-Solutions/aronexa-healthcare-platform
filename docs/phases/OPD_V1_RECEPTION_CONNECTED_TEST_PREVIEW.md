@@ -31,17 +31,26 @@ prescription or billing implementation.
 
 ## Verification — exact current commit
 
-Use a clean review worktree with Docker Desktop and Node 24:
+Preferred: one-command Windows PowerShell acceptance from the clean review
+worktree at the expected Git SHA (Docker Desktop and Node 24 installed):
+
+    powershell.exe -NoProfile -File .\scripts\Test-Opd-Registration-Increment.ps1 -ExpectedCommit FULL_40_CHARACTER_SHA
+
+This script runs npm ci, frontend build and tests, isolated connected Reception
+preview build, real HTTP/Node/Testcontainers acceptance and full Maven clean verify.
+It stops on errors, stores individual logs under the user's AroNexa-Local-QA
+directory and records the exact SHA plus fresh Surefire XML totals.
+
+Equivalent manual steps:
 
     cd frontend
     npm.cmd ci --no-audit --no-fund
-    npm.cmd test
     npm.cmd run build
     npm.cmd run build:connected:test
 
     cd ..
     mvn.cmd -B -f backend/pom.xml "-Dtest=RegistrationCandidateHttpAcceptanceTests" test
-    mvn.cmd -B -f backend/pom.xml verify
+    mvn.cmd -B -f backend/pom.xml clean verify
 
 The Java candidate HTTP acceptance suite now invokes
 frontend/test/integration/connected-reception-wire.mjs via Node, passing a
