@@ -111,6 +111,14 @@ class AppointmentCandidateHttpAcceptanceTests {
                 long revision,String consultationNote) {}
         record ConsultationContext(UUID tenantId,UUID branchId,UUID patientId,
                 UUID appointmentId,UUID doctorMembershipId,String appointmentStage) {}
+        record RxMedicine(UUID entryId,String medicine,String strength,
+                String form,String dose,String route,String frequency,
+                String duration,Integer quantity,String instructions) {}
+        record SaveRx(int expectedRevision,int consultationRevision,
+                List<RxMedicine> medicines) {}
+        record RxReceipt(UUID tenantId,UUID branchId,UUID patientId,
+                UUID appointmentId,UUID doctorMembershipId,String stage,
+                int revision,int consultationRevision,List<RxMedicine> medicines) {}
         record Receipt(UUID tenantId, UUID branchId, UUID patientId,
                        UUID registrationId, UUID appointmentId, UUID doctorMembershipId,
                        String stage, LocalDate visitDate, LocalTime slotStart,
@@ -580,6 +588,168 @@ class AppointmentCandidateHttpAcceptanceTests {
             return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(result);
         }
 
+
+        private static String rxText(String value,int max,boolean required) {
+            if(value==null||value.length()>max||value.indexOf('\u0000')>=0)
+                throw new IllegalArgumentException();
+            String trimmed=value.strip();
+            if(required&&trimmed.isEmpty())throw new IllegalArgumentException();
+            return trimmed;
+        }
+
+        private static List<RxMedicine> normalizeRx(List<RxMedicine> medicines) {
+            if(medicines==null||medicines.isEmpty()||medicines.size()>30)
+                throw new IllegalArgumentException();
+            java.util.Set<UUID> ids=new java.util.HashSet<>();
+            List<RxMedicine> normalized=new java.util.ArrayList<>();
+            for(RxMedicine item:medicines) {
+                if(item==null||item.entryId()==null
+                    ||item.entryId().equals(new UUID(0,0))
+                    ||!ids.add(item.entryId())
+                    ||item.quantity()==null||item.quantity()<1
+                    ||item.quantity()>10000)
+                    throw new IllegalArgumentException();
+                normalized.add(new RxMedicine(item.entryId(),
+                    rxText(item.medicine(),120,true),
+                    rxText(item.strength(),80,true),
+                    rxText(item.form(),50,true),
+                    rxText(item.dose(),120,true),
+                    rxText(item.route(),60,true),
+                    rxText(item.frequency(),100,true),
+                    rxText(item.duration(),100,true),
+                    item.quantity(),rxText(item.instructions(),500,false)));
+            }
+            return List.copyOf(normalized);
+        }
+
+        private List<RxMedicine> rxLines(UUID appointment,int revision) {
+            if(revision==0)return List.of();
+            return jdbc.query("""
+                SELECT entry_id,medicine,strength,form,dose,route,
+                       frequency,duration,quantity,instructions
+                  FROM appointment_proof.rx_draft_medicine
+                 WHERE appointment_id=? AND revision=?
+                 ORDER BY line_order
+                """,(rs,i)->new RxMedicine(rs.getObject("entry_id",UUID.class),
+                    rs.getString("medicine"),rs.getString("strength"),
+                    rs.getString("form"),rs.getString("dose"),
+                    rs.getString("route"),rs.getString("frequency"),
+                    rs.getString("duration"),rs.getInt("quantity"),
+                    rs.getString("instructions")),appointment,revision);
+        }
+
+        private RxReceipt currentRx(Receipt visit,long consultationRevision) {
+            var versions=jdbc.query("""
+                SELECT revision,consultation_revision
+                  FROM appointment_proof.rx_draft_revision
+                 WHERE tenant_id=? AND branch_id=? AND appointment_id=?
+                 ORDER BY revision DESC LIMIT 1
+                """,(rs,i)->new int[]{rs.getInt(1),rs.getInt(2)},
+                visit.tenantId(),visit.branchId(),visit.appointmentId());
+            int revision=versions.isEmpty()?0:versions.getFirst()[0];
+            int linked=versions.isEmpty()?(int)consultationRevision:versions.getFirst()[1];
+            // A changed consultation requires explicit reconciliation. Do not
+            // carry a previous medication snapshot over to a new note silently.
+            if(linked!=consultationRevision)throw new Conflict();
+            return new RxReceipt(visit.tenantId(),visit.branchId(),
+                    visit.patientId(),visit.appointmentId(),
+                    visit.doctorMembershipId(),
+                    revision==0?"EMPTY_DRAFT":"RX_DRAFT",revision,linked,
+                    List.copyOf(rxLines(visit.appointmentId(),revision)));
+        }
+
+        private Receipt requireRxAccess(AuthPrincipal actor,UUID branchId,
+                                        UUID appointmentId) {
+            requireCurrentSqlSession(actor,branchId,"OPD_RX_DRAFT_WRITE");
+            Receipt visit=requireDoctorCheckedIn(actor,branchId,appointmentId);
+            if(currentConsultation(visit).stage()
+                    !=EncounterDraftContract.Stage.CONSULTATION_DRAFT)
+                throw new Conflict();
+            return visit;
+        }
+
+        /** Doctor-only, no-store structured Rx DRAFT. Not an issued order. */
+        @GetMapping("/{appointmentId}/prescription-draft")
+        ResponseEntity<RxReceipt> readRx(
+                @PathVariable UUID branchId,@PathVariable UUID appointmentId) {
+            required(appointmentId);
+            AuthPrincipal actor=access.requirePermission("OPD_RX_DRAFT_WRITE");
+            RxReceipt result=transactions.execute(tx->{
+                Receipt visit=requireRxAccess(actor,branchId,appointmentId);
+                long consultationRevision=currentConsultation(visit).revision();
+                RxReceipt found=currentRx(visit,consultationRevision);
+                jdbc.update("""
+                    INSERT INTO appointment_proof.rx_draft_read_audit
+                      (appointment_id,tenant_id,branch_id,actor_membership_id)
+                    VALUES(?,?,?,?)
+                    """,appointmentId,actor.tenantId(),branchId,actor.membershipId());
+                return found;
+            });
+            return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(result);
+        }
+
+        @PostMapping("/{appointmentId}/prescription-draft")
+        ResponseEntity<RxReceipt> saveRx(
+                @PathVariable UUID branchId,@PathVariable UUID appointmentId,
+                @RequestBody SaveRx input) {
+            required(appointmentId);
+            if(input==null||input.expectedRevision()<0
+                    ||input.consultationRevision()<1)
+                throw new IllegalArgumentException();
+            List<RxMedicine> normalized=normalizeRx(input.medicines());
+            AuthPrincipal actor=access.requirePermission("OPD_RX_DRAFT_WRITE");
+            RxReceipt result;
+            try {
+                result=transactions.execute(tx->{
+                    requireCurrentSqlSession(actor,branchId,"OPD_RX_DRAFT_WRITE");
+                    var locked=jdbc.query("""
+                        SELECT id FROM appointment_proof.appointment
+                         WHERE tenant_id=? AND branch_id=? AND id=?
+                           AND doctor_membership_id=? AND status='CHECKED_IN'
+                         FOR UPDATE
+                        """,(rs,i)->rs.getObject(1,UUID.class),
+                        actor.tenantId(),branchId,appointmentId,actor.membershipId());
+                    if(locked.isEmpty())
+                        throw new AccessDeniedException("Prescription scope denied");
+                    Receipt visit=requireRxAccess(actor,branchId,appointmentId);
+                    int consultRev=(int)currentConsultation(visit).revision();
+                    if(consultRev!=input.consultationRevision())
+                        throw new Conflict();
+                    RxReceipt current=currentRx(visit,consultRev);
+                    if(current.revision()!=input.expectedRevision()
+                       ||current.revision()>=1_000_000_000)
+                        throw new Conflict();
+                    int revision=current.revision()+1;
+                    jdbc.update("""
+                        INSERT INTO appointment_proof.rx_draft_revision
+                          (appointment_id,tenant_id,branch_id,patient_id,
+                           doctor_membership_id,revision,consultation_revision,
+                           actor_membership_id)
+                        VALUES(?,?,?,?,?,?,?,?)
+                        """,appointmentId,actor.tenantId(),branchId,visit.patientId(),
+                        actor.membershipId(),revision,consultRev,actor.membershipId());
+                    int position=0;
+                    for(RxMedicine m:normalized) {
+                        jdbc.update("""
+                            INSERT INTO appointment_proof.rx_draft_medicine
+                              (appointment_id,revision,line_order,entry_id,
+                               medicine,strength,form,dose,route,frequency,
+                               duration,quantity,instructions)
+                            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+                            """,appointmentId,revision,++position,m.entryId(),
+                            m.medicine(),m.strength(),m.form(),m.dose(),
+                            m.route(),m.frequency(),m.duration(),
+                            m.quantity(),m.instructions());
+                    }
+                    return currentRx(visit,consultRev);
+                });
+            } catch(DataIntegrityViolationException failure) {
+                throw new Conflict();
+            }
+            return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+                    .body(result);
+        }
+
         @ExceptionHandler({IllegalArgumentException.class,
                 org.springframework.http.converter.HttpMessageNotReadableException.class})
         ResponseEntity<Error> invalid(Exception ignored) {
@@ -607,13 +777,15 @@ class AppointmentCandidateHttpAcceptanceTests {
         assertThat(Files.exists(base.resolve("src/test/resources/db/test/appointment-candidate-r104.sql"))).isTrue();
         assertThat(Files.exists(base.resolve("src/test/resources/db/test/appointment-candidate-r105.sql"))).isTrue();
         assertThat(Files.exists(base.resolve("src/test/resources/db/test/appointment-candidate-r106.sql"))).isTrue();
+        assertThat(Files.exists(base.resolve("src/test/resources/db/test/appointment-candidate-r107.sql"))).isTrue();
         try(Connection owner=ownerDataSource.getConnection()) {
             owner.setAutoCommit(false);
             try {
                 for(String file:new String[]{"db/test/appointment-persistence-proof.sql",
                         "db/test/appointment-candidate-r104.sql",
                         "db/test/appointment-candidate-r105.sql",
-                        "db/test/appointment-candidate-r106.sql"}) {
+                        "db/test/appointment-candidate-r106.sql",
+                        "db/test/appointment-candidate-r107.sql"}) {
                     ScriptUtils.executeSqlScript(owner,
                             new EncodedResource(new ClassPathResource(file)),
                             false,false,ScriptUtils.DEFAULT_COMMENT_PREFIX,
@@ -680,6 +852,8 @@ class AppointmentCandidateHttpAcceptanceTests {
                     +"VALUES(?,?,?)",tenant,doctor,branch);
         admin.update("INSERT INTO auth_role_permission(tenant_id,role_id,permission_code) "
                     +"VALUES(?,?,'OPD_DRAFT_WRITE')",tenant,doctorRole);
+        admin.update("INSERT INTO auth_role_permission(tenant_id,role_id,permission_code) "
+                    +"VALUES(?,?,'OPD_RX_DRAFT_WRITE')",tenant,doctorRole);
         admin.update("INSERT INTO tenant_module_state(tenant_id,module_code,entitled,activated,clinically_authorized) "
                     +"VALUES(?,'OPD',true,true,true)",tenant);
         admin.update("INSERT INTO patient(id,tenant_id,display_name) "
