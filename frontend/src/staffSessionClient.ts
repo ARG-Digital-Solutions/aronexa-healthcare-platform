@@ -139,9 +139,11 @@ export async function signInStaff(
     throw new StaffSessionError('SESSION_UNVERIFIED');
   }
   const result = payload as Record<string, unknown>;
-  if (result.tokenType !== 'Bearer' || !tokenPattern.test(String(result.accessToken ?? '')) ||
-      !Number.isInteger(result.expiresInSeconds) ||
+  if (result.tokenType !== 'Bearer' ||
+      typeof result.accessToken !== 'string' ||
+      !tokenPattern.test(result.accessToken) ||
       typeof result.expiresInSeconds !== 'number' ||
+      !Number.isInteger(result.expiresInSeconds) ||
       result.expiresInSeconds < 1 || result.expiresInSeconds > 3600 ||
       typeof result.mustChangePassword !== 'boolean') {
     throw new StaffSessionError('SESSION_UNVERIFIED');
