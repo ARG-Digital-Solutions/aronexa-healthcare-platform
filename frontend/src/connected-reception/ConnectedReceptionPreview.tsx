@@ -7,9 +7,11 @@ import {
   type ReviewedRegistration,
 } from '../connectedRegistrationFlow.ts';
 import type {OpdJourney} from '../opdJourney.ts';
+import type {RegistrationReference} from '../registrationReferenceClient.ts';
+import {createRegistrationRecoveryFlow} from '../registrationRecoveryFlow.ts';
 import './connected-reception.css';
 
-type Screen='SIGN_IN'|'PATIENT_DETAILS'|'REVIEW'|'UNRESOLVED'|'REGISTERED';
+type Screen='SIGN_IN'|'PATIENT_DETAILS'|'REVIEW'|'UNRESOLVED'|'REGISTERED'|'RECOVERY_LOOKUP'|'REFERENCE_FOUND';
 type Credentials={tenantCode:string;username:string;password:string};
 const emptyCredentials=():Credentials=>({tenantCode:'',username:'',password:''});
 
@@ -27,6 +29,7 @@ const emptyCredentials=():Credentials=>({tenantCode:'',username:'',password:''})
 export default function ConnectedReceptionPreview(){
   const sessionRef=useRef<StaffSession|null>(null);
   const flowRef=useRef<ConnectedRegistrationFlow|null>(null);
+  const recoveryRef=useRef<ReturnType<typeof createRegistrationRecoveryFlow>|null>(null);
   const [screen,setScreen]=useState<Screen>('SIGN_IN');
   const [credentials,setCredentials]=useState<Credentials>(emptyCredentials);
   const [branchId,setBranchId]=useState('');
@@ -38,12 +41,15 @@ export default function ConnectedReceptionPreview(){
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState('');
   const [readBack,setReadBack]=useState('');
+  const [lookupId,setLookupId]=useState('');
+  const [foundReference,setFoundReference]=useState<RegistrationReference|null>(null);
+  const [canRead,setCanRead]=useState(false);
 
   function explain(failure:unknown){
     // Never render error stack traces, network paths, tokens or server payloads.
     return failure instanceof Error && (
       ['StaffSessionError','RegistrationError','RegistrationReferenceError',
-        'ConnectedFlowError','OpdLinkError'].includes(failure.name))
+        'RegistrationRecoveryError','ConnectedFlowError','OpdLinkError'].includes(failure.name))
       ? failure.message
       : 'The operation could not be completed. Review its status before continuing.';
   }
@@ -55,12 +61,18 @@ export default function ConnectedReceptionPreview(){
     let session:StaffSession|null=null;
     try {
       session=await signInStaff(credentials);
-      const flow=createConnectedRegistrationFlow(session,branchId);
+      const write=session.permissions.includes('PATIENT_REGISTER');
+      const read=session.permissions.includes('PATIENT_REGISTRATION_READ');
+      if(!write&&!read)throw new Error('No patient registration permission');
+      const flow=write?createConnectedRegistrationFlow(session,branchId):null;
+      const recovery=read?createRegistrationRecoveryFlow(session,branchId):null;
       sessionRef.current=session;
       flowRef.current=flow;
+      recoveryRef.current=recovery;
+      setCanRead(read);
       setStaffLabel(session.username);
       setCredentials(emptyCredentials());
-      setScreen('PATIENT_DETAILS');
+      setScreen(write?'PATIENT_DETAILS':'RECOVERY_LOOKUP');
     }catch(failure){
       if(session)await revokeStaffToken(session.accessToken);
       setCredentials(old=>({...old,password:''}));
@@ -139,8 +151,43 @@ export default function ConnectedReceptionPreview(){
     finally{setBusy(false);}
   }
 
+  function showRecovery(){
+    if(busy||!recoveryRef.current)return;
+    setError('');
+    setFoundReference(null);
+    setLookupId('');
+    setScreen('RECOVERY_LOOKUP');
+  }
+
+  async function lookupExisting(e:FormEvent<HTMLFormElement>){
+    e.preventDefault();
+    if(busy||!recoveryRef.current)return;
+    setBusy(true);setError('');setFoundReference(null);
+    try{
+      const found=await recoveryRef.current.recover(lookupId.trim());
+      setFoundReference(found);
+      setScreen('REFERENCE_FOUND');
+    }catch(failure){setError(explain(failure));}
+    finally{setBusy(false);}
+  }
+
+  function returnToRegistration(){
+    if(!flowRef.current)return;
+    try{
+      if(flowRef.current.snapshot().status==='REGISTERED')flowRef.current.nextPatient();
+      setFoundReference(null);
+      setLookupId('');
+      setSaved(null);
+      setForm(blankIntake());
+      setError('');
+      setScreen('PATIENT_DETAILS');
+    }catch(failure){setError(explain(failure));}
+  }
+
   function signOut(){
     if(busy)return;
+    recoveryRef.current?.dispose();
+    recoveryRef.current=null;
     const token=sessionRef.current?.accessToken;
     sessionRef.current=null;
     flowRef.current=null;
@@ -150,6 +197,9 @@ export default function ConnectedReceptionPreview(){
     setReviewed(null);
     setSaved(null);
     setReadBack('');
+    setFoundReference(null);
+    setLookupId('');
+    setCanRead(false);
     setError('');
     setScreen('SIGN_IN');
     // Clear all UI context before requesting server-side revocation.
@@ -173,6 +223,8 @@ export default function ConnectedReceptionPreview(){
       <div className="connected-heading">
         <p className="eyebrow">SECURE REGISTRATION INTEGRATION</p>
         <h1>{screen==='SIGN_IN'?'Staff sign-in':screen==='REGISTERED'?'Registration acknowledged':
+          screen==='REFERENCE_FOUND'?'Existing registration found':
+          screen==='RECOVERY_LOOKUP'?'Find an existing registration':
           screen==='REVIEW'?'Review proposed registration':
           screen==='UNRESOLVED'?'Save needs attention':'Register synthetic patient'}</h1>
         <p>One staff session · One patient identity · One controlled registration attempt.</p>
@@ -214,6 +266,11 @@ export default function ConnectedReceptionPreview(){
       {screen==='PATIENT_DETAILS'&&
         <section className="connected-panel" aria-label="Patient details">
           <h2>Minimal registration details</h2>
+          {canRead&&<div className="connected-actions">
+            <button type="button" className="outline" onClick={showRecovery}>
+              Find existing registration
+            </button>
+          </div>}
           <form onSubmit={review}>
             <label htmlFor="full-name">Fictional patient full name</label>
             <input id="full-name" required maxLength={100} autoComplete="off"
@@ -291,6 +348,9 @@ export default function ConnectedReceptionPreview(){
           {readBack&&<p role="status">{readBack}</p>}
           <div className="connected-actions">
             <button className="solid" onClick={nextPatient}>Register next fictional patient</button>
+            {canRead&&<button className="outline" onClick={showRecovery}>
+              Find existing registration
+            </button>}
             <button className="outline" disabled={busy} onClick={()=>void verifySaved()}>
               Verify authorized read-back
             </button>
@@ -299,6 +359,55 @@ export default function ConnectedReceptionPreview(){
             Appointments, consultation, prescriptions and billing are NOT
             connected in this test screen. They require separately authorized,
             persisted server endpoints before use.
+          </p>
+        </section>}
+
+      {screen==='RECOVERY_LOOKUP'&&
+        <section className="connected-panel" aria-label="Find existing registration">
+          <h2>Look up a server-saved registration</h2>
+          <p>After signing in again, enter the registration ID issued earlier.
+            The server verifies this staff session, tenant, role and branch before returning a patient reference.</p>
+          <form onSubmit={lookupExisting}>
+            <label htmlFor="existing-registration-id">Registration ID (UUID)</label>
+            <input id="existing-registration-id" required autoComplete="off"
+              placeholder="00000000-0000-0000-0000-000000000000"
+              value={lookupId} onChange={e=>setLookupId(e.target.value)}
+              aria-describedby="existing-registration-help"/>
+            <p id="existing-registration-help" className="connected-footnote">
+              Enter an authorized registration UUID from this branch. No names,
+              DOB, contact numbers, MRNs or clinical notes are returned by this read endpoint.
+            </p>
+            <button className="solid" type="submit" disabled={busy}>
+              {busy?'Checking server…':'Find registration'}
+            </button>
+          </form>
+          {flowRef.current&&<div className="connected-actions">
+            <button className="outline" disabled={busy} onClick={returnToRegistration}>
+              Return to new registration
+            </button>
+          </div>}
+        </section>}
+
+      {screen==='REFERENCE_FOUND'&&foundReference&&
+        <section className="connected-panel" aria-label="Verified existing registration">
+          <div className="connected-success">✓ Registration verified by the server</div>
+          <p>The IDs below were read from PostgreSQL using the current staff authorization.
+            This is not a new patient registration or permission to start a consultation.</p>
+          <dl className="connected-summary">
+            <dt>Registration ID</dt><dd className="mono">{foundReference.registrationId}</dd>
+            <dt>Patient ID</dt><dd className="mono">{foundReference.patientId}</dd>
+            <dt>Branch ID</dt><dd className="mono">{foundReference.branchId}</dd>
+          </dl>
+          <div className="connected-actions">
+            <button className="solid" disabled={busy} onClick={showRecovery}>
+              Find another registration
+            </button>
+            {flowRef.current&&<button className="outline" disabled={busy}
+              onClick={returnToRegistration}>New registration</button>}
+          </div>
+          <p className="connected-footnote">
+            Appointments require a separate authorized persistent backend. This
+            reference cannot create an appointment or authorize clinical care.
           </p>
         </section>}
     </main>
