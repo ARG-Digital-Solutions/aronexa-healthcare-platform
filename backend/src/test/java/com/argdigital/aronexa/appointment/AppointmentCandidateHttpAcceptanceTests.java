@@ -380,7 +380,7 @@ class AppointmentCandidateHttpAcceptanceTests {
         admin.update("INSERT INTO user_tenant_membership(id,user_id,tenant_id) VALUES(?,?,?)",
                 membership,user,tenant);
         admin.update("INSERT INTO auth_role(id,tenant_id,code,display_name) "
-                    +"VALUES (?,?,?,'RECEPTION','Synthetic receptionist')",role,tenant);
+                    +"VALUES (?,?,'RECEPTION','Synthetic receptionist')",role,tenant);
         if(withAccess)for(String permission:new String[]{"APPOINTMENT_BOOK",
                 "APPOINTMENT_READ","APPOINTMENT_CHECK_IN"}) {
             admin.update("INSERT INTO auth_role_permission(tenant_id,role_id,permission_code) "
@@ -396,7 +396,7 @@ class AppointmentCandidateHttpAcceptanceTests {
         admin.update("INSERT INTO user_tenant_membership(id,user_id,tenant_id) VALUES(?,?,?)",
                     doctor,doctorUser,tenant);
         admin.update("INSERT INTO auth_role(id,tenant_id,code,display_name) "
-                    +"VALUES(?,?,?,'DOCTOR','Synthetic doctor')",doctorRole,tenant);
+                    +"VALUES(?,?,'DOCTOR','Synthetic doctor')",doctorRole,tenant);
         admin.update("INSERT INTO auth_membership_role(tenant_id,membership_id,role_id) "
                     +"VALUES(?,?,?)",tenant,doctor,doctorRole);
         admin.update("INSERT INTO org_membership_branch_scope(tenant_id,membership_id,branch_id) "
