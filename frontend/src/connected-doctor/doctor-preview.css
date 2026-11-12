@@ -1,0 +1,8 @@
+.doctor-notes{width:100%;min-height:170px;resize:vertical;padding:14px;
+  border:1px solid #b9c9d7;border-radius:9px;font:inherit;line-height:1.6}
+.doctor-notes:focus-visible{outline:3px solid #0e978c;outline-offset:3px}
+.doctor-ref{word-break:break-all;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;
+  font-size:13px;background:#f4f8fc;border-radius:9px;padding:12px}
+.doctor-note-info{color:#47647d;font-size:13px;line-height:1.5;margin-top:7px}
+.doctor-actions{display:flex;flex-wrap:wrap;gap:12px;margin-top:18px}
+.doctor-section{margin-top:16px}
