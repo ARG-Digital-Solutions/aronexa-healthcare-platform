@@ -176,9 +176,12 @@ class AppointmentCandidateHttpAcceptanceTests {
                 SELECT r.patient_id FROM public.patient_registration r
                   JOIN public.patient p
                     ON p.tenant_id=r.tenant_id AND p.id=r.patient_id
+                  JOIN public.patient_identifier identifier
+                    ON identifier.tenant_id=p.tenant_id
+                   AND identifier.patient_id=p.id AND identifier.identifier_type='MRN'
                  WHERE r.tenant_id=? AND r.branch_id=? AND r.id=?
                    AND p.status='ACTIVE'
-                 FOR SHARE OF r,p
+                 FOR SHARE OF r,p,identifier
                 """,(rs,i)->rs.getObject("patient_id",UUID.class),tenant,branch,registration);
             if(rows.isEmpty())throw new AccessDeniedException("Registration denied");
             return rows.getFirst();
@@ -402,6 +405,8 @@ class AppointmentCandidateHttpAcceptanceTests {
                     +"VALUES(?,'OPD',true,true,true)",tenant);
         admin.update("INSERT INTO patient(id,tenant_id,display_name) "
                     +"VALUES(?,?,'Fictional appointment subject')",patient,tenant);
+        admin.update("INSERT INTO patient_identifier(id,tenant_id,patient_id,identifier_type,identifier_value) "
+                    +"VALUES (?,?,?,'MRN',?)",UUID.randomUUID(),tenant,patient,"PAT-"+suffix.toUpperCase()+"001");
         admin.update("INSERT INTO patient_registration(id,tenant_id,patient_id,branch_id,registration_source,"
                     +"registered_by_membership_id) VALUES (?,?,?,?,'RECEPTION',?)",
                     registration,tenant,patient,branch,membership);
