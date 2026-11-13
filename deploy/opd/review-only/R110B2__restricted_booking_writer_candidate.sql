@@ -165,7 +165,7 @@ BEGIN
  v_message:=concat_ws(chr(10),'ARONEXA-OPD-BOOK-V1',p_key_id::text,
    p_tenant::text,p_member::text,p_session::text,p_branch::text,
    p_registration::text,p_patient::text,p_doctor::text,p_day::text,
-   to_char(p_slot,'HH24:MI'),p_request::text,p_created_id::text,
+   left(p_slot::text,5),p_request::text,p_created_id::text,
    p_nonce::text,p_expires::text);
  IF encode(public.hmac(convert_to(v_message,'UTF8'),v_key,'sha256'),'hex')
    IS DISTINCT FROM p_proof THEN
