@@ -70,6 +70,7 @@ class OpdRestrictedBookingPostgresTests {
     @Autowired JdbcTemplate admin;
     @Autowired PasswordEncoder passwords;
     @Autowired ApplicationContext application;
+    @Autowired org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping mappings;
     @Value("$"+"{local.server.port}") int port;
     final HttpClient http=HttpClient.newHttpClient();
     private static volatile OpdRestrictedSqlAdapter restrictedAdapter;
@@ -120,6 +121,15 @@ class OpdRestrictedBookingPostgresTests {
         restrictedAdapter=new OpdRestrictedSqlAdapter(restricted,hmacKey,1,
                 java.time.Clock.systemUTC());
         assertThat(application.getBeansOfType(RestrictedHttpController.class)).hasSize(1);
+        assertThat(mappings.getHandlerMethods().entrySet().stream()
+            .anyMatch(entry -> entry.getKey().getMethodsCondition().getMethods()
+                    .contains(org.springframework.web.bind.annotation.RequestMethod.POST)
+                && entry.getKey().getPatternValues().contains(
+                    "/api/v1/branches/{branchId}/opd-restricted/appointments")
+                && entry.getValue().getBeanType()
+                    .equals(RestrictedHttpController.class)))
+            .as("R1-10B3A must map a real POST, not an /error redispatch")
+            .isTrue();
         admin.update("""
             INSERT INTO public.auth_permission(code,description) VALUES
              ('APPOINTMENT_BOOK','Disposable R110B2 book test'),
