@@ -39,7 +39,6 @@ class AuthSecurityConfiguration {
                         .requestMatchers(HttpMethod.GET,
                                 "/api/v1/branches/{branchId}/patient-registrations/{registrationId}")
                             .authenticated()
-                        .requestMatchers(HttpMethod.POST,"/api/v1/auth/logout","/api/v1/auth/password").authenticated()
                         // R1-10A: the appointment admission handoff is a
                         // production-source SERVICE, but its HTTP adapter is
                         // test-only. Do not expose it to dev/prod or patients.
