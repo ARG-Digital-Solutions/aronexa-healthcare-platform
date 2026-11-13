@@ -3,6 +3,7 @@ package com.argdigital.aronexa.opd;
 import com.argdigital.aronexa.auth.AuthPrincipal;
 import com.argdigital.aronexa.auth.TenantAuthorization;
 import com.argdigital.aronexa.patient.PatientAccessService;
+import com.argdigital.aronexa.moduleregistry.ModuleAccessService;
 import java.util.UUID;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
@@ -27,11 +28,14 @@ public final class OpdRegistrationHandoffService {
     private static final String BOOK_PERMISSION = "APPOINTMENT_BOOK";
     private final TenantAuthorization authorization;
     private final PatientAccessService registrations;
+    private final ModuleAccessService modules;
 
     public OpdRegistrationHandoffService(TenantAuthorization authorization,
-                                         PatientAccessService registrations) {
+                                         PatientAccessService registrations,
+                                         ModuleAccessService modules) {
         this.authorization = authorization;
         this.registrations = registrations;
+        this.modules = modules;
     }
 
     /**
@@ -48,6 +52,9 @@ public final class OpdRegistrationHandoffService {
         if (staff.sessionId() == null || invalid(branchId) || invalid(registrationId)) {
             throw denied();
         }
+        // OPD is independently unreleased by default (V7); no booking subject
+        // is exposed until this exact tenant has reviewed module activation.
+        modules.requireEnabled("OPD");
         // This second permission check is independently enforced by
         // PatientAccessService, which also checks the live registration module,
         // membership/branch SQL scope and PostgreSQL patient runtime RLS.
