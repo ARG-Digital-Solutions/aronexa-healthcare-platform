@@ -629,6 +629,12 @@ class OpdRestrictedBookingPostgresTests {
                     SELECT count(*) FROM opd_candidate.appointment
                      WHERE tenant_id=? AND id=?
                     """,Integer.class,f.tenant(),bookingId)).isZero();
+                assertThat(admin.queryForObject("""
+                    SELECT count(*) FROM opd_candidate.appointment_event
+                     WHERE appointment_id=?
+                    """,Integer.class,bookingId))
+                    .as("Rejected queued booking must leave no appointment event")
+                    .isZero();
             } finally {
                 if(!adminTx.getAutoCommit()) {
                     try {adminTx.rollback();} catch(Exception ignored) {}
@@ -682,6 +688,32 @@ class OpdRestrictedBookingPostgresTests {
              UPDATE public.tenant_module_state SET activated=false
               WHERE tenant_id=? AND module_code='OPD'
              """,f.tenant());
+    }
+
+    /** Regression for authorization expiry after a real PostgreSQL lock wait.
+     * This proves only the existing session-row-lock protocol, not all races.
+     */
+    @Test
+    void sessionExpiryCommittedWhileBookingBlockedDeniesWithoutWrites()
+            throws Exception {
+        Fixture f=fixture();
+        assertQueuedBookingRejected(f,
+                "UPDATE public.auth_session "
+                +"SET expires_at=clock_timestamp()-interval '1 second' WHERE id=?",
+                f.session());
+    }
+
+    /** A disabled staff membership also denies a queued, signed booking
+     * when its coordinating administrator first locks the same session.
+     */
+    @Test
+    void staffDisableCommittedWhileBookingBlockedDeniesWithoutWrites()
+            throws Exception {
+        Fixture f=fixture();
+        assertQueuedBookingRejected(f,
+                "UPDATE public.user_tenant_membership SET enabled=false "
+                +"WHERE tenant_id=? AND id=?",
+                f.tenant(),f.staff());
     }
 
     @Test
