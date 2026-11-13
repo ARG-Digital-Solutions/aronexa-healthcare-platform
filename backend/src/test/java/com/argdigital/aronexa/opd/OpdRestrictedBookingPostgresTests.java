@@ -629,6 +629,12 @@ class OpdRestrictedBookingPostgresTests {
                     SELECT count(*) FROM opd_candidate.appointment
                      WHERE tenant_id=? AND id=?
                     """,Integer.class,f.tenant(),bookingId)).isZero();
+                assertThat(admin.queryForObject("""
+                    SELECT count(*) FROM opd_candidate.appointment_event
+                     WHERE appointment_id=?
+                    """,Integer.class,bookingId))
+                    .as("Rejected queued booking must leave no appointment event")
+                    .isZero();
             } finally {
                 if(!adminTx.getAutoCommit()) {
                     try {adminTx.rollback();} catch(Exception ignored) {}
@@ -682,6 +688,35 @@ class OpdRestrictedBookingPostgresTests {
              UPDATE public.tenant_module_state SET activated=false
               WHERE tenant_id=? AND module_code='OPD'
              """,f.tenant());
+    }
+
+    /** Regression for authorization expiry after a real PostgreSQL lock wait.
+     * The fixture has already aged beyond 1 microsecond. Expire it strictly
+     * after issued_at to preserve ck_auth_session_expiry, without weakening
+     * the database constraint or production session policy.
+     * This proves only the existing session-row-lock protocol, not all races.
+     */
+    @Test
+    void sessionExpiryCommittedWhileBookingBlockedDeniesWithoutWrites()
+            throws Exception {
+        Fixture f=fixture();
+        assertQueuedBookingRejected(f,
+                "UPDATE public.auth_session "
+                +"SET expires_at=issued_at+interval '1 microsecond' WHERE id=?",
+                f.session());
+    }
+
+    /** A disabled staff membership also denies a queued, signed booking
+     * when its coordinating administrator first locks the same session.
+     */
+    @Test
+    void staffDisableCommittedWhileBookingBlockedDeniesWithoutWrites()
+            throws Exception {
+        Fixture f=fixture();
+        assertQueuedBookingRejected(f,
+                "UPDATE public.user_tenant_membership SET enabled=false "
+                +"WHERE tenant_id=? AND id=?",
+                f.tenant(),f.staff());
     }
 
     @Test
