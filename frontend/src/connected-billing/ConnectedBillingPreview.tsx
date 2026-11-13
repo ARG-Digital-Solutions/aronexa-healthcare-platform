@@ -2,7 +2,7 @@ import {useRef,useState,type FormEvent} from 'react';
 import {signInStaff,revokeStaffToken,type StaffSession} from '../staffSessionClient.ts';
 import {
   createBillingCandidateFlow,loadDailyBillingCandidate,rupeesToPaise,
-  type BillingContext,type BillReceipt,type DailyCollections,
+  type BillingContext,type BillReceipt,type DailyCollections,BillingError,
 } from '../billingCandidateClient.ts';
 import {formatINR} from '../billing/model.ts';
 import '../connected-reception/connected-reception.css';
@@ -51,12 +51,12 @@ export default function ConnectedBillingPreview(){
     setBusy(true);setError('');setNotice('');
     let active:StaffSession|null=null;
     try{
-      if(!uuid.test(branchId))throw new Error('Invalid branch');
+      if(!uuid.test(branchId))throw new BillingError('INVALID_REQUEST');
       active=await signInStaff(credentials);
       if(!active.roles.includes('BILLING')
         ||!active.permissions.includes('OPD_BILL_READ')
         ||!active.permissions.includes('OPD_DAILY_REPORT_READ'))
-        throw new Error('Billing role or report permission denied');
+        throw new BillingError('NOT_AUTHORIZED');
       auth.current=active;
       setActorLabel(active.username);
       setCredentials(blank());
