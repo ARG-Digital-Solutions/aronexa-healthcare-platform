@@ -13,6 +13,10 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.ExecutionException;
 import java.sql.SQLException;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -523,6 +527,129 @@ class OpdRestrictedBookingPostgresTests {
             SELECT count(*) FROM opd_candidate.appointment_event
             WHERE appointment_id=?
             """,Integer.class,booked.appointmentId())).isEqualTo(2);
+    }
+
+    /**
+     * Make authorization race reproducible using two REAL PostgreSQL
+     * transactions. The admin session holds a conflicting session-row lock;
+     * the restricted SQL writer MUST wait until revocation commits and then
+     * re-evaluate live auth instead of using pre-lock permission state.
+     *
+     * This does not certify unrelated admin paths that revoke permissions
+     * without this locking protocol. Those are still release blockers.
+     */
+    private void assertQueuedBookingRejected(Fixture f,String revocationSql,
+                                              UUID... bindings) throws Exception {
+        var thread=Executors.newSingleThreadExecutor();
+        UUID bookingId=UUID.randomUUID();
+        UUID request=UUID.randomUUID();
+        try(Connection adminTx=DriverManager.getConnection(pg.getJdbcUrl(),
+                pg.getUsername(),pg.getPassword())) {
+            adminTx.setAutoCommit(false);
+            int adminPid;
+            try(PreparedStatement lock=adminTx.prepareStatement(
+                    "SELECT id FROM public.auth_session WHERE id=? FOR UPDATE")) {
+                lock.setObject(1,f.session());
+                try(var rs=lock.executeQuery()) {
+                    assertThat(rs.next()).isTrue();
+                }
+            }
+            try(var statement=adminTx.createStatement();
+                var rs=statement.executeQuery("SELECT pg_backend_pid()")) {
+                assertThat(rs.next()).isTrue();
+                adminPid=rs.getInt(1);
+            }
+            var future=thread.submit(() -> {
+                book(f,request,bookingId);
+                return true;
+            });
+            boolean observedBlocked=false;
+            try {
+                // Inspect actual PostgreSQL lock wait, not just scheduling.
+                for(int n=0;n<100;n++) {
+                    boolean blocked=Boolean.TRUE.equals(admin.queryForObject("""
+                        SELECT EXISTS(
+                         SELECT 1 FROM pg_catalog.pg_stat_activity activity
+                         WHERE activity.pid<>pg_backend_pid()
+                           AND ?=ANY(pg_catalog.pg_blocking_pids(activity.pid)))
+                        """,Boolean.class,adminPid));
+                    if(blocked) {
+                        observedBlocked=true;
+                        break;
+                    }
+                    if(future.isDone()) break;
+                    Thread.sleep(75);
+                }
+                assertThat(observedBlocked)
+                        .as("Restricted PG17 booking must wait for admin session-row lock")
+                        .isTrue();
+                try(PreparedStatement revoked=adminTx.prepareStatement(revocationSql)){
+                    for(int n=0;n<bindings.length;n++){
+                        revoked.setObject(n+1,bindings[n]);
+                    }
+                    assertThat(revoked.executeUpdate()).isPositive();
+                }
+                adminTx.commit();
+                assertThatThrownBy(() -> future.get(15,TimeUnit.SECONDS))
+                    .isInstanceOf(ExecutionException.class)
+                    .hasCauseInstanceOf(DataAccessException.class);
+                assertThat(admin.queryForObject("""
+                    SELECT count(*) FROM opd_candidate.appointment
+                     WHERE tenant_id=? AND id=?
+                    """,Integer.class,f.tenant(),bookingId)).isZero();
+            } finally {
+                if(!adminTx.getAutoCommit()) {
+                    try {adminTx.rollback();} catch(Exception ignored) {}
+                }
+                future.cancel(true);
+            }
+        } finally {
+            thread.shutdownNow();
+        }
+    }
+
+    @Test
+    void concurrentSessionLogoutWinsBeforeQueuedBookingCanAuthorize()
+            throws Exception {
+        Fixture f=fixture();
+        assertQueuedBookingRejected(f,
+                "UPDATE public.auth_session SET revoked_at=clock_timestamp() WHERE id=?",
+                f.session());
+    }
+
+    @Test
+    void concurrentRoleRemovalWinsBeforeQueuedBookingCanAuthorize()
+            throws Exception {
+        Fixture f=fixture();
+        assertQueuedBookingRejected(f, """
+             DELETE FROM public.auth_role_permission rp
+              USING public.auth_membership_role assigned
+              WHERE rp.tenant_id=assigned.tenant_id
+                AND rp.role_id=assigned.role_id
+                AND assigned.tenant_id=?
+                AND assigned.membership_id=?
+                AND rp.permission_code='APPOINTMENT_BOOK'
+             """,f.tenant(),f.staff());
+    }
+
+    @Test
+    void concurrentBranchRemovalWinsBeforeQueuedBookingCanAuthorize()
+            throws Exception {
+        Fixture f=fixture();
+        assertQueuedBookingRejected(f, """
+             DELETE FROM public.org_membership_branch_scope
+             WHERE tenant_id=? AND membership_id=? AND branch_id=?
+             """,f.tenant(),f.staff(),f.branch());
+    }
+
+    @Test
+    void concurrentModuleDisableWinsBeforeQueuedBookingCanAuthorize()
+            throws Exception {
+        Fixture f=fixture();
+        assertQueuedBookingRejected(f, """
+             UPDATE public.tenant_module_state SET activated=false
+              WHERE tenant_id=? AND module_code='OPD'
+             """,f.tenant());
     }
 
     @Test
