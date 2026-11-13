@@ -12,6 +12,22 @@ $inspector=Join-Path $PSScriptRoot 'Inspect-AroNexa-Windows-Pilot.ps1'
 if(-not(Test-Path -LiteralPath $inspector -PathType Leaf)){
  throw 'Pilot inspector missing.'
 }
+# Windows PowerShell 5.1 decodes unsigned UTF-8 source using the system
+# ANSI codepage. Reject non-ASCII bytes until all scripts have a tested
+# BOM-aware packaging policy, avoiding invisible parser corruption.
+$scriptBytes=[System.IO.File]::ReadAllBytes($inspector)
+if(@($scriptBytes | Where-Object {$_ -gt 127}).Count -gt 0){
+ throw 'Pilot inspector source contains non-ASCII bytes; unsupported by this Windows PowerShell 5.1 validation.'
+}
+# Parse using the actual PowerShell version used by this self-test. This
+# catches syntax/encoding failures before any release-decision assertion.
+$parseTokens=$null
+$parseErrors=$null
+$parsed=[System.Management.Automation.Language.Parser]::ParseFile(
+ $inspector,[ref]$parseTokens,[ref]$parseErrors)
+if($null -eq $parsed -or @($parseErrors).Count -gt 0){
+ throw 'Pilot inspector PowerShell syntax is invalid.'
+}
 $reportLines=@(& powershell.exe -NoProfile -File $inspector -ExpectedCommit $ExpectedCommit -ReportOnly -AsJson)
 if($LASTEXITCODE -ne 0){throw 'Read-only inspection report failed.'}
 $report=($reportLines -join [Environment]::NewLine) | ConvertFrom-Json
