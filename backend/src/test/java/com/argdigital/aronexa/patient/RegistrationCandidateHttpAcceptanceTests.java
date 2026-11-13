@@ -1,6 +1,7 @@
 package com.argdigital.aronexa.patient;
 
 import com.argdigital.aronexa.auth.TenantAuthorization;
+import com.argdigital.aronexa.opd.OpdRegistrationHandoffService;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -38,6 +39,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -61,7 +63,8 @@ import static org.assertj.core.api.Assertions.assertThat;
         properties="server.address=127.0.0.1")
 @ActiveProfiles({"test","registration-candidate"})
 @Import({RegistrationCandidateHttpAcceptanceTests.CandidateConfiguration.class,
-        RegistrationCandidateHttpAcceptanceTests.CandidateController.class})
+        RegistrationCandidateHttpAcceptanceTests.CandidateController.class,
+        RegistrationCandidateHttpAcceptanceTests.OpdHandoffCandidateController.class})
 @Testcontainers
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class RegistrationCandidateHttpAcceptanceTests {
@@ -148,6 +151,36 @@ class RegistrationCandidateHttpAcceptanceTests {
             return ResponseEntity.status(HttpStatus.FORBIDDEN)
                     .cacheControl(CacheControl.noStore())
                     .body(new Error("REGISTRATION_DENIED"));
+        }
+    }
+
+    /**
+     * R1-10A test-only HTTP adapter for the actual production-source handoff
+     * service. The adapter is NOT included in the deployed main application.
+     */
+    @RestController
+    @Profile("test & registration-candidate & !dev & !prod")
+    @RequestMapping("/api/v1/branches/{branchId}/opd/registration-handoff")
+    static class OpdHandoffCandidateController {
+        private final OpdRegistrationHandoffService handoff;
+        OpdHandoffCandidateController(OpdRegistrationHandoffService handoff) {
+            this.handoff=handoff;
+        }
+        record Handoff(UUID tenantId,UUID branchId,UUID registrationId,UUID patientId) {}
+        record Denied(String code) {}
+        @GetMapping("/{registrationId}")
+        ResponseEntity<Handoff> resolve(@PathVariable UUID branchId,
+                                        @PathVariable UUID registrationId) {
+            var verified=handoff.resolveForBooking(branchId,registrationId);
+            return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+                    .body(new Handoff(verified.tenantId(),verified.branchId(),
+                            verified.registrationId(),verified.patientId()));
+        }
+        @ExceptionHandler(AccessDeniedException.class)
+        ResponseEntity<Denied> deny(AccessDeniedException ignored) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .cacheControl(CacheControl.noStore())
+                    .body(new Denied("OPD_HANDOFF_DENIED"));
         }
     }
 
