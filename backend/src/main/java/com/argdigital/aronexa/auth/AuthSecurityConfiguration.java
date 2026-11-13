@@ -96,6 +96,26 @@ class AuthSecurityConfiguration {
                                         "test & appointment-candidate & !dev & !prod"))
                                 && authn.get().isAuthenticated()
                                 && authn.get().getPrincipal() instanceof AuthPrincipal))
+                        // R1-08: all billing/cash/report routes exist ONLY
+                        // under disposable Testcontainers candidate profile.
+                        // No production invoice issuance or payment endpoint.
+                        .requestMatchers(HttpMethod.GET,
+                                "/api/v1/branches/{branchId}/appointments/{appointmentId}/billing-context",
+                                "/api/v1/branches/{branchId}/appointments/{appointmentId}/bill",
+                                "/api/v1/branches/{branchId}/billing/daily")
+                            .access((authn, request) -> new org.springframework.security.authorization.AuthorizationDecision(
+                                environment.acceptsProfiles(Profiles.of(
+                                        "test & appointment-candidate & !dev & !prod"))
+                                && authn.get().isAuthenticated()
+                                && authn.get().getPrincipal() instanceof AuthPrincipal))
+                        .requestMatchers(HttpMethod.POST,
+                                "/api/v1/branches/{branchId}/appointments/{appointmentId}/bill",
+                                "/api/v1/branches/{branchId}/appointments/{appointmentId}/bill/cash")
+                            .access((authn, request) -> new org.springframework.security.authorization.AuthorizationDecision(
+                                environment.acceptsProfiles(Profiles.of(
+                                        "test & appointment-candidate & !dev & !prod"))
+                                && authn.get().isAuthenticated()
+                                && authn.get().getPrincipal() instanceof AuthPrincipal))
                         .anyRequest().denyAll())
                 // Sending servlet errors can redispatch /error without the
                 // original request's SecurityContext and rewrite an authenticated

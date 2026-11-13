@@ -1,0 +1,15 @@
+.billing-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-top:15px}
+.billing-metric{border:1px solid #dbe5ee;border-radius:12px;padding:14px;background:#f5f9fd}
+.billing-metric small{display:block;font-size:12px;color:#49657f}
+.billing-metric strong{display:block;margin-top:7px;font-size:22px;color:#15385b;overflow-wrap:anywhere}
+.billing-work{display:flex;flex-direction:column;gap:20px}
+.billing-number{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;overflow-wrap:anywhere}
+.billing-disabled{color:#6a7280;font-size:13px}
+.billing-panel{margin-top:0}
+.billing-columns{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px}
+.billing-columns>div{min-width:0}
+.billing-amount-hint{font-size:12px;color:#627c92}
+.billing-warning{font-weight:750;color:#765111;background:#fff3d6;padding:12px;border-radius:8px}
+.billing-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
+.billing-actions button{flex-shrink:0}
+@media(max-width:550px){.billing-metric strong{font-size:19px}}
