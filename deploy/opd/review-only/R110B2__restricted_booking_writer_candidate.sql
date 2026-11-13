@@ -138,6 +138,7 @@ CREATE FUNCTION opd_candidate.book_guarded(
  p_request uuid,p_created_id uuid,p_key_id integer,p_nonce uuid,
  p_expires bigint,p_proof text)
 RETURNS TABLE(result_appointment_id uuid,result_patient_id uuid,
+ result_registration_id uuid,result_doctor_id uuid,
  result_stage text,result_revision integer,result_replayed boolean)
 LANGUAGE plpgsql VOLATILE SECURITY DEFINER
 SET search_path=pg_catalog,pg_temp AS $$
@@ -210,6 +211,7 @@ BEGIN
       OR v_existing.slot_start<>p_slot
     THEN RAISE EXCEPTION 'OPD_IDEMPOTENCY_CONFLICT'; END IF;
     RETURN QUERY SELECT v_existing.id,v_existing.patient_id,
+      v_existing.registration_id,v_existing.doctor_membership_id,
       v_existing.status::text,v_existing.revision,TRUE;
     RETURN;
  END IF;
@@ -219,7 +221,8 @@ BEGIN
     updated_by_membership_id,visit_date,slot_start,status,revision)
  VALUES(p_created_id,p_tenant,p_branch,p_patient,p_registration,
     p_doctor,p_request,p_member,p_member,p_day,p_slot,'BOOKED',1);
- RETURN QUERY SELECT p_created_id,p_patient,'BOOKED'::text,1,FALSE;
+ RETURN QUERY SELECT p_created_id,p_patient,p_registration,p_doctor,
+   'BOOKED'::text,1,FALSE;
 END $$;
 ALTER FUNCTION opd_candidate.book_guarded(
  uuid,uuid,uuid,uuid,uuid,uuid,uuid,date,time,
@@ -236,6 +239,7 @@ CREATE FUNCTION opd_candidate.checkin_guarded(
  p_appointment uuid,p_expected integer,p_request uuid,p_key_id integer,
  p_nonce uuid,p_expires bigint,p_proof text)
 RETURNS TABLE(result_appointment_id uuid,result_patient_id uuid,
+ result_registration_id uuid,result_doctor_id uuid,
  result_stage text,result_revision integer,result_replayed boolean)
 LANGUAGE plpgsql VOLATILE SECURITY DEFINER
 SET search_path=pg_catalog,pg_temp AS $$
@@ -282,6 +286,7 @@ BEGIN
      OR v_replay.previous_revision<>p_expected
    THEN RAISE EXCEPTION 'OPD_CHECKIN_REPLAY_CONFLICT'; END IF;
    RETURN QUERY SELECT v_appt.id,v_appt.patient_id,
+     v_appt.registration_id,v_appt.doctor_membership_id,
      v_appt.status::text,v_appt.revision,TRUE;
    RETURN;
  END IF;
@@ -296,8 +301,9 @@ BEGIN
    (tenant_id,branch_id,appointment_id,request_id,actor_membership_id,
     previous_revision)
  VALUES(p_tenant,p_branch,p_appointment,p_request,p_member,p_expected);
- RETURN QUERY SELECT p_appointment,v_appt.patient_id,'CHECKED_IN'::text,
-   p_expected+1,FALSE;
+ RETURN QUERY SELECT p_appointment,v_appt.patient_id,
+   v_appt.registration_id,v_appt.doctor_membership_id,
+   'CHECKED_IN'::text,p_expected+1,FALSE;
 END $$;
 ALTER FUNCTION opd_candidate.checkin_guarded(
  uuid,uuid,uuid,uuid,uuid,integer,uuid,integer,uuid,bigint,text)
