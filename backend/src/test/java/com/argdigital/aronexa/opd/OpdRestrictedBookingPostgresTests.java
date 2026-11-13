@@ -653,6 +653,59 @@ class OpdRestrictedBookingPostgresTests {
     }
 
     @Test
+    void auditEffectiveSqlRolesFunctionOwnersAndNoDirectRuntimeDataAccess() {
+        assertThat(admin.queryForObject("""
+            SELECT rolsuper OR rolbypassrls OR rolcreaterole
+                   OR rolcreatedb OR rolreplication OR rolinherit OR rolcanlogin
+            FROM pg_catalog.pg_roles WHERE rolname='aronexa_opd_writer'
+            """,Boolean.class)).isFalse();
+        assertThat(admin.queryForObject("""
+            SELECT rolsuper OR rolbypassrls OR rolcreaterole
+                   OR rolcreatedb OR rolreplication OR rolinherit
+            FROM pg_catalog.pg_roles WHERE rolname='aronexa_opd_runtime'
+            """,Boolean.class)).isFalse();
+        for(String table:java.util.List.of(
+                "opd_candidate.appointment",
+                "opd_candidate.appointment_event",
+                "opd_candidate.command_key",
+                "opd_candidate.command_nonce",
+                "opd_candidate.checkin_request",
+                "public.patient_registration",
+                "public.patient_contact",
+                "public.auth_session")) {
+            for(String privilege:java.util.List.of(
+                    "SELECT","INSERT","UPDATE","DELETE")) {
+                assertThat(admin.queryForObject("""
+                    SELECT has_table_privilege('aronexa_opd_runtime',?,?)
+                    """,Boolean.class,table,privilege))
+                    .as("No direct runtime "+privilege+" on "+table)
+                    .isFalse();
+            }
+        }
+        for(String name:java.util.List.of("book_guarded","checkin_guarded")){
+            assertThat(admin.queryForObject("""
+                SELECT p.prosecdef AND p.proowner='aronexa_opd_writer'::regrole
+                FROM pg_catalog.pg_proc p
+                WHERE p.pronamespace='opd_candidate'::regnamespace
+                  AND p.proname=?
+                """,Boolean.class,name)).isTrue();
+        }
+        assertThat(admin.queryForObject("""
+            SELECT has_function_privilege('aronexa_opd_runtime',
+              'opd_candidate.require_live_staff(uuid,uuid,uuid,uuid,text)'
+                ::regprocedure,'EXECUTE')
+            """,Boolean.class)).isFalse();
+        assertThat(admin.queryForObject("""
+            SELECT has_schema_privilege('aronexa_opd_runtime',
+                  'opd_candidate','CREATE')
+            """,Boolean.class)).isFalse();
+        assertThat(admin.queryForObject("""
+            SELECT has_table_privilege('aronexa_opd_writer',
+                  'public.patient_contact','SELECT')
+            """,Boolean.class)).isFalse();
+    }
+
+    @Test
     void actualRestrictedLoginBooksChecksInAndAuditsCommittedAppointment() throws Exception {
         Fixture f=fixture();
         UUID id=UUID.randomUUID();
