@@ -55,6 +55,17 @@ class AuthSecurityConfiguration {
                                 environment.acceptsProfiles(Profiles.of("test & (c2-synthetic | registration-candidate) & !dev & !prod"))
                                 && authn.get().isAuthenticated()
                                 && authn.get().getPrincipal() instanceof AuthPrincipal))
+                        // R1-10B3A: distinct protected HTTP-to-restricted-PG17
+                        // adapter, present ONLY in a disposable Testcontainers
+                        // source test class. This is NEVER a production route.
+                        .requestMatchers(HttpMethod.POST,
+                                "/api/v1/branches/{branchId}/opd-restricted/appointments",
+                                "/api/v1/branches/{branchId}/opd-restricted/appointments/{appointmentId}/check-in")
+                            .access((authn, request) -> new org.springframework.security.authorization.AuthorizationDecision(
+                                environment.acceptsProfiles(Profiles.of(
+                                        "test & opd-restricted-candidate & !dev & !prod"))
+                                && authn.get().isAuthenticated()
+                                && authn.get().getPrincipal() instanceof AuthPrincipal))
                         // R1-04 candidate only: these routes have NO production
                         // controller and stay denied unless the specific disposable
                         // HTTP+PostgreSQL test profile is active. No dev/prod grant.
