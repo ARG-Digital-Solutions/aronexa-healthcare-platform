@@ -647,7 +647,7 @@ export default function ConnectedReceptionPreview(){
           </p>
           <form onSubmit={loadQueue}>
             <label htmlFor="queue-day">Clinic visit date</label>
-            <input id="queue-day" type="date" required
+            <input id="queue-day" type="date" required disabled={busy}
               value={queueDate} onChange={e=>{
                 setQueueDate(e.target.value);
                 setQueueRows([]);
