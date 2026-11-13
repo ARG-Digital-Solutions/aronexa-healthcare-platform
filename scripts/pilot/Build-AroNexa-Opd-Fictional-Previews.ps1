@@ -31,11 +31,11 @@ foreach($command in @('build:connected:test','build:connected:doctor:test','buil
 $npm=Get-Command npm.cmd -ErrorAction SilentlyContinue
 if($null -eq $npm){throw 'PILOT PREVIEW STOP: npm.cmd missing from PATH.'}
 $builds=@(
-  [pscustomobject]@{command='build:connected:test';folder='dist-connected-reception-test';html='connected-reception-preview.html'},
+  [pscustomobject]@{command='build:connected:test';folder='dist-connected-registration-test';html='connected-reception-preview.html'},
   [pscustomobject]@{command='build:connected:doctor:test';folder='dist-connected-doctor-test';html='connected-doctor-preview.html'},
   [pscustomobject]@{command='build:connected:billing:test';folder='dist-connected-billing-test';html='connected-billing-preview.html'}
 )
-# Resolve output folders against the Vite configuration, not this script's guesses.
+# OutDirs and entry HTML are read from the three source Vite configurations.
 $expectedConfigs=@(
   'vite.connected-reception.config.ts',
   'vite.connected-doctor.config.ts',
@@ -55,6 +55,10 @@ try{
     & $npm.Source run $build.command
     if($LASTEXITCODE -ne 0){
       throw ("PILOT PREVIEW FAIL: "+$build.command)
+    }
+    $built=Join-Path (Join-Path $frontend $build.folder) $build.html
+    if(-not(Test-Path -LiteralPath $built -PathType Leaf)){
+      throw ("PILOT PREVIEW FAIL: missing built HTML "+$built)
     }
   }
 }finally{
