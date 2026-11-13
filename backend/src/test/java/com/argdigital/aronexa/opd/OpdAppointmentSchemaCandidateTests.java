@@ -87,6 +87,16 @@ class OpdAppointmentSchemaCandidateTests {
             VALUES (?,?,?,?,'FICTIONAL branch')
             """,branch,tenant,facility,"b_"+branch.toString().substring(0,8));
         admin.update("""
+            INSERT INTO public.org_membership_branch_scope
+                   (tenant_id,membership_id,branch_id)
+            VALUES (?,?,?)
+            """,tenant,booker,branch);
+        admin.update("""
+            INSERT INTO public.org_membership_branch_scope
+                   (tenant_id,membership_id,branch_id)
+            VALUES (?,?,?)
+            """,tenant,doctor,branch);
+        admin.update("""
             INSERT INTO public.patient(id,tenant_id,display_name)
             VALUES (?,?,'FICTIONAL - NOT A PATIENT')
             """,patient,tenant);
