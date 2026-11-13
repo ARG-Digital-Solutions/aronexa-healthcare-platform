@@ -68,7 +68,7 @@ public final class OpdBookingCommand {
         // branch, doctor, entitlement, object and immutable audit in SQL.
         // This read-only handoff cannot grant a future write.
         var result = writes.bookWithinAuthorizedTransaction(actor,exact,request);
-        verifyReceipt(actor, exact, result, "BOOKED");
+        verifyReceipt(actor, exact, request, result);
         return result;
     }
 
@@ -106,12 +106,18 @@ public final class OpdBookingCommand {
 
     private static void verifyReceipt(AuthPrincipal actor,
             OpdRegistrationHandoffService.VerifiedVisitSubject exact,
-            BookingReceipt result,String expectedStage) {
+            BookingRequest request,BookingReceipt result) {
         if(result==null || !Objects.equals(result.tenantId(),actor.tenantId())
                 || !Objects.equals(result.branchId(),exact.branchId())
                 || !Objects.equals(result.registrationId(),exact.registrationId())
                 || !Objects.equals(result.patientId(),exact.patientId())
-                || !expectedStage.equals(result.stage())
+                || !Objects.equals(result.doctorMembershipId(),
+                                   request.doctorMembershipId())
+                || result.appointmentId()==null || NIL.equals(result.appointmentId())
+                || !(("BOOKED".equals(result.stage())) ||
+                     (result.replayed() &&
+                       ("CHECKED_IN".equals(result.stage()) ||
+                        "CANCELLED".equals(result.stage()))))
                 || result.revision()<1) {
             throw denied();
         }
