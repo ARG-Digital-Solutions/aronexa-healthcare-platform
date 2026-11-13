@@ -312,6 +312,19 @@ class RegistrationCandidateHttpAcceptanceTests {
                 " WHERE tenant_id=?",Integer.class,tenant);
     }
 
+    private void enableDisposableOpdModule(Staff staff) {
+        // Only synthetic Testcontainers fixture, never a clinic SQL migration.
+        admin.update("""
+            UPDATE module_registry SET implemented=true,released=true
+            WHERE code='OPD'
+            """);
+        admin.update("""
+            INSERT INTO tenant_module_state
+                (tenant_id,module_code,entitled,activated,clinically_authorized)
+            VALUES (?,'OPD',true,true,true)
+            """,staff.tenant());
+    }
+
     private void grantOpdHandoff(Staff staff) {
         admin.update("""
             INSERT INTO auth_permission(code,description)
@@ -352,6 +365,7 @@ class RegistrationCandidateHttpAcceptanceTests {
     void r110aRealHttpRegistrationToBookingHandoffPreservesExactPatientAfterRelogin()
             throws Exception {
         Staff staff=staff(true);
+        enableDisposableOpdModule(staff);
         grantOpdHandoff(staff);
         String bearer=login(staff);
         var created=post(path(staff.branch()),
@@ -401,6 +415,7 @@ class RegistrationCandidateHttpAcceptanceTests {
     void r110aRealHttpPermissionModuleAndBranchRevocationsFailClosed()
             throws Exception {
         Staff staff=staff(true);
+        enableDisposableOpdModule(staff);
         grantOpdHandoff(staff);
         String bearer=login(staff);
         var created=post(path(staff.branch()),
@@ -435,6 +450,16 @@ class RegistrationCandidateHttpAcceptanceTests {
             INSERT INTO org_membership_branch_scope
                 (tenant_id,membership_id,branch_id) VALUES(?,?,?)
             """,staff.tenant(),staff.member(),staff.branch());
+        admin.update("""
+            UPDATE tenant_module_state SET activated=false
+            WHERE tenant_id=? AND module_code='OPD'
+            """,staff.tenant());
+        assertThat(getOpdHandoff(staff.branch(),registration,bearer)
+                .statusCode()).isEqualTo(403);
+        admin.update("""
+            UPDATE tenant_module_state SET activated=true
+            WHERE tenant_id=? AND module_code='OPD'
+            """,staff.tenant());
         admin.update("""
             UPDATE tenant_module_state SET activated=false
             WHERE tenant_id=? AND module_code='PATIENT_REGISTRATION'
