@@ -189,7 +189,7 @@ class OpdRestrictedBookingPostgresTests {
         String proof=proofOverride==null
             ?OpdCommandProof.booking(hmacKey,1,f.tenant(),f.staff(),
                f.session(),f.branch(),f.registration(),patient,f.doctor(),
-               day,at,request,nonce,expiration)
+               day,at,request,appointment,nonce,expiration)
             :proofOverride;
         return limited.queryForMap("""
             SELECT * FROM opd_candidate.book_guarded(
