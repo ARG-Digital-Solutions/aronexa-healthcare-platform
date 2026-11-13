@@ -442,6 +442,45 @@ class OpdRestrictedBookingPostgresTests {
     }
 
     @Test
+    void realHttpRejectsRevokedBookingPermissionAndStaleCheckinRevision()
+            throws Exception {
+        Fixture revoked=fixture();
+        String token=login(revoked);
+        String path="/api/v1/branches/"+revoked.branch()
+                +"/opd-restricted/appointments";
+        admin.update("""
+            DELETE FROM public.auth_role_permission rp
+            USING public.auth_membership_role mr
+            WHERE rp.tenant_id=mr.tenant_id AND rp.role_id=mr.role_id
+              AND mr.tenant_id=? AND mr.membership_id=?
+              AND rp.permission_code='APPOINTMENT_BOOK'
+            """,revoked.tenant(),revoked.staff());
+        var rejected=httpPost(path,bookingJson(revoked,UUID.randomUUID()),token);
+        assertThat(rejected.statusCode()).isNotEqualTo(200);
+        assertThat(admin.queryForObject("""
+            SELECT count(*) FROM opd_candidate.appointment WHERE tenant_id=?
+            """,Integer.class,revoked.tenant())).isZero();
+
+        Fixture valid=fixture();
+        String allowed=login(valid);
+        String allowedPath="/api/v1/branches/"+valid.branch()
+                +"/opd-restricted/appointments";
+        var booking=httpPost(allowedPath,bookingJson(valid,UUID.randomUUID()),allowed);
+        assertThat(booking.statusCode()).as(booking.body()).isEqualTo(200);
+        UUID appointment=receiptId(booking.body());
+        var stale=httpPost(allowedPath+"/"+appointment+"/check-in",
+                "{\"expectedRevision\":9,\"requestId\":\""+
+                        UUID.randomUUID()+"\"}",allowed);
+        assertThat(stale.statusCode()).isEqualTo(409);
+        assertThat(admin.queryForObject("""
+            SELECT revision FROM opd_candidate.appointment WHERE id=?
+            """,Integer.class,appointment)).isEqualTo(1);
+        assertThat(admin.queryForObject("""
+            SELECT count(*) FROM opd_candidate.appointment_event WHERE appointment_id=?
+            """,Integer.class,appointment)).isEqualTo(1);
+    }
+
+    @Test
     void sourceOwnedAdapterBooksAndChecksInThroughRestrictedJdbcRole() {
         Fixture f=fixture();
         var restricted=new DriverManagerDataSource(
