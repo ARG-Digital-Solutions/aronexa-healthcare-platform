@@ -103,6 +103,7 @@ class OpdRestrictedBookingPostgresTests {
     void stageStrictlyDisposableRolesAndSchema() throws Exception {
         executeOnlyInTestcontainer("V11__opd_appointment_schema_candidate.sql");
         executeOnlyInTestcontainer("R110B2__restricted_booking_writer_candidate.sql");
+        executeOnlyInTestcontainer("R110B3B__ordered_session_gate_candidate.sql");
         hmacKey=new byte[32];
         new SecureRandom().nextBytes(hmacKey);
         admin.update("""
