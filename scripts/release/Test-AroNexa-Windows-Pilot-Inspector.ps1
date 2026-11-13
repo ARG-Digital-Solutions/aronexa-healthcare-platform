@@ -25,7 +25,7 @@ $parseTokens=$null
 $parseErrors=$null
 $parsed=[System.Management.Automation.Language.Parser]::ParseFile(
  $inspector,[ref]$parseTokens,[ref]$parseErrors)
-if($null -eq $parsed -or @($parseErrors).Count -gt 0){
+if($null -eq $parsed -or ($null -ne $parseErrors -and $parseErrors.Count -gt 0)){
  throw 'Pilot inspector PowerShell syntax is invalid.'
 }
 $reportLines=@(& powershell.exe -NoProfile -File $inspector -ExpectedCommit $ExpectedCommit -ReportOnly -AsJson)
