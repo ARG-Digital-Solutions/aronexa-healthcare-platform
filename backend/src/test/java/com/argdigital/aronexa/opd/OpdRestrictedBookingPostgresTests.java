@@ -217,6 +217,40 @@ class OpdRestrictedBookingPostgresTests {
     }
 
     @Test
+    void sourceOwnedAdapterBooksAndChecksInThroughRestrictedJdbcRole() {
+        Fixture f=fixture();
+        var restricted=new DriverManagerDataSource(
+                pg.getJdbcUrl(),"aronexa_opd_runtime",runtimePassword);
+        var adapter=new OpdRestrictedSqlAdapter(restricted,hmacKey,1,
+                java.time.Clock.systemUTC());
+        var actor=new com.argdigital.aronexa.auth.AuthPrincipal(
+                UUID.randomUUID(),f.tenant(),f.staff(),"fictional_reception",
+                false,java.util.List.of("RECEPTION"),
+                java.util.List.of("APPOINTMENT_BOOK","APPOINTMENT_CHECK_IN"),
+                f.session());
+        var subject=new OpdRegistrationHandoffService.VerifiedVisitSubject(
+                f.tenant(),f.branch(),f.registration(),f.patient(),
+                f.staff(),f.session());
+        var request=new OpdBookingCommand.BookingRequest(
+                f.branch(),f.registration(),f.doctor(),day,
+                LocalTime.of(13,15),UUID.randomUUID());
+        var booked=adapter.bookWithinAuthorizedTransaction(actor,subject,request);
+        assertThat(booked.patientId()).isEqualTo(f.patient());
+        assertThat(booked.registrationId()).isEqualTo(f.registration());
+        assertThat(booked.doctorMembershipId()).isEqualTo(f.doctor());
+        assertThat(booked.stage()).isEqualTo("BOOKED");
+        var checked=adapter.checkInWithinAuthorizedTransaction(actor,
+                new OpdBookingCommand.CheckInRequest(
+                        f.branch(),booked.appointmentId(),1,UUID.randomUUID()));
+        assertThat(checked.stage()).isEqualTo("CHECKED_IN");
+        assertThat(checked.revision()).isEqualTo(2);
+        assertThat(admin.queryForObject("""
+            SELECT count(*) FROM opd_candidate.appointment_event
+            WHERE appointment_id=?
+            """,Integer.class,booked.appointmentId())).isEqualTo(2);
+    }
+
+    @Test
     void actualRestrictedLoginBooksChecksInAndAuditsCommittedAppointment() throws Exception {
         Fixture f=fixture();
         UUID id=UUID.randomUUID();
