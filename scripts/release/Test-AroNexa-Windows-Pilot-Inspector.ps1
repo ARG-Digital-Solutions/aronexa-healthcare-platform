@@ -37,8 +37,18 @@ foreach($gate in @($report.gates | Where-Object {$_.id -ne 'SRC-01'})){
  }
 }
 $wrong=if($ExpectedCommit -eq ('0'*40)){('1'*40)}else{('0'*40)}
-& powershell.exe -NoProfile -File $inspector -ExpectedCommit $wrong -ReportOnly -AsJson *>$null
-if($LASTEXITCODE -eq 0){
+# Windows PowerShell can promote native stderr to an exception when
+# ErrorActionPreference=Stop. A wrong-SHA child intentionally throws, so
+# capture only its exit code without letting expected stderr abort this test.
+$savedPreference=$ErrorActionPreference
+try {
+ $ErrorActionPreference='Continue'
+ & powershell.exe -NoProfile -File $inspector -ExpectedCommit $wrong -ReportOnly -AsJson *> $null
+ $wrongShaExitCode=$LASTEXITCODE
+} finally {
+ $ErrorActionPreference=$savedPreference
+}
+if($wrongShaExitCode -eq 0){
  throw 'Wrong Git SHA was accepted by pilot gate.'
 }
 Write-Host 'R1-09 READ-ONLY NO-GO GATE SELF-TEST PASSED' -ForegroundColor Green
