@@ -40,6 +40,17 @@ class AuthSecurityConfiguration {
                                 "/api/v1/branches/{branchId}/patient-registrations/{registrationId}")
                             .authenticated()
                         .requestMatchers(HttpMethod.POST,"/api/v1/auth/logout","/api/v1/auth/password").authenticated()
+                        // R1-10A: the appointment admission handoff is a
+                        // production-source SERVICE, but its HTTP adapter is
+                        // test-only. Do not expose it to dev/prod or patients.
+                        .requestMatchers(HttpMethod.GET,
+                                "/api/v1/branches/{branchId}/opd/registration-handoff/{registrationId}")
+                            .access((authn, request) -> new org.springframework.security.authorization.AuthorizationDecision(
+                                environment.acceptsProfiles(Profiles.of(
+                                        "test & registration-candidate & !dev & !prod"))
+                                && authn.get().isAuthenticated()
+                                && authn.get().getPrincipal() instanceof AuthPrincipal))
+                        .requestMatchers(HttpMethod.POST,"/api/v1/auth/logout","/api/v1/auth/password").authenticated()
                         .requestMatchers(HttpMethod.POST, "/api/v1/branches/{branchId}/patient-registrations")
                             .access((authn, request) -> new org.springframework.security.authorization.AuthorizationDecision(
                                 environment.acceptsProfiles(Profiles.of("test & (c2-synthetic | registration-candidate) & !dev & !prod"))
