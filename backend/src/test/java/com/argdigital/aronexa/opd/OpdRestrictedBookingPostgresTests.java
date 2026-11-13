@@ -329,6 +329,118 @@ class OpdRestrictedBookingPostgresTests {
              expected,request,1,nonce,expiration,proof);
     }
 
+    private static final String FIXTURE_PASSWORD="FixtureOnlyR110B3A-Password_321!";
+
+    private HttpResponse<String> httpPost(String path,String json,String bearer)
+            throws Exception {
+        var builder=HttpRequest.newBuilder(URI.create(
+                "http://127.0.0.1:"+port+path))
+                .header("Content-Type","application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(json));
+        if(bearer!=null) builder.header("Authorization","Bearer "+bearer);
+        return http.send(builder.build(),HttpResponse.BodyHandlers.ofString());
+    }
+
+    private String login(Fixture f) throws Exception {
+        String body=String.format(java.util.Locale.ROOT,
+                "{\"tenantCode\":\"%s\",\"username\":\"%s\",\"password\":\"%s\"}",
+                f.tenantCode(),f.username(),FIXTURE_PASSWORD);
+        var result=httpPost("/api/v1/auth/login",body,null);
+        assertThat(result.statusCode()).as("Real DB-backed login").isEqualTo(200);
+        var matcher=Pattern.compile(
+                "\"accessToken\"\\s*:\\s*\"([A-Za-z0-9_-]{43})\"")
+                .matcher(result.body());
+        assertThat(matcher.find()).isTrue();
+        String token=matcher.group(1);
+        var me=http.send(HttpRequest.newBuilder(
+                URI.create("http://127.0.0.1:"+port+"/api/v1/auth/me"))
+                .header("Authorization","Bearer "+token).GET().build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertThat(me.statusCode()).as("Token authorizes /auth/me").isEqualTo(200);
+        assertThat(me.body()).contains(f.staff().toString());
+        return token;
+    }
+
+    private static String bookingJson(Fixture f,UUID request) {
+        return String.format(java.util.Locale.ROOT,
+                "{\"registrationId\":\"%s\",\"doctorMembershipId\":\"%s\","
+                +"\"visitDate\":\"2026-11-13\",\"slotStart\":\"10:30:00\","
+                +"\"requestId\":\"%s\"}",
+                f.registration(),f.doctor(),request);
+    }
+
+    private static UUID receiptId(String json) {
+        var matcher=Pattern.compile(
+                "\"appointmentId\"\\s*:\\s*\"([0-9a-f-]{36})\"")
+                .matcher(json);
+        assertThat(matcher.find()).as("Actual restricted SQL appointment receipt").isTrue();
+        return UUID.fromString(matcher.group(1));
+    }
+
+    @Test
+    void realBearerHttpBooksChecksInAndReplaysAfterLogoutAndFreshLogin()
+            throws Exception {
+        Fixture f=fixture();
+        String token=login(f);
+        String path="/api/v1/branches/"+f.branch()+"/opd-restricted/appointments";
+        UUID request=UUID.randomUUID();
+        var booked=httpPost(path,bookingJson(f,request),token);
+        assertThat(booked.statusCode()).as(booked.body()).isEqualTo(200);
+        assertThat(booked.body()).contains("\"stage\":\"BOOKED\"",
+                f.patient().toString(),f.registration().toString());
+        assertThat(booked.body()).doesNotContain("sessionId","accessToken",
+                "password");
+        assertThat(booked.headers().firstValue("Cache-Control"))
+                .contains("no-store");
+        UUID id=receiptId(booked.body());
+        var checked=httpPost(path+"/"+id+"/check-in",
+                "{\"expectedRevision\":1,\"requestId\":\""+
+                        UUID.randomUUID()+"\"}",token);
+        assertThat(checked.statusCode()).as(checked.body()).isEqualTo(200);
+        assertThat(checked.body()).contains("\"stage\":\"CHECKED_IN\"",
+                "\"revision\":2");
+        var logout=httpPost("/api/v1/auth/logout","{}",token);
+        assertThat(logout.statusCode()).isEqualTo(204);
+        var unauthorized=httpPost(path,bookingJson(f,request),token);
+        assertThat(unauthorized.statusCode()).isNotEqualTo(200);
+        String newToken=login(f);
+        assertThat(newToken).isNotEqualTo(token);
+        var replay=httpPost(path,bookingJson(f,request),newToken);
+        assertThat(replay.statusCode()).as(replay.body()).isEqualTo(200);
+        assertThat(replay.body()).contains("\"stage\":\"CHECKED_IN\"",
+                "\"replayed\":true");
+        assertThat(receiptId(replay.body())).isEqualTo(id);
+        assertThat(admin.queryForObject("""
+             SELECT count(*) FROM opd_candidate.appointment_event
+             WHERE appointment_id=?
+             """,Integer.class,id)).isEqualTo(2);
+    }
+
+    @Test
+    void realHttpRejectsAnonymousForgedRegistrationCrossBranchAndRevokedToken()
+            throws Exception {
+        Fixture f=fixture();
+        String path="/api/v1/branches/"+f.branch()+"/opd-restricted/appointments";
+        String good=bookingJson(f,UUID.randomUUID());
+        assertThat(httpPost(path,good,null).statusCode()).isNotEqualTo(200);
+        String token=login(f);
+        assertThat(httpPost(path,good.replace(f.registration().toString(),
+                UUID.randomUUID().toString()),token).statusCode())
+                .isEqualTo(403);
+        String wrong="/api/v1/branches/"+UUID.randomUUID()
+                +"/opd-restricted/appointments";
+        assertThat(httpPost(wrong,good,token).statusCode()).isEqualTo(403);
+        admin.update("""
+            UPDATE public.auth_session SET revoked_at=clock_timestamp()
+            WHERE tenant_id=? AND membership_id=?
+            """,f.tenant(),f.staff());
+        assertThat(httpPost(path,good,token).statusCode()).isNotEqualTo(200);
+        assertThat(admin.queryForObject("""
+            SELECT count(*) FROM opd_candidate.appointment
+            WHERE tenant_id=? AND branch_id=?
+            """,Integer.class,f.tenant(),f.branch())).isZero();
+    }
+
     @Test
     void sourceOwnedAdapterBooksAndChecksInThroughRestrictedJdbcRole() {
         Fixture f=fixture();
