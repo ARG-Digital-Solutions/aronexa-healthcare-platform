@@ -28,6 +28,12 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.builder.SpringApplicationBuilder;
+import org.springframework.boot.jdbc.autoconfigure.JdbcConnectionDetails;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.ConfigurableApplicationContext;
+import org.springframework.context.annotation.Bean;
+import com.argdigital.aronexa.AronexaApplication;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.Profile;
@@ -145,6 +151,44 @@ class OpdRestrictedBookingPostgresTests {
            UPDATE public.module_registry SET implemented=true,released=true
            WHERE code IN ('OPD','PATIENT_REGISTRATION')
            """);
+    }
+
+    /**
+     * Fresh, independent Spring Boot application context uses only the same
+     * disposable Testcontainers PG17 URL; NO local Windows or shared DB.
+     * This is context STOP/REBUILD, not a JVM or installer process restart.
+     */
+    @TestConfiguration(proxyBeanMethods=false)
+    static class DisposableRestartConnection {
+        @Bean
+        JdbcConnectionDetails isolatedConnectionDetails() {
+            return new JdbcConnectionDetails() {
+                @Override public String getJdbcUrl() { return pg.getJdbcUrl(); }
+                @Override public String getUsername() { return pg.getUsername(); }
+                @Override public String getPassword() { return pg.getPassword(); }
+            };
+        }
+    }
+
+    private ConfigurableApplicationContext startIsolatedSpringContext() {
+        return new SpringApplicationBuilder(
+                AronexaApplication.class,
+                DisposableRestartConnection.class,
+                RestrictedHttpController.class)
+            .profiles("test","opd-restricted-candidate")
+            .properties("server.address=127.0.0.1",
+                        "server.port=0",
+                        "spring.main.banner-mode=off",
+                        "server.error.include-message=never")
+            .run();
+    }
+
+    private static int portOf(ConfigurableApplicationContext ctx) {
+        Integer bound=ctx.getEnvironment().getProperty("local.server.port",Integer.class);
+        if(bound==null || bound<1) {
+            throw new IllegalStateException("Isolated Spring Boot server did not bind");
+        }
+        return bound;
     }
 
     /**
