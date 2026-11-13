@@ -692,7 +692,7 @@ class OpdRestrictedBookingPostgresTests {
 
     /** Regression for authorization expiry after a real PostgreSQL lock wait.
      * The fixture has already aged beyond 1 microsecond. Expire it strictly
-     * after created_at to preserve ck_auth_session_expiry, without weakening
+     * after issued_at to preserve ck_auth_session_expiry, without weakening
      * the database constraint or production session policy.
      * This proves only the existing session-row-lock protocol, not all races.
      */
@@ -702,7 +702,7 @@ class OpdRestrictedBookingPostgresTests {
         Fixture f=fixture();
         assertQueuedBookingRejected(f,
                 "UPDATE public.auth_session "
-                +"SET expires_at=created_at+interval '1 microsecond' WHERE id=?",
+                +"SET expires_at=issued_at+interval '1 microsecond' WHERE id=?",
                 f.session());
     }
 
