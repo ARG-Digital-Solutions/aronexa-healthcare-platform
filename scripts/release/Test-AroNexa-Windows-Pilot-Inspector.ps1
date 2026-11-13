@@ -1,0 +1,47 @@
+# Read-only R1-09 gate self-test against exact source.
+# Verifies report schema, hard NO_GO disposition and wrong-SHA rejection.
+[CmdletBinding()]
+param(
+ [Parameter(Mandatory=$true)]
+ [ValidatePattern('^[0-9a-fA-F]{40}$')]
+ [string]$ExpectedCommit
+)
+Set-StrictMode -Version Latest
+$ErrorActionPreference='Stop'
+$inspector=Join-Path $PSScriptRoot 'Inspect-AroNexa-Windows-Pilot.ps1'
+if(-not(Test-Path -LiteralPath $inspector -PathType Leaf)){
+ throw 'Pilot inspector missing.'
+}
+$reportLines=@(& powershell.exe -NoProfile -File $inspector -ExpectedCommit $ExpectedCommit -ReportOnly -AsJson)
+if($LASTEXITCODE -ne 0){throw 'Read-only inspection report failed.'}
+$report=($reportLines -join [Environment]::NewLine) | ConvertFrom-Json
+if($report.schemaVersion -ne 1 -or
+   $report.sourceCommit -ne $ExpectedCommit.ToLowerInvariant() -or
+   $report.releaseDecision -ne 'NO_GO' -or
+   $report.inspection -ne 'READ_ONLY_SOURCE_INVENTORY'){
+ throw 'Release report unexpectedly changed its evidence contract.'
+}
+$gateIds=@($report.gates | ForEach-Object {$_.id})
+foreach($required in @('SRC-01','INT-01','DB-01','SEC-01','WIN-01',
+                        'WIN-02','WIN-03','WIN-04','UAT-01','REL-01')){
+ if($gateIds -cnotcontains $required){
+  throw "Missing mandatory release gate $required"
+ }
+}
+if($report.blockedCount -lt 9){
+ throw 'Synthetic candidate was unexpectedly allowed toward release.'
+}
+foreach($gate in @($report.gates | Where-Object {$_.id -ne 'SRC-01'})){
+ if($gate.status -ne 'BLOCKED'){
+  throw "Gate $($gate.id) must remain blocked without independently verified evidence."
+ }
+}
+$wrong=if($ExpectedCommit -eq ('0'*40)){('1'*40)}else{('0'*40)}
+& powershell.exe -NoProfile -File $inspector -ExpectedCommit $wrong -ReportOnly -AsJson *>$null
+if($LASTEXITCODE -eq 0){
+ throw 'Wrong Git SHA was accepted by pilot gate.'
+}
+Write-Host 'R1-09 READ-ONLY NO-GO GATE SELF-TEST PASSED' -ForegroundColor Green
+Write-Host "SourceCommit=$($report.sourceCommit)"
+Write-Host "BlockedGates=$($report.blockedCount)"
+Write-Host 'No installer, production DB, license or backup was accessed.'
