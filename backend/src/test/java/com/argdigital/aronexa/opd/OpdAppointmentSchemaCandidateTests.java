@@ -2,6 +2,8 @@ package com.argdigital.aronexa.opd;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.UUID;
@@ -46,12 +48,20 @@ class OpdAppointmentSchemaCandidateTests {
 
     @BeforeAll
     void stageReviewOnlySchemaInFreshContainer() throws Exception {
+        Path candidate=Path.of("deploy","opd","review-only",
+                "V11__opd_appointment_schema_candidate.sql").toAbsolutePath();
+        if (!Files.isRegularFile(candidate)) {
+            candidate=Path.of("..","deploy","opd","review-only",
+                    "V11__opd_appointment_schema_candidate.sql").toAbsolutePath();
+        }
+        if (!Files.isRegularFile(candidate)) {
+            throw new IllegalStateException("Missing review-only OPD schema candidate");
+        }
         try(Connection c=admin.getDataSource().getConnection()){
-            // This exact review-only file is deliberately OUTSIDE classpath
-            // Flyway migration locations. pgJDBC parses dollar-quoted bodies.
+            // Source is OUTSIDE production Flyway; only a fresh Testcontainer
+            // executes this file. pgJDBC handles dollar-quoted function SQL.
             ScriptUtils.executeSqlScript(c,new EncodedResource(
-                new FileSystemResource("deploy/opd/review-only/"
-                    +"V11__opd_appointment_schema_candidate.sql")),
+                new FileSystemResource(candidate)),
                 false,false,ScriptUtils.DEFAULT_COMMENT_PREFIX,
                 ScriptUtils.EOF_STATEMENT_SEPARATOR,
                 ScriptUtils.DEFAULT_BLOCK_COMMENT_START_DELIMITER,
@@ -65,9 +75,9 @@ class OpdAppointmentSchemaCandidateTests {
     private SyntheticClinic fixture(){
         UUID tenant=UUID.randomUUID(),branch=UUID.randomUUID();
         UUID facility=UUID.randomUUID(),patient=UUID.randomUUID();
-        UUID booker=membership(tenant),doctor=membership(tenant);
         admin.update("INSERT INTO public.tenant(id,code,display_name) VALUES(?,?,?)",
             tenant,"r110_"+tenant.toString().substring(0,9),"FICTIONAL R110B1");
+        UUID booker=membership(tenant),doctor=membership(tenant);
         admin.update("""
             INSERT INTO public.facility(id,tenant_id,code,display_name,facility_kind)
             VALUES (?,?,?,'FICTIONAL facility','CLINIC')
@@ -237,8 +247,13 @@ class OpdAppointmentSchemaCandidateTests {
               'opd_candidate','USAGE')
             """,Boolean.class)).isFalse();
         assertThat(admin.queryForObject("""
-            SELECT has_table_privilege('PUBLIC',
-              'opd_candidate.appointment','INSERT')
-            """,Boolean.class)).isFalse();
+            SELECT NOT EXISTS (
+                SELECT 1 FROM pg_catalog.pg_class c,
+                LATERAL pg_catalog.aclexplode(c.relacl) a
+                WHERE c.oid='opd_candidate.appointment'::regclass
+                  AND a.grantee=0
+                  AND a.privilege_type IN ('SELECT','INSERT','UPDATE','DELETE')
+            )
+            """,Boolean.class)).isTrue();
     }
 }
