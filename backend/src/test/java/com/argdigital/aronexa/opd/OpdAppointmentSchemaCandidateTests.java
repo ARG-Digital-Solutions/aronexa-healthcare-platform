@@ -1,6 +1,7 @@
 package com.argdigital.aronexa.opd;
 
 import java.sql.Connection;
+import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -147,7 +148,8 @@ class OpdAppointmentSchemaCandidateTests {
         SyntheticClinic clinic=fixture();
         UUID visit=book(clinic,LocalTime.of(9,0),UUID.randomUUID());
         assertThat(events(visit)).isEqualTo(1);
-        try(Connection c=admin.getDataSource().getConnection();
+        try(Connection c=DriverManager.getConnection(postgres.getJdbcUrl(),
+                        postgres.getUsername(),postgres.getPassword());
             PreparedStatement ps=c.prepareStatement("""
                 SELECT patient_id,registration_id,status,revision
                 FROM opd_candidate.appointment
