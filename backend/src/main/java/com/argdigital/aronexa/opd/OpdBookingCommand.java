@@ -77,16 +77,16 @@ public final class OpdBookingCommand {
         validate(request.branchId());
         validate(request.appointmentId());
         validate(request.requestId());
-        if (request.expectedRevision() < 1) throw new InvalidBooking();
+        if (request.expectedRevision() < 1 || request.expectedRevision()==Integer.MAX_VALUE) throw new InvalidBooking();
         AuthPrincipal actor = authenticated(CHECK_IN);
         modules.requireEnabled("OPD");
         // A check-in cannot reuse an earlier handoff: the transactional
         // writer MUST read exact appointment registration/patient/branch
         // and live staff authorization inside the same DB transaction.
         var result = writes.checkInWithinAuthorizedTransaction(actor,request);
-        if (result==null || !actor.tenantId().equals(result.tenantId())
-                || !request.branchId().equals(result.branchId())
-                || !request.appointmentId().equals(result.appointmentId())
+        if (result==null || !Objects.equals(actor.tenantId(),result.tenantId())
+                || !Objects.equals(request.branchId(),result.branchId())
+                || !Objects.equals(request.appointmentId(),result.appointmentId())
                 || !"CHECKED_IN".equals(result.stage())
                 || result.revision() != request.expectedRevision()+1) {
             throw denied();
@@ -107,10 +107,10 @@ public final class OpdBookingCommand {
     private static void verifyReceipt(AuthPrincipal actor,
             OpdRegistrationHandoffService.VerifiedVisitSubject exact,
             BookingReceipt result,String expectedStage) {
-        if(result==null || !result.tenantId().equals(actor.tenantId())
-                || !result.branchId().equals(exact.branchId())
-                || !result.registrationId().equals(exact.registrationId())
-                || !result.patientId().equals(exact.patientId())
+        if(result==null || !Objects.equals(result.tenantId(),actor.tenantId())
+                || !Objects.equals(result.branchId(),exact.branchId())
+                || !Objects.equals(result.registrationId(),exact.registrationId())
+                || !Objects.equals(result.patientId(),exact.patientId())
                 || !expectedStage.equals(result.stage())
                 || result.revision()<1) {
             throw denied();
