@@ -749,6 +749,90 @@ class OpdRestrictedBookingPostgresTests {
             """,Boolean.class)).isFalse();
     }
 
+    private HttpResponse<String> isolatedPost(int isolatedPort,String url,
+                                               String body,String token) throws Exception {
+        var builder=HttpRequest.newBuilder(URI.create(
+                "http://127.0.0.1:"+isolatedPort+url))
+            .header("Content-Type","application/json")
+            .POST(HttpRequest.BodyPublishers.ofString(body));
+        if(token!=null) builder.header("Authorization","Bearer "+token);
+        return http.send(builder.build(),HttpResponse.BodyHandlers.ofString());
+    }
+
+    private String isolatedLogin(int isolatedPort,Fixture f) throws Exception {
+        var login=isolatedPost(isolatedPort,"/api/v1/auth/login",
+                "{\"tenantCode\":\""+f.tenantCode()+"\",\"username\":\""
+                +f.username()+"\",\"password\":\""+FIXTURE_PASSWORD+"\"}",null);
+        assertThat(login.statusCode()).as("Fresh Spring context authenticates").isEqualTo(200);
+        var matcher=Pattern.compile(
+                "\"accessToken\"\\s*:\\s*\"([A-Za-z0-9_-]{43})\"")
+                .matcher(login.body());
+        assertThat(matcher.find()).isTrue();
+        String token=matcher.group(1);
+        var me=http.send(HttpRequest.newBuilder(
+                URI.create("http://127.0.0.1:"+isolatedPort+"/api/v1/auth/me"))
+                .header("Authorization","Bearer "+token).GET().build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertThat(me.statusCode()).isEqualTo(200);
+        return token;
+    }
+
+    @Test
+    void separateSpringContextStopAndRebuildKeepsAppointmentInRestrictedPg17()
+            throws Exception {
+        Fixture f=fixture();
+        UUID request=UUID.randomUUID();
+        String path="/api/v1/branches/"+f.branch()
+                +"/opd-restricted/appointments";
+        UUID appointmentId;
+        String oldToken;
+        int firstPort;
+
+        // Each instance is a NEW Spring Boot application context and a
+        // separately bootstrapped HTTP server. Its datastore is always the
+        // same automatically disposable PG17 Testcontainer, never Windows DB.
+        try(var first=startIsolatedSpringContext()) {
+            firstPort=portOf(first);
+            oldToken=isolatedLogin(firstPort,f);
+            var booked=isolatedPost(firstPort,path,bookingJson(f,request),oldToken);
+            assertThat(booked.statusCode()).as(booked.body()).isEqualTo(200);
+            appointmentId=receiptId(booked.body());
+            assertThat(booked.body()).contains("\"stage\":\"BOOKED\"");
+        } // Close entire Spring Boot context, web server and its JDBC pools.
+
+        assertThat(admin.queryForObject("""
+            SELECT count(*) FROM opd_candidate.appointment
+             WHERE id=? AND tenant_id=? AND status='BOOKED'
+            """,Integer.class,appointmentId,f.tenant())).isEqualTo(1);
+
+        try(var second=startIsolatedSpringContext()) {
+            int secondPort=portOf(second);
+            String newToken=isolatedLogin(secondPort,f);
+            assertThat(newToken).isNotEqualTo(oldToken);
+            var recovered=isolatedPost(secondPort,path,bookingJson(f,request),newToken);
+            assertThat(recovered.statusCode()).as(recovered.body()).isEqualTo(200);
+            assertThat(receiptId(recovered.body())).isEqualTo(appointmentId);
+            assertThat(recovered.body()).contains("\"stage\":\"BOOKED\"",
+                    "\"replayed\":true");
+            var checked=isolatedPost(secondPort,path+"/"+appointmentId+"/check-in",
+                    "{\"expectedRevision\":1,\"requestId\":\""
+                    +UUID.randomUUID()+"\"}",newToken);
+            assertThat(checked.statusCode()).as(checked.body()).isEqualTo(200);
+            assertThat(checked.body()).contains("\"stage\":\"CHECKED_IN\"",
+                    "\"revision\":2");
+        }
+
+        assertThat(admin.queryForObject("""
+            SELECT revision FROM opd_candidate.appointment
+            WHERE id=? AND tenant_id=? AND patient_id=? AND registration_id=?
+            """,Integer.class,appointmentId,f.tenant(),f.patient(),
+            f.registration())).isEqualTo(2);
+        assertThat(admin.queryForObject("""
+            SELECT count(*) FROM opd_candidate.appointment_event
+            WHERE appointment_id=?
+            """,Integer.class,appointmentId)).isEqualTo(2);
+    }
+
     @Test
     void actualRestrictedLoginBooksChecksInAndAuditsCommittedAppointment() throws Exception {
         Fixture f=fixture();
