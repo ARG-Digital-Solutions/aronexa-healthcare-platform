@@ -1,6 +1,7 @@
 package com.argdigital.aronexa.patient;
 
 import com.argdigital.aronexa.auth.AuthPrincipal;
+import com.argdigital.aronexa.opd.OpdRegistrationHandoffService;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.util.List;
@@ -41,6 +42,7 @@ class PatientAccessServiceIntegrationTests {
 
     @Autowired JdbcTemplate admin;
     @Autowired PatientAccessService access;
+    @Autowired OpdRegistrationHandoffService opdHandoff;
 
     record Fixture(UUID tenantA, UUID tenantB, UUID memberA, UUID memberAOther,
                    UUID memberB, UUID branchA, UUID branchOther, UUID branchB,
@@ -143,6 +145,142 @@ class PatientAccessServiceIntegrationTests {
                 "synthetic",forcePassword,List.of(role),List.of(permissions));
         SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken(principal,null,List.of()));
+    }
+
+    private void activateSyntheticOpdModule(UUID tenant) {
+        // Disposable PostgreSQL fixture only, NEVER a real clinic activation.
+        admin.update("""
+            UPDATE module_registry SET implemented=true,released=true
+            WHERE code='OPD'
+            """);
+        admin.update("""
+            INSERT INTO tenant_module_state
+                (tenant_id,module_code,entitled,activated,clinically_authorized)
+            VALUES (?,'OPD',true,true,true)
+            """,tenant);
+    }
+
+    private void asOpdBookingActor(UUID tenant,UUID membership,
+                                   boolean forcedPassword,String... permissions) {
+        AuthPrincipal principal=new AuthPrincipal(UUID.randomUUID(),tenant,membership,
+                "synthetic_opd_actor",forcedPassword,List.of("RECEPTION"),
+                List.of(permissions),UUID.randomUUID());
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(principal,null,List.of()));
+    }
+
+    @Test
+    void r110aHandoffResolvesExactPatientUnderRestrictedPostgresRoleAndAudits() {
+        Fixture f=fixture();
+        activateSyntheticRegistrationModule(f.tenantA());
+        activateSyntheticOpdModule(f.tenantA());
+        asOpdBookingActor(f.tenantA(),f.memberA(),false,
+                "APPOINTMENT_BOOK","PATIENT_REGISTRATION_READ");
+        var subject=opdHandoff.resolveForBooking(f.branchA(),f.registrationA());
+        assertThat(subject.tenantId()).isEqualTo(f.tenantA());
+        assertThat(subject.branchId()).isEqualTo(f.branchA());
+        assertThat(subject.registrationId()).isEqualTo(f.registrationA());
+        assertThat(subject.patientId()).isEqualTo(f.patientA());
+        assertThat(subject.actorMembershipId()).isEqualTo(f.memberA());
+        assertThat(subject.sessionId()).isNotNull();
+        assertThat(admin.queryForObject("""
+            SELECT count(*) FROM public.patient_registration_access_audit
+            WHERE tenant_id=? AND branch_id=? AND membership_id=?
+              AND registration_id=? AND action='READ'
+            """,Integer.class,f.tenantA(),f.branchA(),f.memberA(),
+                f.registrationA())).isOne();
+    }
+
+    @Test
+    void r110aHandoffDeniesCrossBranchTenantForgedRegistrationAndMissingPermissions() {
+        Fixture f=fixture();
+        activateSyntheticRegistrationModule(f.tenantA());
+        activateSyntheticOpdModule(f.tenantA());
+        asOpdBookingActor(f.tenantA(),f.memberA(),false,
+                "APPOINTMENT_BOOK","PATIENT_REGISTRATION_READ");
+        assertThatThrownBy(()->opdHandoff.resolveForBooking(
+                f.branchOther(),f.registrationOther()))
+                .isInstanceOf(AccessDeniedException.class);
+        assertThatThrownBy(()->opdHandoff.resolveForBooking(
+                f.branchB(),f.registrationB()))
+                .isInstanceOf(AccessDeniedException.class);
+        assertThatThrownBy(()->opdHandoff.resolveForBooking(
+                f.branchA(),f.registrationOther()))
+                .isInstanceOf(AccessDeniedException.class);
+        assertThatThrownBy(()->opdHandoff.resolveForBooking(
+                f.branchA(),UUID.randomUUID()))
+                .isInstanceOf(AccessDeniedException.class);
+        assertThatThrownBy(()->opdHandoff.resolveForBooking(
+                new UUID(0L,0L),f.registrationA()))
+                .isInstanceOf(AccessDeniedException.class);
+        assertThatThrownBy(()->opdHandoff.resolveForBooking(
+                f.branchA(),null))
+                .isInstanceOf(AccessDeniedException.class);
+
+        asOpdBookingActor(f.tenantA(),f.memberA(),false,
+                "PATIENT_REGISTRATION_READ");
+        assertThatThrownBy(()->opdHandoff.resolveForBooking(
+                f.branchA(),f.registrationA()))
+                .isInstanceOf(AccessDeniedException.class);
+        asOpdBookingActor(f.tenantA(),f.memberA(),false,"APPOINTMENT_BOOK");
+        assertThatThrownBy(()->opdHandoff.resolveForBooking(
+                f.branchA(),f.registrationA()))
+                .isInstanceOf(AccessDeniedException.class);
+        asOpdBookingActor(f.tenantA(),f.memberA(),true,
+                "APPOINTMENT_BOOK","PATIENT_REGISTRATION_READ");
+        assertThatThrownBy(()->opdHandoff.resolveForBooking(
+                f.branchA(),f.registrationA()))
+                .isInstanceOf(AccessDeniedException.class);
+
+        // Old hand-constructed AuthPrincipal omits an actual bearer session.
+        as(f.tenantA(),f.memberA(),false,"RECEPTION",
+                "APPOINTMENT_BOOK","PATIENT_REGISTRATION_READ");
+        assertThatThrownBy(()->opdHandoff.resolveForBooking(
+                f.branchA(),f.registrationA()))
+                .isInstanceOf(AccessDeniedException.class);
+    }
+
+    @Test
+    void r110aHandoffRechecksBranchAndModuleRevocationWithoutReusingPriorResult() {
+        Fixture f=fixture();
+        activateSyntheticRegistrationModule(f.tenantA());
+        activateSyntheticOpdModule(f.tenantA());
+        asOpdBookingActor(f.tenantA(),f.memberA(),false,
+                "APPOINTMENT_BOOK","PATIENT_REGISTRATION_READ");
+        var first=opdHandoff.resolveForBooking(f.branchA(),f.registrationA());
+        assertThat(first.patientId()).isEqualTo(f.patientA());
+
+        admin.update("""
+            DELETE FROM public.org_membership_branch_scope
+             WHERE tenant_id=? AND membership_id=? AND branch_id=?
+            """,f.tenantA(),f.memberA(),f.branchA());
+        assertThatThrownBy(()->opdHandoff.resolveForBooking(
+                f.branchA(),f.registrationA()))
+                .isInstanceOf(AccessDeniedException.class);
+
+        assign(f.tenantA(),f.memberA(),f.branchA());
+        assertThat(opdHandoff.resolveForBooking(
+                f.branchA(),f.registrationA()).patientId()).isEqualTo(f.patientA());
+
+        admin.update("""
+            UPDATE public.tenant_module_state SET activated=false
+            WHERE tenant_id=? AND module_code='OPD'
+            """,f.tenantA());
+        assertThatThrownBy(()->opdHandoff.resolveForBooking(
+                f.branchA(),f.registrationA()))
+                .isInstanceOf(AccessDeniedException.class);
+        admin.update("""
+            UPDATE public.tenant_module_state SET activated=true
+            WHERE tenant_id=? AND module_code='OPD'
+            """,f.tenantA());
+
+        admin.update("""
+            UPDATE public.tenant_module_state SET activated=false
+            WHERE tenant_id=? AND module_code='PATIENT_REGISTRATION'
+            """,f.tenantA());
+        assertThatThrownBy(()->opdHandoff.resolveForBooking(
+                f.branchA(),f.registrationA()))
+                .isInstanceOf(AccessDeniedException.class);
     }
 
     @Test
