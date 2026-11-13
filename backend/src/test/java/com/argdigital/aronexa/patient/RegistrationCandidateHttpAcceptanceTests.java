@@ -1,6 +1,7 @@
 package com.argdigital.aronexa.patient;
 
 import com.argdigital.aronexa.auth.TenantAuthorization;
+import com.argdigital.aronexa.opd.OpdRegistrationHandoffService;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -38,6 +39,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -61,7 +63,8 @@ import static org.assertj.core.api.Assertions.assertThat;
         properties="server.address=127.0.0.1")
 @ActiveProfiles({"test","registration-candidate"})
 @Import({RegistrationCandidateHttpAcceptanceTests.CandidateConfiguration.class,
-        RegistrationCandidateHttpAcceptanceTests.CandidateController.class})
+        RegistrationCandidateHttpAcceptanceTests.CandidateController.class,
+        RegistrationCandidateHttpAcceptanceTests.OpdHandoffCandidateController.class})
 @Testcontainers
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class RegistrationCandidateHttpAcceptanceTests {
@@ -151,6 +154,36 @@ class RegistrationCandidateHttpAcceptanceTests {
         }
     }
 
+    /**
+     * R1-10A test-only HTTP adapter for the actual production-source handoff
+     * service. The adapter is NOT included in the deployed main application.
+     */
+    @RestController
+    @Profile("test & registration-candidate & !dev & !prod")
+    @RequestMapping("/api/v1/branches/{branchId}/opd/registration-handoff")
+    static class OpdHandoffCandidateController {
+        private final OpdRegistrationHandoffService handoff;
+        OpdHandoffCandidateController(OpdRegistrationHandoffService handoff) {
+            this.handoff=handoff;
+        }
+        record Handoff(UUID tenantId,UUID branchId,UUID registrationId,UUID patientId) {}
+        record Denied(String code) {}
+        @GetMapping("/{registrationId}")
+        ResponseEntity<Handoff> resolve(@PathVariable UUID branchId,
+                                        @PathVariable UUID registrationId) {
+            var verified=handoff.resolveForBooking(branchId,registrationId);
+            return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+                    .body(new Handoff(verified.tenantId(),verified.branchId(),
+                            verified.registrationId(),verified.patientId()));
+        }
+        @ExceptionHandler(AccessDeniedException.class)
+        ResponseEntity<Denied> deny(AccessDeniedException ignored) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .cacheControl(CacheControl.noStore())
+                    .body(new Denied("OPD_HANDOFF_DENIED"));
+        }
+    }
+
     @BeforeAll
     void installOnlyInDisposableContainer() throws Exception {
         // A nested test-only @RestController is not reliably discovered by
@@ -158,6 +191,9 @@ class RegistrationCandidateHttpAcceptanceTests {
         // and a real POST handler instead of accepting an /error redispatch
         // that can misleadingly surface as HTTP 401.
         assertThat(applicationContext.getBeansOfType(CandidateController.class))
+                .hasSize(1);
+        assertThat(applicationContext.getBeansOfType(OpdHandoffCandidateController.class))
+                .as("R1-10A HTTP adapter must be present only for disposable test profile")
                 .hasSize(1);
         assertThat(handlerMapping.getHandlerMethods().entrySet().stream()
                 .anyMatch(entry -> entry.getKey().getMethodsCondition()
@@ -274,6 +310,164 @@ class RegistrationCandidateHttpAcceptanceTests {
     private int count(UUID tenant,String table) {
         return admin.queryForObject("SELECT count(*) FROM public."+table+
                 " WHERE tenant_id=?",Integer.class,tenant);
+    }
+
+    private void enableDisposableOpdModule(Staff staff) {
+        // Only synthetic Testcontainers fixture, never a clinic SQL migration.
+        admin.update("""
+            UPDATE module_registry SET implemented=true,released=true
+            WHERE code='OPD'
+            """);
+        admin.update("""
+            INSERT INTO tenant_module_state
+                (tenant_id,module_code,entitled,activated,clinically_authorized)
+            VALUES (?,'OPD',true,true,true)
+            """,staff.tenant());
+    }
+
+    private void grantOpdHandoff(Staff staff) {
+        admin.update("""
+            INSERT INTO auth_permission(code,description)
+            VALUES ('APPOINTMENT_BOOK','Test-only R1-10A appointment handoff permission')
+            ON CONFLICT(code) DO NOTHING
+            """);
+        admin.update("""
+            INSERT INTO auth_role_permission(tenant_id,role_id,permission_code)
+            SELECT tenant_id,role_id,'APPOINTMENT_BOOK'
+              FROM auth_membership_role
+            WHERE tenant_id=? AND membership_id=?
+            """,staff.tenant(),staff.member());
+        admin.update("""
+            INSERT INTO auth_role_permission(tenant_id,role_id,permission_code)
+            SELECT tenant_id,role_id,'PATIENT_REGISTRATION_READ'
+              FROM auth_membership_role
+            WHERE tenant_id=? AND membership_id=?
+            """,staff.tenant(),staff.member());
+    }
+
+    private HttpResponse<String> getOpdHandoff(
+            UUID branch,UUID registration,String token) throws Exception {
+        var request=HttpRequest.newBuilder(URI.create(
+                "http://127.0.0.1:"+port+"/api/v1/branches/"+branch+
+                "/opd/registration-handoff/"+registration)).GET();
+        if(token!=null)request.header("Authorization","Bearer "+token);
+        return http.send(request.build(),HttpResponse.BodyHandlers.ofString());
+    }
+
+    private static UUID responseId(String response,String name) {
+        var matcher=Pattern.compile("\""+Pattern.quote(name)+
+                "\"\\s*:\\s*\"([0-9a-fA-F-]{36})\"").matcher(response);
+        assertThat(matcher.find()).as("Missing verified response ID").isTrue();
+        return UUID.fromString(matcher.group(1));
+    }
+
+    @Test
+    void r110aRealHttpRegistrationToBookingHandoffPreservesExactPatientAfterRelogin()
+            throws Exception {
+        Staff staff=staff(true);
+        enableDisposableOpdModule(staff);
+        grantOpdHandoff(staff);
+        String bearer=login(staff);
+        var created=post(path(staff.branch()),
+                intake("Fictional R110A OPD Handoff"),bearer,idem());
+        assertThat(created.statusCode()).isEqualTo(201);
+        UUID registration=responseId(created.body(),"registrationId");
+        UUID patient=responseId(created.body(),"patientId");
+
+        var accepted=getOpdHandoff(staff.branch(),registration,bearer);
+        assertThat(accepted.statusCode()).isEqualTo(200);
+        assertThat(accepted.headers().firstValue("Cache-Control"))
+                .contains("no-store");
+        assertThat(accepted.body()).contains(
+                "\"tenantId\":\""+staff.tenant()+"\"",
+                "\"branchId\":\""+staff.branch()+"\"",
+                "\"registrationId\":\""+registration+"\"",
+                "\"patientId\":\""+patient+"\"");
+        assertThat(accepted.body()).doesNotContain(
+                "Fictional R110A OPD Handoff",
+                "actorMembershipId","sessionId","accessToken","password",
+                "contact","displayName");
+
+        assertThat(getOpdHandoff(staff.otherBranch(),registration,bearer)
+                .statusCode()).isEqualTo(403);
+        assertThat(getOpdHandoff(staff.branch(),UUID.randomUUID(),bearer)
+                .statusCode()).isEqualTo(403);
+        assertThat(getOpdHandoff(staff.branch(),registration,null)
+                .statusCode()).isEqualTo(401);
+
+        assertThat(post("/api/v1/auth/logout","{}",bearer,null)
+                .statusCode()).isEqualTo(204);
+        assertThat(getOpdHandoff(staff.branch(),registration,bearer)
+                .statusCode()).isEqualTo(401);
+        String fresh=login(staff);
+        var persisted=getOpdHandoff(staff.branch(),registration,fresh);
+        assertThat(persisted.statusCode()).isEqualTo(200);
+        assertThat(persisted.body()).contains("\"patientId\":\""+patient+"\"");
+        assertThat(count(staff.tenant(),"patient")).isOne();
+        assertThat(count(staff.tenant(),"patient_registration")).isOne();
+        assertThat(admin.queryForObject("""
+            SELECT count(*) FROM patient_registration_access_audit
+            WHERE tenant_id=? AND registration_id=?
+            """,Integer.class,staff.tenant(),registration)).isEqualTo(2);
+    }
+
+    @Test
+    void r110aRealHttpPermissionModuleAndBranchRevocationsFailClosed()
+            throws Exception {
+        Staff staff=staff(true);
+        enableDisposableOpdModule(staff);
+        grantOpdHandoff(staff);
+        String bearer=login(staff);
+        var created=post(path(staff.branch()),
+                intake("Fictional R110A Revocation"),bearer,idem());
+        assertThat(created.statusCode()).isEqualTo(201);
+        UUID registration=responseId(created.body(),"registrationId");
+
+        admin.update("""
+            DELETE FROM auth_role_permission
+            WHERE tenant_id=? AND permission_code='APPOINTMENT_BOOK'
+            """,staff.tenant());
+        assertThat(getOpdHandoff(staff.branch(),registration,bearer)
+                .statusCode()).isEqualTo(403);
+
+        admin.update("""
+            DELETE FROM auth_role_permission
+            WHERE tenant_id=? AND permission_code='PATIENT_REGISTRATION_READ'
+            """,staff.tenant());
+        assertThat(getOpdHandoff(staff.branch(),registration,bearer)
+                .statusCode()).isEqualTo(403);
+
+        // Restore both *in the disposable fixture only*, then revoke the
+        // assigned branch and the registration entitlement independently.
+        grantOpdHandoff(staff);
+        admin.update("""
+            DELETE FROM org_membership_branch_scope
+            WHERE tenant_id=? AND membership_id=? AND branch_id=?
+            """,staff.tenant(),staff.member(),staff.branch());
+        assertThat(getOpdHandoff(staff.branch(),registration,bearer)
+                .statusCode()).isEqualTo(403);
+        admin.update("""
+            INSERT INTO org_membership_branch_scope
+                (tenant_id,membership_id,branch_id) VALUES(?,?,?)
+            """,staff.tenant(),staff.member(),staff.branch());
+        admin.update("""
+            UPDATE tenant_module_state SET activated=false
+            WHERE tenant_id=? AND module_code='OPD'
+            """,staff.tenant());
+        assertThat(getOpdHandoff(staff.branch(),registration,bearer)
+                .statusCode()).isEqualTo(403);
+        admin.update("""
+            UPDATE tenant_module_state SET activated=true
+            WHERE tenant_id=? AND module_code='OPD'
+            """,staff.tenant());
+        admin.update("""
+            UPDATE tenant_module_state SET activated=false
+            WHERE tenant_id=? AND module_code='PATIENT_REGISTRATION'
+            """,staff.tenant());
+        assertThat(getOpdHandoff(staff.branch(),registration,bearer)
+                .statusCode()).isEqualTo(403);
+        assertThat(count(staff.tenant(),"patient_registration")).isOne();
+        assertThat(count(staff.tenant(),"patient")).isOne();
     }
 
     @Test
