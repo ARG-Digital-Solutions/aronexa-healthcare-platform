@@ -132,6 +132,76 @@ class OpdRestrictedBookingPostgresTests {
            """);
     }
 
+    /**
+     * This route is present ONLY in a disposable JUnit @Import + test profile.
+     * It exercises real bearer auth + production-source command/adapter +
+     * restricted SQL, unlike the older privileged candidate HTTP harness.
+     * It is never on the production Spring component scan or application JAR.
+     */
+    @RestController
+    @Profile("test & opd-restricted-candidate & !dev & !prod")
+    @RequestMapping("/api/v1/branches/{branchId}/opd-restricted/appointments")
+    static final class RestrictedHttpController {
+        private final TenantAuthorization authorization;
+        private final ModuleAccessService modules;
+        private final OpdRegistrationHandoffService handoff;
+
+        RestrictedHttpController(TenantAuthorization authorization,
+                ModuleAccessService modules,OpdRegistrationHandoffService handoff) {
+            this.authorization=authorization;
+            this.modules=modules;
+            this.handoff=handoff;
+        }
+
+        record Book(UUID registrationId,UUID doctorMembershipId,
+                LocalDate visitDate,LocalTime slotStart,UUID requestId) {}
+        record CheckIn(int expectedRevision,UUID requestId) {}
+        record Failure(String code) {}
+
+        private OpdBookingCommand command() {
+            var adapter=restrictedAdapter;
+            if(adapter==null) throw new IllegalStateException("Test PG17 adapter not initialized");
+            return new OpdBookingCommand(authorization,modules,handoff,adapter);
+        }
+
+        @PostMapping
+        ResponseEntity<OpdBookingCommand.BookingReceipt> book(
+                @PathVariable UUID branchId,@RequestBody Book req) {
+            var result=command().book(new OpdBookingCommand.BookingRequest(
+                    branchId,req.registrationId(),req.doctorMembershipId(),
+                    req.visitDate(),req.slotStart(),req.requestId()));
+            return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(result);
+        }
+
+        @PostMapping("/{appointmentId}/check-in")
+        ResponseEntity<OpdBookingCommand.BookingReceipt> checkIn(
+                @PathVariable UUID branchId,@PathVariable UUID appointmentId,
+                @RequestBody CheckIn req) {
+            var result=command().checkIn(new OpdBookingCommand.CheckInRequest(
+                    branchId,appointmentId,req.expectedRevision(),req.requestId()));
+            return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(result);
+        }
+
+        @ExceptionHandler(AccessDeniedException.class)
+        ResponseEntity<Failure> denied(AccessDeniedException ignored) {
+            return ResponseEntity.status(403).cacheControl(CacheControl.noStore())
+                    .body(new Failure("OPD_ACCESS_DENIED"));
+        }
+
+        @ExceptionHandler(OpdRestrictedSqlAdapter.Rejected.class)
+        ResponseEntity<Failure> sqlDenied(OpdRestrictedSqlAdapter.Rejected ignored) {
+            return ResponseEntity.status(409).cacheControl(CacheControl.noStore())
+                    .body(new Failure("OPD_COMMAND_REJECTED"));
+        }
+
+        @ExceptionHandler({OpdBookingCommand.InvalidBooking.class,
+                           IllegalArgumentException.class})
+        ResponseEntity<Failure> invalid(RuntimeException ignored) {
+            return ResponseEntity.badRequest().cacheControl(CacheControl.noStore())
+                    .body(new Failure("INVALID_OPD_REQUEST"));
+        }
+    }
+
     record Fixture(UUID tenant,UUID branch,UUID registration,UUID patient,
                    UUID staff,UUID session,UUID doctor,
                    String tenantCode,String username) {}
