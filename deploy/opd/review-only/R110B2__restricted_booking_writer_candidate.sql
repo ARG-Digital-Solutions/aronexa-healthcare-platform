@@ -11,6 +11,8 @@ CREATE ROLE aronexa_opd_runtime NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE
   NOINHERIT NOREPLICATION NOBYPASSRLS;
 GRANT USAGE ON SCHEMA public,opd_candidate TO aronexa_opd_writer;
 GRANT USAGE ON SCHEMA opd_candidate TO aronexa_opd_runtime;
+GRANT EXECUTE ON FUNCTION public.aronexa_current_tenant_id()
+  TO aronexa_opd_writer;
 
 CREATE TABLE opd_candidate.command_key (
   id integer PRIMARY KEY CHECK(id>0),
