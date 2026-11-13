@@ -11,6 +11,7 @@ import type {RegistrationReference} from '../registrationReferenceClient.ts';
 import {createRegistrationRecoveryFlow} from '../registrationRecoveryFlow.ts';
 import {createAppointmentCandidateFlow, loadAppointmentCandidateQueue,
   type AppointmentCandidateReceipt} from '../appointmentCandidateClient.ts';
+import {summarizeReceptionQueue} from '../receptionQueueSummary.ts';
 import './connected-reception.css';
 
 type Screen='SIGN_IN'|'PATIENT_DETAILS'|'REVIEW'|'UNRESOLVED'|'REGISTERED'|'RECOVERY_LOOKUP'|'REFERENCE_FOUND'|'APPOINTMENT'|'APPOINTMENT_BOOKED'|'APPOINTMENT_QUEUE';
@@ -419,6 +420,7 @@ export default function ConnectedReceptionPreview(){
     if(token)void revokeStaffToken(token);
   }
 
+  const queueSummary=queueLoaded?summarizeReceptionQueue(queueRows):null;
   const active=screen!=='SIGN_IN';
   return <div className="connected-shell">
     <header className="connected-header">
@@ -646,11 +648,20 @@ export default function ConnectedReceptionPreview(){
           <form onSubmit={loadQueue}>
             <label htmlFor="queue-day">Clinic visit date</label>
             <input id="queue-day" type="date" required
-              value={queueDate} onChange={e=>setQueueDate(e.target.value)}/>
+              value={queueDate} onChange={e=>{
+                setQueueDate(e.target.value);
+                setQueueRows([]);
+                setQueueLoaded(false);
+              }}/>
             <button className="solid" type="submit" disabled={busy}>
               {busy?'Loading daily queue…':'Load daily queue'}
             </button>
           </form>
+          {queueSummary&&<div className="connected-queue-totals" role="status" aria-label="Verified daily queue totals">
+            <strong>Total: {queueSummary.total}</strong>
+            <span>Waiting: {queueSummary.booked}</span>
+            <span>Checked in: {queueSummary.checkedIn}</span>
+          </div>}
           {queueLoaded&&queueRows.length===0&&
             <p role="status">No active appointments for this date.</p>}
           {queueLoaded&&queueRows.length>0&&
