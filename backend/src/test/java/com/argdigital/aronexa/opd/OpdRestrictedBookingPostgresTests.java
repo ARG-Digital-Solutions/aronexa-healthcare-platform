@@ -338,6 +338,46 @@ class OpdRestrictedBookingPostgresTests {
     }
 
     @Test
+    void wrongSqlIdentityOrMissingProofKeyNeverConstructsRuntimeWriter() {
+        assertThatThrownBy(()->new OpdRestrictedSqlAdapter(
+                admin.getDataSource(),hmacKey,1,java.time.Clock.systemUTC()))
+            .isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(()->new OpdRestrictedSqlAdapter(
+                new DriverManagerDataSource(pg.getJdbcUrl(),
+                    "aronexa_opd_runtime",runtimePassword),
+                null,1,java.time.Clock.systemUTC()))
+            .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void branchOrModuleRevocationAndUnassignedDoctorDenyBeforeWrite() {
+        Fixture a=fixture();
+        admin.update("""
+            UPDATE public.tenant_module_state
+               SET activated=false
+             WHERE tenant_id=? AND module_code='OPD'
+            """,a.tenant());
+        assertThatThrownBy(()->book(a,UUID.randomUUID(),UUID.randomUUID()))
+            .isInstanceOf(DataAccessException.class);
+
+        Fixture b=fixture();
+        admin.update("""
+            DELETE FROM public.org_membership_branch_scope
+            WHERE tenant_id=? AND membership_id=? AND branch_id=?
+            """,b.tenant(),b.staff(),b.branch());
+        assertThatThrownBy(()->book(b,UUID.randomUUID(),UUID.randomUUID()))
+            .isInstanceOf(DataAccessException.class);
+
+        Fixture c=fixture();
+        admin.update("""
+            DELETE FROM public.auth_membership_role
+            WHERE tenant_id=? AND membership_id=?
+            """,c.tenant(),c.doctor());
+        assertThatThrownBy(()->book(c,UUID.randomUUID(),UUID.randomUUID()))
+            .isInstanceOf(DataAccessException.class);
+    }
+
+    @Test
     void revocationPreventsBookingAndCheckInEvenWithValidSignedCommand(){
         Fixture f=fixture();
         UUID id=UUID.randomUUID();
