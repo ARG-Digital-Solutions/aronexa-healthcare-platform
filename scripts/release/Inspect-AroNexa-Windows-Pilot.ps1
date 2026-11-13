@@ -56,7 +56,7 @@ Add-Gate 'REL-01' 'Customer-specific owner release GO' 'BLOCKED' 'No customer in
 $blocked=@($checks | Where-Object {$_.status -eq 'BLOCKED'})
 $report=[ordered]@{
  schemaVersion=1
- product='AroNexa Clinic Edition — Windows offline pilot'
+ product='AroNexa Clinic Edition - Windows offline pilot'
  sourceCommit=$actual
  inspection='READ_ONLY_SOURCE_INVENTORY'
  candidateEvidence='R1-08 owner-reported 277/277 backend and 10/10 mocked browser PASS on accepted prior commit; not real-world release evidence.'
@@ -78,7 +78,7 @@ if($AsJson){
  Write-Host ("AroNexa Windows pilot NO-GO: {0} blocked gates" -f $blocked.Count) -ForegroundColor Yellow
  Write-Host "Source SHA: $actual"
  foreach($g in $checks){
-  Write-Host ("{0}: {1} — {2}" -f $g.id,$g.status,$g.title)
+  Write-Host ("{0}: {1} - {2}" -f $g.id,$g.status,$g.title)
   if($g.status -eq 'BLOCKED'){Write-Host ("    Next: " + $g.nextAction)}
  }
  Write-Host 'Read-only inspection finished. No clinical deployment authorized.'
