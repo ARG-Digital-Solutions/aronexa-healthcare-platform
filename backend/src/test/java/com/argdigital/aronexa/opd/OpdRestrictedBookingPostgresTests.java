@@ -7,6 +7,7 @@ import java.nio.file.Path;
 import java.security.SecureRandom;
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.SQLException;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
@@ -50,6 +51,7 @@ class OpdRestrictedBookingPostgresTests {
     @Autowired JdbcTemplate admin;
     private JdbcTemplate limited;
     private byte[] hmacKey;
+    private String runtimePassword;
     private final LocalDate day=LocalDate.of(2026,11,13);
     private final LocalTime slot=LocalTime.of(10,0);
 
@@ -86,6 +88,7 @@ class OpdRestrictedBookingPostgresTests {
         byte[] raw=new byte[24];
         new SecureRandom().nextBytes(raw);
         String password=HexFormat.of().formatHex(raw);
+        runtimePassword=password;
         admin.execute("ALTER ROLE aronexa_opd_runtime LOGIN PASSWORD '"+password+"'");
         limited=new JdbcTemplate(new DriverManagerDataSource(
                 pg.getJdbcUrl(),"aronexa_opd_runtime",password));
@@ -246,7 +249,7 @@ class OpdRestrictedBookingPostgresTests {
     }
 
     @Test
-    void stolenRuntimeLoginCannotReadOrModifyTablesEvenWithForgedTenantGuc(){
+    void stolenRuntimeLoginCannotReadOrModifyTablesEvenWithForgedTenantGuc() throws Exception {
         Fixture f=fixture();
         assertThatThrownBy(()->limited.queryForList("""
             SELECT * FROM opd_candidate.appointment
@@ -255,11 +258,17 @@ class OpdRestrictedBookingPostgresTests {
             INSERT INTO opd_candidate.command_key(id,secret,expires_at)
             VALUES(7,?,clock_timestamp()+interval '1 hour')
             """,hmacKey)).isInstanceOf(DataAccessException.class);
-        assertThatThrownBy(()->limited.execute("""
-            SELECT set_config('aronexa.tenant_id','"""+f.tenant()+"""',true);
-            INSERT INTO opd_candidate.appointment(id) VALUES
-              ('00000000-0000-0000-0000-000000000001')
-            """)).isInstanceOf(DataAccessException.class);
+        // Even after spoofing a tenant GUC, the restricted LOGIN has no DML.
+        try(Connection connection=DriverManager.getConnection(pg.getJdbcUrl(),
+                "aronexa_opd_runtime",runtimePassword);
+            var statement=connection.createStatement()){
+            statement.execute("SELECT set_config('aronexa.tenant_id','"
+                    +f.tenant()+"',false)");
+            assertThatThrownBy(()->statement.executeUpdate(
+                    "INSERT INTO opd_candidate.appointment(id) VALUES "
+                    +"('00000000-0000-0000-0000-000000000001')"))
+                .isInstanceOf(SQLException.class);
+        }
         assertThat(admin.queryForObject("""
             SELECT rolbypassrls OR rolsuper FROM pg_catalog.pg_roles
             WHERE rolname='aronexa_opd_runtime'
