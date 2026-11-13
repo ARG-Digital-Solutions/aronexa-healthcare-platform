@@ -147,6 +147,19 @@ class PatientAccessServiceIntegrationTests {
                 new UsernamePasswordAuthenticationToken(principal,null,List.of()));
     }
 
+    private void activateSyntheticOpdModule(UUID tenant) {
+        // Disposable PostgreSQL fixture only, NEVER a real clinic activation.
+        admin.update("""
+            UPDATE module_registry SET implemented=true,released=true
+            WHERE code='OPD'
+            """);
+        admin.update("""
+            INSERT INTO tenant_module_state
+                (tenant_id,module_code,entitled,activated,clinically_authorized)
+            VALUES (?,'OPD',true,true,true)
+            """,tenant);
+    }
+
     private void asOpdBookingActor(UUID tenant,UUID membership,
                                    boolean forcedPassword,String... permissions) {
         AuthPrincipal principal=new AuthPrincipal(UUID.randomUUID(),tenant,membership,
@@ -160,6 +173,7 @@ class PatientAccessServiceIntegrationTests {
     void r110aHandoffResolvesExactPatientUnderRestrictedPostgresRoleAndAudits() {
         Fixture f=fixture();
         activateSyntheticRegistrationModule(f.tenantA());
+        activateSyntheticOpdModule(f.tenantA());
         asOpdBookingActor(f.tenantA(),f.memberA(),false,
                 "APPOINTMENT_BOOK","PATIENT_REGISTRATION_READ");
         var subject=opdHandoff.resolveForBooking(f.branchA(),f.registrationA());
@@ -181,6 +195,7 @@ class PatientAccessServiceIntegrationTests {
     void r110aHandoffDeniesCrossBranchTenantForgedRegistrationAndMissingPermissions() {
         Fixture f=fixture();
         activateSyntheticRegistrationModule(f.tenantA());
+        activateSyntheticOpdModule(f.tenantA());
         asOpdBookingActor(f.tenantA(),f.memberA(),false,
                 "APPOINTMENT_BOOK","PATIENT_REGISTRATION_READ");
         assertThatThrownBy(()->opdHandoff.resolveForBooking(
@@ -229,6 +244,7 @@ class PatientAccessServiceIntegrationTests {
     void r110aHandoffRechecksBranchAndModuleRevocationWithoutReusingPriorResult() {
         Fixture f=fixture();
         activateSyntheticRegistrationModule(f.tenantA());
+        activateSyntheticOpdModule(f.tenantA());
         asOpdBookingActor(f.tenantA(),f.memberA(),false,
                 "APPOINTMENT_BOOK","PATIENT_REGISTRATION_READ");
         var first=opdHandoff.resolveForBooking(f.branchA(),f.registrationA());
@@ -245,6 +261,18 @@ class PatientAccessServiceIntegrationTests {
         assign(f.tenantA(),f.memberA(),f.branchA());
         assertThat(opdHandoff.resolveForBooking(
                 f.branchA(),f.registrationA()).patientId()).isEqualTo(f.patientA());
+
+        admin.update("""
+            UPDATE public.tenant_module_state SET activated=false
+            WHERE tenant_id=? AND module_code='OPD'
+            """,f.tenantA());
+        assertThatThrownBy(()->opdHandoff.resolveForBooking(
+                f.branchA(),f.registrationA()))
+                .isInstanceOf(AccessDeniedException.class);
+        admin.update("""
+            UPDATE public.tenant_module_state SET activated=true
+            WHERE tenant_id=? AND module_code='OPD'
+            """,f.tenantA());
 
         admin.update("""
             UPDATE public.tenant_module_state SET activated=false
