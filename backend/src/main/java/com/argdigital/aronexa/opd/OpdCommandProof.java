@@ -23,14 +23,16 @@ public final class OpdCommandProof {
     public static String booking(byte[] secret,int keyId,
             UUID tenant,UUID member,UUID session,UUID branch,
             UUID registration,UUID patient,UUID doctor,LocalDate date,
-            LocalTime slot,UUID requestId,UUID nonce,long expires) {
+            LocalTime slot,UUID requestId,UUID createdAppointmentId,
+            UUID nonce,long expires) {
         return sign(secret,keyId,expires,
                 "ARONEXA-OPD-BOOK-V1",Integer.toString(keyId),
                 str(tenant),str(member),str(session),str(branch),
                 str(registration),str(patient),str(doctor),
                 date==null?null:date.toString(),
                 slot==null?null:SLOT.format(slot),
-                str(requestId),str(nonce),Long.toString(expires));
+                str(requestId),str(createdAppointmentId),str(nonce),
+                Long.toString(expires));
     }
 
     public static String checkIn(byte[] secret,int keyId,
