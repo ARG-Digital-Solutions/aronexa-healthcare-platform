@@ -5,6 +5,12 @@ import static org.assertj.core.api.Assertions.*;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.SecureRandom;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
@@ -17,6 +23,17 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.ApplicationContext;
+import org.springframework.context.annotation.Import;
+import org.springframework.context.annotation.Profile;
+import org.springframework.http.CacheControl;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.web.bind.annotation.*;
+import com.argdigital.aronexa.auth.TenantAuthorization;
+import com.argdigital.aronexa.moduleregistry.ModuleAccessService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
@@ -36,8 +53,10 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
  * Uses independent LOGIN and random ephemeral key; no production Flyway,
  * clinic database, developer login or publicly routable HTTP endpoint.
  */
-@SpringBootTest
-@ActiveProfiles("test")
+@SpringBootTest(webEnvironment=SpringBootTest.WebEnvironment.RANDOM_PORT,
+        properties={"server.address=127.0.0.1","server.error.include-message=never"})
+@ActiveProfiles({"test","opd-restricted-candidate"})
+@Import(OpdRestrictedBookingPostgresTests.RestrictedHttpController.class)
 @Testcontainers
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class OpdRestrictedBookingPostgresTests {
@@ -49,6 +68,11 @@ class OpdRestrictedBookingPostgresTests {
             .withPassword("testcontainer-only-not-production");
 
     @Autowired JdbcTemplate admin;
+    @Autowired PasswordEncoder passwords;
+    @Autowired ApplicationContext application;
+    @Value("$"+"{local.server.port}") int port;
+    final HttpClient http=HttpClient.newHttpClient();
+    private static volatile OpdRestrictedSqlAdapter restrictedAdapter;
     private JdbcTemplate limited;
     private byte[] hmacKey;
     private String runtimePassword;
@@ -90,26 +114,35 @@ class OpdRestrictedBookingPostgresTests {
         String password=HexFormat.of().formatHex(raw);
         runtimePassword=password;
         admin.execute("ALTER ROLE aronexa_opd_runtime LOGIN PASSWORD '"+password+"'");
-        limited=new JdbcTemplate(new DriverManagerDataSource(
-                pg.getJdbcUrl(),"aronexa_opd_runtime",password));
+        var restricted=new DriverManagerDataSource(
+                pg.getJdbcUrl(),"aronexa_opd_runtime",password);
+        limited=new JdbcTemplate(restricted);
+        restrictedAdapter=new OpdRestrictedSqlAdapter(restricted,hmacKey,1,
+                java.time.Clock.systemUTC());
+        assertThat(application.getBeansOfType(RestrictedHttpController.class)).hasSize(1);
         admin.update("""
             INSERT INTO public.auth_permission(code,description) VALUES
              ('APPOINTMENT_BOOK','Disposable R110B2 book test'),
              ('APPOINTMENT_CHECK_IN','Disposable R110B2 check-in test')
             ON CONFLICT(code) DO NOTHING
             """);
-        admin.update("UPDATE public.module_registry SET implemented=true,released=true WHERE code='OPD'");
+        admin.update("""
+           UPDATE public.module_registry SET implemented=true,released=true
+           WHERE code IN ('OPD','PATIENT_REGISTRATION')
+           """);
     }
 
     record Fixture(UUID tenant,UUID branch,UUID registration,UUID patient,
-                   UUID staff,UUID session,UUID doctor) {}
+                   UUID staff,UUID session,UUID doctor,
+                   String tenantCode,String username) {}
 
     private UUID user(UUID tenant) {
         UUID user=UUID.randomUUID(),member=UUID.randomUUID();
         admin.update("""
             INSERT INTO public.app_user(id,username,password_hash,must_change_password)
             VALUES (?,?,?,false)
-            """,user,"b2_"+user.toString().substring(0,12),"fictional-password-never-used");
+            """,user,"b2_"+user.toString().substring(0,12),
+            passwords.encode("FixtureOnlyR110B3A-Password_321!"));
         admin.update("""
             INSERT INTO public.user_tenant_membership(id,user_id,tenant_id)
             VALUES(?,?,?)
@@ -121,13 +154,15 @@ class OpdRestrictedBookingPostgresTests {
         UUID tenant=UUID.randomUUID(),facility=UUID.randomUUID();
         UUID branch=UUID.randomUUID(),patient=UUID.randomUUID();
         UUID registration=UUID.randomUUID(),session=UUID.randomUUID();
+        String tenantCode="b2_"+tenant.toString().substring(0,10);
         admin.update("INSERT INTO public.tenant(id,code,display_name) VALUES(?,?,?)",
-                tenant,"b2_"+tenant.toString().substring(0,10),"FICTIONAL tenant");
+                tenant,tenantCode,"FICTIONAL tenant");
         admin.update("""
             INSERT INTO public.tenant_module_state
               (tenant_id,module_code,entitled,activated,clinically_authorized)
-            VALUES (?,'OPD',true,true,true)
-            """,tenant);
+            VALUES (?,'OPD',true,true,true),
+                   (?,'PATIENT_REGISTRATION',true,true,true)
+            """,tenant,tenant);
         admin.update("""
             INSERT INTO public.facility(id,tenant_id,code,display_name,facility_kind)
             VALUES (?,?,?,'FICTIONAL facility','CLINIC')
@@ -137,6 +172,11 @@ class OpdRestrictedBookingPostgresTests {
             VALUES (?,?,?,?,'FICTIONAL branch')
             """,branch,tenant,facility,"b_"+branch.toString().substring(0,8));
         UUID staff=user(tenant),doctor=user(tenant);
+        String username=admin.queryForObject("""
+            SELECT u.username FROM public.app_user u
+            JOIN public.user_tenant_membership m ON m.user_id=u.id
+            WHERE m.tenant_id=? AND m.id=?
+            """,String.class,tenant,staff);
         UUID receptionRole=UUID.randomUUID(),doctorRole=UUID.randomUUID();
         admin.update("""
             INSERT INTO public.auth_role(id,tenant_id,code,display_name)
@@ -156,8 +196,10 @@ class OpdRestrictedBookingPostgresTests {
             """,tenant,doctor,doctorRole);
         admin.update("""
             INSERT INTO public.auth_role_permission(tenant_id,role_id,permission_code)
-            VALUES (?,?,'APPOINTMENT_BOOK'),(?,?,'APPOINTMENT_CHECK_IN')
-            """,tenant,receptionRole,tenant,receptionRole);
+            VALUES (?,?,'APPOINTMENT_BOOK'),
+                   (?,?,'APPOINTMENT_CHECK_IN'),
+                   (?,?,'PATIENT_REGISTRATION_READ')
+            """,tenant,receptionRole,tenant,receptionRole,tenant,receptionRole);
         admin.update("""
             INSERT INTO public.org_membership_branch_scope
               (tenant_id,membership_id,branch_id)
@@ -180,7 +222,8 @@ class OpdRestrictedBookingPostgresTests {
                registered_by_membership_id)
             VALUES (?,?,?,?,'RECEPTION',?)
             """,registration,tenant,patient,branch,staff);
-        return new Fixture(tenant,branch,registration,patient,staff,session,doctor);
+        return new Fixture(tenant,branch,registration,patient,staff,session,
+                doctor,tenantCode,username);
     }
 
     private Map<String,Object> book(Fixture f,UUID request,UUID appointment,
