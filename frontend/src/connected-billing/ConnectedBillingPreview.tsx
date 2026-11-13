@@ -10,7 +10,7 @@ import './billing-preview.css';
 
 type Credentials={tenantCode:string;username:string;password:string};
 const blank=():Credentials=>({tenantCode:'',username:'',password:''});
-const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 function todayClinic(){
   const parts=new Intl.DateTimeFormat('en-GB',{
     timeZone:'Asia/Kolkata',year:'numeric',month:'2-digit',day:'2-digit',
