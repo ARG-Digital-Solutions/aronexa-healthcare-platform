@@ -13,6 +13,10 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.ExecutionException;
 import java.sql.SQLException;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -24,6 +28,9 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.builder.SpringApplicationBuilder;
+import org.springframework.context.ConfigurableApplicationContext;
+import com.argdigital.aronexa.AronexaApplication;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.Profile;
@@ -103,6 +110,7 @@ class OpdRestrictedBookingPostgresTests {
     void stageStrictlyDisposableRolesAndSchema() throws Exception {
         executeOnlyInTestcontainer("V11__opd_appointment_schema_candidate.sql");
         executeOnlyInTestcontainer("R110B2__restricted_booking_writer_candidate.sql");
+        executeOnlyInTestcontainer("R110B3B__ordered_session_gate_candidate.sql");
         hmacKey=new byte[32];
         new SecureRandom().nextBytes(hmacKey);
         admin.update("""
@@ -140,6 +148,35 @@ class OpdRestrictedBookingPostgresTests {
            UPDATE public.module_registry SET implemented=true,released=true
            WHERE code IN ('OPD','PATIENT_REGISTRATION')
            """);
+    }
+
+    /**
+     * Fresh, independent Spring Boot application context uses only the same
+     * disposable Testcontainers PG17 URL; NO local Windows or shared DB.
+     * This is context STOP/REBUILD, not a JVM or installer process restart.
+     */
+    private ConfigurableApplicationContext startIsolatedSpringContext() {
+        return new SpringApplicationBuilder(
+                AronexaApplication.class,
+                OpdDisposableRestartDatabaseConfiguration.class,
+                RestrictedHttpController.class)
+            .profiles("test","opd-restricted-candidate")
+            .properties("aronexa.testonly.restart.jdbc-url="+pg.getJdbcUrl(),
+                        "aronexa.testonly.restart.username="+pg.getUsername(),
+                        "aronexa.testonly.restart.password="+pg.getPassword(),
+                        "server.address=127.0.0.1",
+                        "server.port=0",
+                        "spring.main.banner-mode=off",
+                        "server.error.include-message=never")
+            .run();
+    }
+
+    private static int portOf(ConfigurableApplicationContext ctx) {
+        Integer bound=ctx.getEnvironment().getProperty("local.server.port",Integer.class);
+        if(bound==null || bound<1) {
+            throw new IllegalStateException("Isolated Spring Boot server did not bind");
+        }
+        return bound;
     }
 
     /**
@@ -522,6 +559,266 @@ class OpdRestrictedBookingPostgresTests {
             SELECT count(*) FROM opd_candidate.appointment_event
             WHERE appointment_id=?
             """,Integer.class,booked.appointmentId())).isEqualTo(2);
+    }
+
+    /**
+     * Make authorization race reproducible using two REAL PostgreSQL
+     * transactions. The admin session holds a conflicting session-row lock;
+     * the restricted SQL writer MUST wait until revocation commits and then
+     * re-evaluate live auth instead of using pre-lock permission state.
+     *
+     * This does not certify unrelated admin paths that revoke permissions
+     * without this locking protocol. Those are still release blockers.
+     */
+    private void assertQueuedBookingRejected(Fixture f,String revocationSql,
+                                              UUID... bindings) throws Exception {
+        var thread=Executors.newSingleThreadExecutor();
+        UUID bookingId=UUID.randomUUID();
+        UUID request=UUID.randomUUID();
+        try(Connection adminTx=DriverManager.getConnection(pg.getJdbcUrl(),
+                pg.getUsername(),pg.getPassword())) {
+            adminTx.setAutoCommit(false);
+            int adminPid;
+            try(PreparedStatement lock=adminTx.prepareStatement(
+                    "SELECT id FROM public.auth_session WHERE id=? FOR UPDATE")) {
+                lock.setObject(1,f.session());
+                try(var rs=lock.executeQuery()) {
+                    assertThat(rs.next()).isTrue();
+                }
+            }
+            try(var statement=adminTx.createStatement();
+                var rs=statement.executeQuery("SELECT pg_backend_pid()")) {
+                assertThat(rs.next()).isTrue();
+                adminPid=rs.getInt(1);
+            }
+            var future=thread.submit(() -> {
+                book(f,request,bookingId);
+                return true;
+            });
+            boolean observedBlocked=false;
+            try {
+                // Inspect actual PostgreSQL lock wait, not just scheduling.
+                for(int n=0;n<100;n++) {
+                    boolean blocked=Boolean.TRUE.equals(admin.queryForObject("""
+                        SELECT EXISTS(
+                         SELECT 1 FROM pg_catalog.pg_stat_activity activity
+                         WHERE activity.pid<>pg_backend_pid()
+                           AND ?=ANY(pg_catalog.pg_blocking_pids(activity.pid)))
+                        """,Boolean.class,adminPid));
+                    if(blocked) {
+                        observedBlocked=true;
+                        break;
+                    }
+                    if(future.isDone()) break;
+                    Thread.sleep(75);
+                }
+                assertThat(observedBlocked)
+                        .as("Restricted PG17 booking must wait for admin session-row lock")
+                        .isTrue();
+                try(PreparedStatement revoked=adminTx.prepareStatement(revocationSql)){
+                    for(int n=0;n<bindings.length;n++){
+                        revoked.setObject(n+1,bindings[n]);
+                    }
+                    assertThat(revoked.executeUpdate()).isPositive();
+                }
+                adminTx.commit();
+                assertThatThrownBy(() -> future.get(15,TimeUnit.SECONDS))
+                    .isInstanceOf(ExecutionException.class)
+                    .hasCauseInstanceOf(DataAccessException.class);
+                assertThat(admin.queryForObject("""
+                    SELECT count(*) FROM opd_candidate.appointment
+                     WHERE tenant_id=? AND id=?
+                    """,Integer.class,f.tenant(),bookingId)).isZero();
+            } finally {
+                if(!adminTx.getAutoCommit()) {
+                    try {adminTx.rollback();} catch(Exception ignored) {}
+                }
+                future.cancel(true);
+            }
+        } finally {
+            thread.shutdownNow();
+        }
+    }
+
+    @Test
+    void concurrentSessionLogoutWinsBeforeQueuedBookingCanAuthorize()
+            throws Exception {
+        Fixture f=fixture();
+        assertQueuedBookingRejected(f,
+                "UPDATE public.auth_session SET revoked_at=clock_timestamp() WHERE id=?",
+                f.session());
+    }
+
+    @Test
+    void concurrentRoleRemovalWinsBeforeQueuedBookingCanAuthorize()
+            throws Exception {
+        Fixture f=fixture();
+        assertQueuedBookingRejected(f, """
+             DELETE FROM public.auth_role_permission rp
+              USING public.auth_membership_role assigned
+              WHERE rp.tenant_id=assigned.tenant_id
+                AND rp.role_id=assigned.role_id
+                AND assigned.tenant_id=?
+                AND assigned.membership_id=?
+                AND rp.permission_code='APPOINTMENT_BOOK'
+             """,f.tenant(),f.staff());
+    }
+
+    @Test
+    void concurrentBranchRemovalWinsBeforeQueuedBookingCanAuthorize()
+            throws Exception {
+        Fixture f=fixture();
+        assertQueuedBookingRejected(f, """
+             DELETE FROM public.org_membership_branch_scope
+             WHERE tenant_id=? AND membership_id=? AND branch_id=?
+             """,f.tenant(),f.staff(),f.branch());
+    }
+
+    @Test
+    void concurrentModuleDisableWinsBeforeQueuedBookingCanAuthorize()
+            throws Exception {
+        Fixture f=fixture();
+        assertQueuedBookingRejected(f, """
+             UPDATE public.tenant_module_state SET activated=false
+              WHERE tenant_id=? AND module_code='OPD'
+             """,f.tenant());
+    }
+
+    @Test
+    void auditEffectiveSqlRolesFunctionOwnersAndNoDirectRuntimeDataAccess() {
+        assertThat(admin.queryForObject("""
+            SELECT rolsuper OR rolbypassrls OR rolcreaterole
+                   OR rolcreatedb OR rolreplication OR rolinherit OR rolcanlogin
+            FROM pg_catalog.pg_roles WHERE rolname='aronexa_opd_writer'
+            """,Boolean.class)).isFalse();
+        assertThat(admin.queryForObject("""
+            SELECT rolsuper OR rolbypassrls OR rolcreaterole
+                   OR rolcreatedb OR rolreplication OR rolinherit
+            FROM pg_catalog.pg_roles WHERE rolname='aronexa_opd_runtime'
+            """,Boolean.class)).isFalse();
+        for(String table:java.util.List.of(
+                "opd_candidate.appointment",
+                "opd_candidate.appointment_event",
+                "opd_candidate.command_key",
+                "opd_candidate.command_nonce",
+                "opd_candidate.checkin_request",
+                "public.patient_registration",
+                "public.patient_contact",
+                "public.auth_session")) {
+            for(String privilege:java.util.List.of(
+                    "SELECT","INSERT","UPDATE","DELETE")) {
+                assertThat(admin.queryForObject("""
+                    SELECT has_table_privilege('aronexa_opd_runtime',?,?)
+                    """,Boolean.class,table,privilege))
+                    .as("No direct runtime "+privilege+" on "+table)
+                    .isFalse();
+            }
+        }
+        for(String name:java.util.List.of("book_guarded","checkin_guarded")){
+            assertThat(admin.queryForObject("""
+                SELECT p.prosecdef AND p.proowner='aronexa_opd_writer'::regrole
+                FROM pg_catalog.pg_proc p
+                WHERE p.pronamespace='opd_candidate'::regnamespace
+                  AND p.proname=?
+                """,Boolean.class,name)).isTrue();
+        }
+        assertThat(admin.queryForObject("""
+            SELECT has_function_privilege('aronexa_opd_runtime',
+              'opd_candidate.require_live_staff(uuid,uuid,uuid,uuid,text)'
+                ::regprocedure,'EXECUTE')
+            """,Boolean.class)).isFalse();
+        assertThat(admin.queryForObject("""
+            SELECT has_schema_privilege('aronexa_opd_runtime',
+                  'opd_candidate','CREATE')
+            """,Boolean.class)).isFalse();
+        assertThat(admin.queryForObject("""
+            SELECT has_table_privilege('aronexa_opd_writer',
+                  'public.patient_contact','SELECT')
+            """,Boolean.class)).isFalse();
+    }
+
+    private HttpResponse<String> isolatedPost(int isolatedPort,String url,
+                                               String body,String token) throws Exception {
+        var builder=HttpRequest.newBuilder(URI.create(
+                "http://127.0.0.1:"+isolatedPort+url))
+            .header("Content-Type","application/json")
+            .POST(HttpRequest.BodyPublishers.ofString(body));
+        if(token!=null) builder.header("Authorization","Bearer "+token);
+        return http.send(builder.build(),HttpResponse.BodyHandlers.ofString());
+    }
+
+    private String isolatedLogin(int isolatedPort,Fixture f) throws Exception {
+        var login=isolatedPost(isolatedPort,"/api/v1/auth/login",
+                "{\"tenantCode\":\""+f.tenantCode()+"\",\"username\":\""
+                +f.username()+"\",\"password\":\""+FIXTURE_PASSWORD+"\"}",null);
+        assertThat(login.statusCode()).as("Fresh Spring context authenticates").isEqualTo(200);
+        var matcher=Pattern.compile(
+                "\"accessToken\"\\s*:\\s*\"([A-Za-z0-9_-]{43})\"")
+                .matcher(login.body());
+        assertThat(matcher.find()).isTrue();
+        String token=matcher.group(1);
+        var me=http.send(HttpRequest.newBuilder(
+                URI.create("http://127.0.0.1:"+isolatedPort+"/api/v1/auth/me"))
+                .header("Authorization","Bearer "+token).GET().build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertThat(me.statusCode()).isEqualTo(200);
+        return token;
+    }
+
+    @Test
+    void separateSpringContextStopAndRebuildKeepsAppointmentInRestrictedPg17()
+            throws Exception {
+        Fixture f=fixture();
+        UUID request=UUID.randomUUID();
+        String path="/api/v1/branches/"+f.branch()
+                +"/opd-restricted/appointments";
+        UUID appointmentId;
+        String oldToken;
+        int firstPort;
+
+        // Each instance is a NEW Spring Boot application context and a
+        // separately bootstrapped HTTP server. Its datastore is always the
+        // same automatically disposable PG17 Testcontainer, never Windows DB.
+        try(var first=startIsolatedSpringContext()) {
+            firstPort=portOf(first);
+            oldToken=isolatedLogin(firstPort,f);
+            var booked=isolatedPost(firstPort,path,bookingJson(f,request),oldToken);
+            assertThat(booked.statusCode()).as(booked.body()).isEqualTo(200);
+            appointmentId=receiptId(booked.body());
+            assertThat(booked.body()).contains("\"stage\":\"BOOKED\"");
+        } // Close entire Spring Boot context, web server and its JDBC pools.
+
+        assertThat(admin.queryForObject("""
+            SELECT count(*) FROM opd_candidate.appointment
+             WHERE id=? AND tenant_id=? AND status='BOOKED'
+            """,Integer.class,appointmentId,f.tenant())).isEqualTo(1);
+
+        try(var second=startIsolatedSpringContext()) {
+            int secondPort=portOf(second);
+            String newToken=isolatedLogin(secondPort,f);
+            assertThat(newToken).isNotEqualTo(oldToken);
+            var recovered=isolatedPost(secondPort,path,bookingJson(f,request),newToken);
+            assertThat(recovered.statusCode()).as(recovered.body()).isEqualTo(200);
+            assertThat(receiptId(recovered.body())).isEqualTo(appointmentId);
+            assertThat(recovered.body()).contains("\"stage\":\"BOOKED\"",
+                    "\"replayed\":true");
+            var checked=isolatedPost(secondPort,path+"/"+appointmentId+"/check-in",
+                    "{\"expectedRevision\":1,\"requestId\":\""
+                    +UUID.randomUUID()+"\"}",newToken);
+            assertThat(checked.statusCode()).as(checked.body()).isEqualTo(200);
+            assertThat(checked.body()).contains("\"stage\":\"CHECKED_IN\"",
+                    "\"revision\":2");
+        }
+
+        assertThat(admin.queryForObject("""
+            SELECT revision FROM opd_candidate.appointment
+            WHERE id=? AND tenant_id=? AND patient_id=? AND registration_id=?
+            """,Integer.class,appointmentId,f.tenant(),f.patient(),
+            f.registration())).isEqualTo(2);
+        assertThat(admin.queryForObject("""
+            SELECT count(*) FROM opd_candidate.appointment_event
+            WHERE appointment_id=?
+            """,Integer.class,appointmentId)).isEqualTo(2);
     }
 
     @Test
