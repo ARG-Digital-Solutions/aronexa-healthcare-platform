@@ -13,10 +13,10 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -112,12 +112,15 @@ final class PatientCandidateSearchController {
         this.service=service;
     }
 
-    @GetMapping
+    /** Search values never belong in URLs, reverse-proxy access logs or history. */
+    public record SearchRequest(String mode,String term) {}
+
+    @PostMapping
     ResponseEntity<List<PatientCandidateSearchService.Match>> find(
-            @PathVariable UUID branchId,
-            @RequestParam String mode,@RequestParam String term) {
+            @PathVariable UUID branchId, @RequestBody SearchRequest input) {
+        if(input==null)throw new IllegalArgumentException("Invalid search request");
         return ResponseEntity.ok().cacheControl(CacheControl.noStore())
-                .body(service.search(branchId,mode,term));
+                .body(service.search(branchId,input.mode(),input.term()));
     }
 
     @org.springframework.web.bind.annotation.ExceptionHandler(IllegalArgumentException.class)
