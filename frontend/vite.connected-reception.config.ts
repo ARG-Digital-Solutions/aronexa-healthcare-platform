@@ -16,6 +16,10 @@ export default defineConfig({
   plugins:[react()],
   server:{host:'127.0.0.1',port:5176,strictPort:true,
     proxy:{'/api/v1':{target:apiTarget,changeOrigin:false}}},
+  // The real-browser acceptance uses the already-built bundle via Vite
+  // Preview, avoiding dev-server transforms and dependency optimization.
+  preview:{host:'127.0.0.1',port:5176,strictPort:true,
+    proxy:{'/api/v1':{target:apiTarget,changeOrigin:false}}},
   build:{outDir:'dist-connected-registration-test',
     rollupOptions:{input:'connected-reception-preview.html'}},
 });
