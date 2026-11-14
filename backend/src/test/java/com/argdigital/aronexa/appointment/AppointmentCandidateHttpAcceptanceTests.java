@@ -1278,6 +1278,11 @@ class AppointmentCandidateHttpAcceptanceTests {
             "node_modules/vite/bin/vite.js"))).isTrue();
         assertThat(Files.isRegularFile(frontend.resolve(
             "test/browser/pilot06-connected-browser.mjs"))).isTrue();
+        // The frontend runner builds the test-only bundle first. Reuse that
+        // exact artifact; never depend on another Vite dev transformation pass.
+        assertThat(Files.isRegularFile(frontend.resolve(
+            "dist-connected-registration-test/connected-reception-preview.html")))
+            .as("PILOT06 STOP: prebuilt connected Reception HTML missing").isTrue();
 
         Fixture f=fixture(true);
         String initialReception=login(f);
@@ -1291,25 +1296,29 @@ class AppointmentCandidateHttpAcceptanceTests {
         assertThat(call("GET",url(f)+"/"+appointment,
                 initialReception,null).statusCode()).isEqualTo(401);
 
-        // Refuse a preexisting local UI on 5176 (could be a different checkout).
+        // A socket check rejects ANY service holding port 5176, including
+        // a hung HTTP service that would not return the previous GET probe.
         boolean occupied=false;
-        try {
-            var response=http.send(HttpRequest.newBuilder(URI.create(
-                "http://127.0.0.1:5176/connected-reception-preview.html"))
-                    .timeout(java.time.Duration.ofSeconds(2)).GET().build(),
-                HttpResponse.BodyHandlers.discarding());
-            occupied=response.statusCode()>0;
-        } catch(java.io.IOException ignored) {
-            // Connection refused is expected if no server is running.
+        try (var probe=new java.net.Socket()) {
+            probe.connect(new java.net.InetSocketAddress(
+                "127.0.0.1",5176),1000);
+            occupied=true;
+        } catch(java.net.ConnectException refused) {
+            // Expected: no listener on the test-only frontend port.
         }
-        assertThat(occupied).as("Port 5176 must be free for this test").isFalse();
+        assertThat(occupied)
+            .as("PILOT06 STOP: port 5176 is already occupied").isFalse();
 
         Process vite=null,browser=null;
         try {
             Path log=Path.of("target","pilot06-vite-test.log").toAbsolutePath();
+            // Vite preview serves the already-built static test candidate.
+            // The explicit preview.proxy in config points only to the
+            // random-port Spring test server, never an installed clinic API.
             var viteCommand=new ProcessBuilder(
                 "node",frontend.resolve("node_modules/vite/bin/vite.js").toString(),
-                "--config","vite.connected-reception.config.ts");
+                "preview","--config","vite.connected-reception.config.ts",
+                "--host","127.0.0.1","--port","5176","--strictPort");
             viteCommand.directory(frontend.toFile());
             viteCommand.environment().put("ARONEXA_PILOT06_API_PORT",
                 Integer.toString(port));
@@ -1317,19 +1326,32 @@ class AppointmentCandidateHttpAcceptanceTests {
             viteCommand.redirectOutput(log.toFile());
             vite=viteCommand.start();
             boolean ready=false;
-            for(int i=0;i<50 && !ready;i++) {
-                assertThat(vite.isAlive()).as("Vite failed to start").isTrue();
+            String lastProbe="No HTTP response";
+            for(int i=0;i<35 && !ready;i++) {
+                if(!vite.isAlive()) {
+                    throw new IllegalStateException(
+                        "PILOT06 Vite preview exited before readiness. Log: "+log);
+                }
                 try {
                     var ping=http.send(HttpRequest.newBuilder(URI.create(
                         "http://127.0.0.1:5176/connected-reception-preview.html"))
-                        .timeout(java.time.Duration.ofSeconds(2)).GET().build(),
-                        HttpResponse.BodyHandlers.discarding());
-                    ready=ping.statusCode()==200;
-                }catch(java.io.IOException ignored) {
-                    Thread.sleep(300);
+                        .timeout(java.time.Duration.ofMillis(1200))
+                        .header("Cache-Control","no-store").GET().build(),
+                        HttpResponse.BodyHandlers.ofString());
+                    ready=ping.statusCode()==200
+                        && ping.body().contains("Connected Reception (Disposable QA Only)");
+                    lastProbe="HTTP "+ping.statusCode()+
+                        (ready?" verified built HTML":" without matching test HTML");
+                } catch(java.io.IOException failure) {
+                    lastProbe=failure.getClass().getSimpleName();
+                } catch(InterruptedException failure) {
+                    Thread.currentThread().interrupt();
+                    throw failure;
                 }
+                if(!ready)Thread.sleep(400);
             }
-            assertThat(ready).as("Loopback Vite never became ready").isTrue();
+            assertThat(ready).as("PILOT06 Vite preview not ready: "+lastProbe
+                +". Inspect local startup log: "+log).isTrue();
             String suffix=f.username().substring("r104_".length());
             String fixtureJson="""
                 {"origin":"http://127.0.0.1:5176/","tenantCode":"%s",
