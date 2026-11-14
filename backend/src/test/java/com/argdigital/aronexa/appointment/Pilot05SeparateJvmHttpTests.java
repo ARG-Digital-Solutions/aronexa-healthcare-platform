@@ -5,6 +5,10 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import org.springframework.core.io.FileSystemResource;
+import com.argdigital.aronexa.patient.RegistrationCandidateHttpAcceptanceTests;
 import java.sql.Connection;
 import java.time.Duration;
 import java.time.LocalDate;
@@ -36,12 +40,15 @@ import static org.assertj.core.api.Assertions.assertThat;
  * No Testcontainers static lifecycle, prod endpoint or shared database access.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-        properties = {"server.address=127.0.0.1", "server.error.include-message=never"})
-@ActiveProfiles({"test", "appointment-candidate"})
+        properties = {"server.address=127.0.0.1", "server.error.include-message=never",
+                "aronexa.opd.directory.reviewed-activation=true"})
+@ActiveProfiles({"test", "appointment-candidate","registration-candidate"})
 @ContextConfiguration(initializers = Pilot05DisposableDatabaseGuard.class)
 @Import({Pilot05DisposableDatabaseGuard.VerifiedDisposableConnection.class,
          AppointmentCandidateHttpAcceptanceTests.CandidateController.class,
-         AppointmentCandidateHttpAcceptanceTests.DailyBillingController.class})
+         AppointmentCandidateHttpAcceptanceTests.DailyBillingController.class,
+         RegistrationCandidateHttpAcceptanceTests.CandidateConfiguration.class,
+         RegistrationCandidateHttpAcceptanceTests.CandidateController.class})
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class Pilot05SeparateJvmHttpTests {
     private static final String NOTE = "SYNTHETIC PILOT05 restart consultation";
@@ -101,6 +108,31 @@ class Pilot05SeparateJvmHttpTests {
                 UPDATE module_registry SET implemented=true,released=true
                 WHERE code IN ('OPD','PATIENT_REGISTRATION')
                 """);
+        // RC03 is separately opt-in and retains all Pilot05 container
+        // marker checks. Never install review-only V10 on the original DB.
+        if("RC03_DISPOSABLE_BROWSER_ONLY".equals(
+                System.getenv("ARONEXA_PILOT08_RC03_CONFIRM"))) {
+            Path script=Path.of(System.getProperty("user.dir"))
+                    .toAbsolutePath().normalize()
+                    .resolve("../deploy/registration/review-only/"
+                            +"V10__approved_clinic_registration_writer.sql")
+                    .normalize();
+            assertThat(Files.isRegularFile(script)).isTrue();
+            try(Connection c=ownerDataSource.getConnection()){
+                c.setAutoCommit(false);
+                try {
+                    ScriptUtils.executeSqlScript(c,new EncodedResource(
+                            new FileSystemResource(script.toFile())),false,false,
+                            ScriptUtils.DEFAULT_COMMENT_PREFIX,
+                            ScriptUtils.EOF_STATEMENT_SEPARATOR,
+                            ScriptUtils.DEFAULT_BLOCK_COMMENT_START_DELIMITER,
+                            ScriptUtils.DEFAULT_BLOCK_COMMENT_END_DELIMITER);
+                    RegistrationCandidateHttpAcceptanceTests
+                            .installRc03DisposableProofKey(c);
+                    c.commit();
+                }catch(Exception e){c.rollback();throw e;}
+            }
+        }
     }
 
     private HttpResponse<String> call(String method, String path, String token,
@@ -139,7 +171,9 @@ class Pilot05SeparateJvmHttpTests {
     private record Fixture(UUID tenant, UUID branch, UUID patient,
                            UUID registration, UUID doctor) {}
 
-    private Fixture seed() {
+    private Fixture seed() { return seed(true); }
+
+    private Fixture seed(boolean seedSqlPatientIdentity) {
         String part = suffix();
         UUID tenant = UUID.randomUUID(), facility = UUID.randomUUID();
         UUID branch = UUID.randomUUID(), patient = UUID.randomUUID();
@@ -212,6 +246,7 @@ class Pilot05SeparateJvmHttpTests {
                 VALUES(?,'OPD',true,true,true),
                       (?,'PATIENT_REGISTRATION',true,true,true)
                 """, tenant,tenant);
+        if(seedSqlPatientIdentity) {
         admin.update("""
                 INSERT INTO patient(id,tenant_id,display_name)
                 VALUES(?,?,'FICTIONAL RESTART RECORD')
@@ -235,6 +270,17 @@ class Pilot05SeparateJvmHttpTests {
                  registered_by_membership_id)
                 VALUES(?,?,?,?,'RECEPTION',?)
                 """, registration, tenant, patient, branch, receptionist);
+        }
+        if(!seedSqlPatientIdentity){
+            admin.update("""
+                INSERT INTO auth_role_permission(tenant_id,role_id,permission_code)
+                VALUES (?,?, 'PATIENT_REGISTER')
+                """,tenant,receptionRole);
+            assertThat(admin.queryForObject("""
+                SELECT count(*) FROM patient WHERE tenant_id=?
+                """,Integer.class,tenant)).isZero();
+            return new Fixture(tenant,branch,null,null,doctor);
+        }
         return new Fixture(tenant, branch, patient, registration, doctor);
     }
 
