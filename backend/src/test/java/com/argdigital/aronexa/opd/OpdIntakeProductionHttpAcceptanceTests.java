@@ -170,6 +170,14 @@ class OpdIntakeProductionHttpAcceptanceTests {
     }
 
     @Test
+    void pilot08Rc02aDoctorDirectoryIsDeniedByDefault() throws Exception {
+        Fixture f=seed(true,true,true,true,false);
+        String token=login(f);
+        assertThat(get("/api/v1/branches/"+f.branch()+"/opd/doctors",token)
+                .statusCode()).isEqualTo(403);
+    }
+
+    @Test
     void prodInt02ProductionBookingRouteRemainsDisabledWithoutReviewFlag()
             throws Exception {
         Fixture f=seed(true,true,true,true,false);
