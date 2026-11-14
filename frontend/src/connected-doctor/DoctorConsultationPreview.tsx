@@ -116,10 +116,10 @@ export default function DoctorConsultationPreview({handoff,onBillingHandoff}:{
     try{
       const next=prepareBillingHandoff(handoff,sessionRef.current,receipt);
       await revokeStaffTokenAndConfirm(sessionRef.current.accessToken);
-      signOut();
+      clearSessionAndUi(false);
       onBillingHandoff(next);
     }catch{
-      signOut();
+      clearSessionAndUi(true);
       setError('Billing handoff was not verified. Doctor must sign in again.');
     }finally{setBusy(false);}
   }
@@ -136,8 +136,7 @@ export default function DoctorConsultationPreview({handoff,onBillingHandoff}:{
     setScreen('LOOKUP');
   }
 
-  function signOut(){
-    if(busy)return;
+  function clearSessionAndUi(revoke:boolean){
     const token=sessionRef.current?.accessToken;
     sessionRef.current=null;
     flowRef.current?.dispose();
@@ -152,7 +151,12 @@ export default function DoctorConsultationPreview({handoff,onBillingHandoff}:{
     setConfirmedSynthetic(false);
     setStaffLabel('');
     setScreen('SIGN_IN');
-    if(token)void revokeStaffToken(token);
+    if(token&&revoke)void revokeStaffToken(token);
+  }
+
+  function signOut(){
+    if(busy)return;
+    clearSessionAndUi(true);
   }
 
   return <div className="connected-shell">
