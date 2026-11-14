@@ -47,6 +47,16 @@ class AuthSecurityConfiguration {
                         .requestMatchers(HttpMethod.GET,
                                 "/api/v1/branches/{branchId}/opd/intake/{registrationId}")
                             .authenticated()
+                        // RC02A: doctor directory is a read-only, review-gated
+                        // endpoint. No production activation by default.
+                        .requestMatchers(HttpMethod.GET,
+                                "/api/v1/branches/{branchId}/opd/doctors")
+                            .access((authn, request) -> new org.springframework.security.authorization.AuthorizationDecision(
+                                environment.getProperty(
+                                        "aronexa.opd.directory.reviewed-activation",
+                                        Boolean.class,false)
+                                && authn.get().isAuthenticated()
+                                && authn.get().getPrincipal() instanceof AuthPrincipal))
                         // R1-10A: the appointment admission handoff is a
                         // production-source SERVICE, but its HTTP adapter is
                         // test-only. Do not expose it to dev/prod or patients.
