@@ -60,7 +60,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 @SpringBootTest(webEnvironment=SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties={"server.address=127.0.0.1","server.error.include-message=never",
-            "aronexa.opd.directory.reviewed-activation=true"})
+            "aronexa.opd.directory.reviewed-activation=true",
+            "aronexa.patient.search.reviewed-activation=true"})
 @ActiveProfiles({"test","appointment-candidate"})
 @Import({AppointmentCandidateHttpAcceptanceTests.CandidateController.class,
         AppointmentCandidateHttpAcceptanceTests.DailyBillingController.class})
@@ -1110,7 +1111,8 @@ class AppointmentCandidateHttpAcceptanceTests {
                         "db/test/appointment-candidate-r105.sql",
                         "db/test/appointment-candidate-r106.sql",
                         "db/test/appointment-candidate-r107.sql",
-                        "db/test/appointment-candidate-r108.sql"}) {
+                        "db/test/appointment-candidate-r108.sql",
+                        "db/test/pilot08-rc02b-patient-search.sql"}) {
                     ScriptUtils.executeSqlScript(owner,
                             new EncodedResource(new ClassPathResource(file)),
                             false,false,ScriptUtils.DEFAULT_COMMENT_PREFIX,
@@ -1352,6 +1354,33 @@ class AppointmentCandidateHttpAcceptanceTests {
             FROM auth_membership_role
             WHERE tenant_id=? AND membership_id=?
             """,f.tenant(),f.receptionist())).isOne();
+        // RC02B: grant search to fictional receptionist only, not a
+        // production permission or customer default.
+        assertThat(admin.update("""
+            INSERT INTO auth_role_permission(tenant_id,role_id,permission_code)
+            SELECT tenant_id,role_id,'PATIENT_CANDIDATE_SEARCH'
+            FROM auth_membership_role
+            WHERE tenant_id=? AND membership_id=?
+            """,f.tenant(),f.receptionist())).isOne();
+        // Another fictional registration in this branch with NO appointment,
+        // used to prove browser search does not depend on the daily queue.
+        UUID searchOnlyPatient=UUID.randomUUID(),searchOnlyRegistration=UUID.randomUUID();
+        String searchMrn="PAT-SEARCH-"+f.username().substring(5).toUpperCase();
+        admin.update("""
+            INSERT INTO patient(id,tenant_id,display_name)
+            VALUES (?,?,'Fictional Unbooked Search')
+            """,searchOnlyPatient,f.tenant());
+        admin.update("""
+            INSERT INTO patient_identifier(id,tenant_id,patient_id,identifier_type,identifier_value)
+            VALUES (?,?,?,'MRN',?)
+            """,UUID.randomUUID(),f.tenant(),searchOnlyPatient,searchMrn);
+        admin.update("""
+            INSERT INTO patient_registration
+                (id,tenant_id,patient_id,branch_id,registration_source,
+                 registered_by_membership_id)
+            VALUES (?,?,?,?,'RECEPTION',?)
+            """,searchOnlyRegistration,f.tenant(),searchOnlyPatient,
+                f.branch(),f.receptionist());
         String initialReception=login(f);
         LocalDate today=LocalDate.now(CLINIC_ZONE);
         var created=call("POST",url(f),initialReception,payload(
@@ -1423,9 +1452,10 @@ class AppointmentCandidateHttpAcceptanceTests {
                  "receptionUser":"%s","receptionPassword":"%s",
                  "doctorUser":"doctor_%s","doctorPassword":"DisposableDoctor-Only123!",
                  "billingUser":"billing_%s","billingPassword":"DisposableBilling-Only123!",
-                 "branchId":"%s","appointmentId":"%s"}
+                 "branchId":"%s","appointmentId":"%s",
+                 "unbookedSearchMrn":"%s"}
                 """.formatted(f.tenantCode(),f.username(),f.password(),
-                    suffix,suffix,f.branch(),appointment);
+                    suffix,suffix,f.branch(),appointment,searchMrn);
             var browserCommand=new ProcessBuilder("node",
                 "test/browser/pilot06-connected-browser.mjs");
             browserCommand.directory(frontend.toFile());
