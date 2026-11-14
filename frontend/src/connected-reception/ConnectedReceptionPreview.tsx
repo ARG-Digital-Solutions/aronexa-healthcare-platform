@@ -13,6 +13,7 @@ import {createAppointmentCandidateFlow, loadAppointmentCandidateQueue,
   type AppointmentCandidateReceipt} from '../appointmentCandidateClient.ts';
 import {summarizeReceptionQueue} from '../receptionQueueSummary.ts';
 import {prepareDoctorHandoff,type DoctorHandoff} from '../receptionDoctorHandoff.ts';
+import {revokeStaffTokenAndConfirm} from '../staffSessionClient.ts';
 import './connected-reception.css';
 
 type Screen='SIGN_IN'|'PATIENT_DETAILS'|'REVIEW'|'UNRESOLVED'|'REGISTERED'|'RECOVERY_LOOKUP'|'REFERENCE_FOUND'|'APPOINTMENT'|'APPOINTMENT_BOOKED'|'APPOINTMENT_QUEUE';
@@ -386,20 +387,23 @@ export default function ConnectedReceptionPreview({onDoctorHandoff}:{onDoctorHan
     }finally{setBusy(false);}
   }
 
-  function transferToDoctor(){
+  async function transferToDoctor(){
     if(busy||!onDoctorHandoff||!appointmentReceipt||!sessionRef.current)return;
+    setBusy(true);setError('');
     try{
       const handoff=prepareDoctorHandoff(appointmentReceipt,sessionRef.current);
-      // Invalidate Reception state and request logout before switching role.
-      signOut();
+      // Confirm server-side revocation BEFORE switching staff role.
+      await revokeStaffTokenAndConfirm(sessionRef.current.accessToken);
+      clearSessionAndUi(false);
       onDoctorHandoff(handoff);
     }catch{
-      setError('This appointment is not eligible for doctor handoff. Refresh from the server.');
-    }
+      // Do not transition on an unknown logout outcome; discard old session.
+      clearSessionAndUi(true);
+      setError('Handoff was not verified. Sign in again and reload the appointment.');
+    }finally{setBusy(false);}
   }
 
-  function signOut(){
-    if(busy)return;
+  function clearSessionAndUi(revoke:boolean){
     appointmentRef.current?.dispose();
     appointmentRef.current=null;
     recoveryRef.current?.dispose();
@@ -430,7 +434,12 @@ export default function ConnectedReceptionPreview({onDoctorHandoff}:{onDoctorHan
     setError('');
     setScreen('SIGN_IN');
     // Clear all UI context before requesting server-side revocation.
-    if(token)void revokeStaffToken(token);
+    if(token&&revoke)void revokeStaffToken(token);
+  }
+
+  function signOut(){
+    if(busy)return;
+    clearSessionAndUi(true);
   }
 
   const queueSummary=queueLoaded?summarizeReceptionQueue(queueRows):null;

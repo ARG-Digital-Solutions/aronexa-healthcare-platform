@@ -173,3 +173,26 @@ export async function revokeStaffToken(
     // A failed logout requires server-side token expiry/revocation monitoring.
   }
 }
+
+/**
+ * Test-only role handoff boundary. Do not carry a role's routing hint into
+ * another role until the server confirms token revocation by returning 401
+ * to an authenticated /me read. No token or response body is logged.
+ */
+export async function revokeStaffTokenAndConfirm(
+  accessToken:string,transport:Transport=defaultTransport,
+):Promise<void>{
+  if(!tokenPattern.test(accessToken))
+    throw new StaffSessionError('SESSION_UNVERIFIED');
+  try{
+    const result=await transport('/api/v1/auth/logout',
+      request('POST',accessToken,'{}'));
+    if(result.status!==200&&result.status!==204)
+      throw new StaffSessionError('SESSION_UNVERIFIED');
+    const probe=await transport('/api/v1/auth/me',request('GET',accessToken));
+    if(probe.status!==401)
+      throw new StaffSessionError('SESSION_UNVERIFIED');
+  }catch{
+    throw new StaffSessionError('SESSION_UNVERIFIED');
+  }
+}
