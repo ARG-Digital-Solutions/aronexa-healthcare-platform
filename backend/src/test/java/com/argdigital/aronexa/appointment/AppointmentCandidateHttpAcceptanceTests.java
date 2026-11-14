@@ -1405,6 +1405,83 @@ class AppointmentCandidateHttpAcceptanceTests {
     }
 
     /**
+     * PILOT-07 nonempty PostgreSQL restore rehearsal. Source and destination
+     * databases both live INSIDE ONE automatically disposable PG17 container.
+     * This is not encrypted/retained real clinic backup or disaster recovery.
+     */
+    @Test
+    void pilot07NonemptyDisposablePostgresSnapshotRestoresToFreshDatabase()
+            throws Exception {
+        assertThat(System.getenv("ARONEXA_PILOT07_RECOVERY_ACK"))
+            .isEqualTo("DISPOSABLE_SYNTHETIC_RECOVERY_ONLY");
+        assertThat(postgres.isRunning()).isTrue();
+        assertThat(postgres.getDatabaseName())
+            .isEqualTo("aronexa_r104_disposable_only");
+        String account="aronexa_r104_disposable_only";
+        String sourceDb="aronexa_r104_disposable_only";
+        String key=UUID.randomUUID().toString().replace("-","").substring(0,12);
+        String targetDb="aronexa_pilot07_restore_"+key;
+        String backup="/tmp/pilot07-"+key+".dump";
+
+        Fixture f=fixture(true);
+        String receptionist=login(f),doctor=loginDoctor(f);
+        UUID appointment=checkedInAppointment(f,receptionist,"16:30");
+        assertThat(call("POST",consultationPath(f,appointment),doctor,
+            consultationInput(0,"FICTIONAL PILOT07 NONEMPTY RESTORE"))
+            .statusCode()).isEqualTo(200);
+        assertThat(admin.queryForObject("""
+            SELECT count(*) FROM appointment_proof.consultation_revision
+            WHERE appointment_id=?
+            """,Integer.class,appointment)).isOne();
+
+        boolean created=false;
+        try {
+            var exported=postgres.execInContainer("pg_dump","-U",account,
+                "-d",sourceDb,"-Fc","-f",backup);
+            assertThat(exported.getExitCode()).as("pg_dump into disposable container")
+                .isZero();
+            var size=postgres.execInContainer("stat","-c","%s",backup);
+            assertThat(size.getExitCode()).isZero();
+            assertThat(Long.parseLong(size.getStdout().trim()))
+                .as("backup must contain real nonempty test schema and data")
+                .isGreaterThan(10_000L);
+            var create=postgres.execInContainer("createdb","-U",account,targetDb);
+            assertThat(create.getExitCode()).as("fresh target database").isZero();
+            created=true;
+            var restore=postgres.execInContainer("pg_restore","-U",account,
+                "-d",targetDb,"--no-owner","--no-acl",backup);
+            assertThat(restore.getExitCode()).as(
+                "restore complete into a different automatically disposed test DB")
+                .isZero();
+
+            // Compare a specific test-only appointment and its immutable
+            // clinical revision, not merely pg_restore's exit status.
+            String sql="SELECT "+
+                "(SELECT count(*) FROM appointment_proof.appointment WHERE id='"+
+                    appointment+"')::text || '|' || "+
+                "(SELECT count(*) FROM appointment_proof.consultation_revision "+
+                    "WHERE appointment_id='"+appointment+"')::text";
+            var verified=postgres.execInContainer("psql","-X","-t","-A",
+                "-U",account,"-d",targetDb,"-c",sql);
+            assertThat(verified.getExitCode()).isZero();
+            assertThat(verified.getStdout().trim())
+                .as("restored exact same fictional appointment and consultation")
+                .isEqualTo("1|1");
+            System.out.println(
+                "PILOT07_DISPOSABLE_NONEMPTY_PG17_RESTORE_PASS (unencrypted, test-only)");
+        } finally {
+            if(created){
+                var drop=postgres.execInContainer("dropdb","--if-exists",
+                    "--force","-U",account,targetDb);
+                assertThat(drop.getExitCode())
+                    .as("discard recreated disposable test database").isZero();
+            }
+            var remove=postgres.execInContainer("rm","-f",backup);
+            assertThat(remove.getExitCode()).isZero();
+        }
+    }
+
+    /**
      * PILOT-07 assisted Windows operator lab. Disposable Testcontainers PG17
      * and test-only HTTP endpoints ONLY; never a customer clinic build.
      * Keeps Spring+Vite alive for at most 25 minutes for REAL human UI review.
