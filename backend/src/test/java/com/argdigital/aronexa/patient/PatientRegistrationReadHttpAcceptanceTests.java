@@ -154,9 +154,17 @@ class PatientRegistrationReadHttpAcceptanceTests {
     @Test
     void pilot08Rc02bSearchRemainsDisabledInNormalRuntime() throws Exception {
         Fixture f=seed(true,true,false);
+        // Both search and registration-read permissions are granted ONLY
+        // in this disposable test fixture. Production property remains off.
+        admin.update("""
+            INSERT INTO auth_role_permission(tenant_id,role_id,permission_code)
+            SELECT tenant_id,role_id,'PATIENT_CANDIDATE_SEARCH'
+            FROM auth_membership_role
+            WHERE tenant_id=? AND membership_id=?
+            """,f.tenant(),f.membership());
         String token=login(f);
-        var denied=get("/api/v1/branches/"+f.branch()
-                +"/patient-search?mode=MRN&term=PAT-FAKE001",token);
+        var denied=post("/api/v1/branches/"+f.branch()+"/patient-search",
+                "{\"mode\":\"MRN\",\"term\":\"PAT-FAKE001\"}",token);
         assertThat(denied.statusCode()).isEqualTo(403);
         assertThat(denied.body()).doesNotContain(
                 "Fictional Reference Patient","accessToken");
