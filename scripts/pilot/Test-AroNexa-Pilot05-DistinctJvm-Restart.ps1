@@ -106,6 +106,24 @@ VALUES ('$runId','$db','READY');
     '-U',$dbUser,'-d',$db,'-c',$markerSql)
  & $docker.Source @markerArgs
  if ($LASTEXITCODE -ne 0) {throw 'PILOT05 STOP: isolated run marker failed'}
+ $evidence=Join-Path (Join-Path $env:USERPROFILE 'AroNexa-Local-QA') ('PILOT05-'+$runId)
+ [void][System.IO.Directory]::CreateDirectory($evidence)
+ $reportPath=Join-Path $repo 'backend\target\surefire-reports\TEST-com.argdigital.aronexa.appointment.Pilot05SeparateJvmHttpTests.xml'
+ function Save-PhaseReport {
+  param([string]$Phase)
+  if(-not(Test-Path -LiteralPath $reportPath -PathType Leaf)){
+   throw ('PILOT05 FAIL: missing Surefire XML for phase '+$Phase)
+  }
+  [xml]$xml=Get-Content -LiteralPath $reportPath -Raw
+  if([int]$xml.testsuite.tests -ne 1 -or
+     [int]$xml.testsuite.failures -ne 0 -or
+     [int]$xml.testsuite.errors -ne 0 -or
+     [int]$xml.testsuite.skipped -ne 0){
+   throw ('PILOT05 FAIL: Surefire XML did not establish a clean phase '+$Phase)
+  }
+  Copy-Item -LiteralPath $reportPath -Destination (Join-Path $evidence ('phase'+$Phase+'-surefire.xml'))
+  Write-Host ('Verified Surefire XML phase '+$Phase+': 1 test, 0 failures/errors/skipped')
+ }
  $env:ARONEXA_PILOT05_PORT=$port
  $env:ARONEXA_PILOT05_RUN_ID=$runId
  $env:ARONEXA_PILOT05_CONFIRM='TEST_ONLY_DISPOSABLE'
@@ -115,10 +133,12 @@ VALUES ('$runId','$db','READY');
   Write-Host 'PHASE A: first isolated Java JVM commits checked-in consultation'
   & $mvn.Source '-Dtest=Pilot05SeparateJvmHttpTests#phaseAWritesCheckedInConsultationAndStopsJvm' '-Dsurefire.failIfNoSpecifiedTests=true' test
   if ($LASTEXITCODE -ne 0) {throw 'PILOT05 FAIL: first JVM'}
+  Save-PhaseReport -Phase 'A'
   $env:ARONEXA_PILOT05_PHASE='B'
   Write-Host 'PHASE B: new Java JVM reopens same consultation from same PG17'
   & $mvn.Source '-Dtest=Pilot05SeparateJvmHttpTests#phaseBReopensSameConsultationInDifferentJvm' '-Dsurefire.failIfNoSpecifiedTests=true' test
   if ($LASTEXITCODE -ne 0) {throw 'PILOT05 FAIL: second JVM'}
+  Save-PhaseReport -Phase 'B'
  } finally {
   Pop-Location
  }
@@ -129,6 +149,17 @@ VALUES ('$runId','$db','READY');
  if ($LASTEXITCODE -ne 0 -or ($asserted -join '').Trim() -ne 'PASS_B|t') {
   throw 'PILOT05 FAIL: distinct-JVM source marker was not confirmed'
  }
+ $summary=@(
+  ('SourceCommit='+$actual),
+  ('RunId='+$runId),
+  'PhaseA=PASS (different JVM and session, committed fictional consultation)',
+  'PhaseB=PASS (same disposable PG17, fresh JVM and doctor, authorized read-back)',
+  'SurefireTests=1+1 Failures=0 Errors=0 Skipped=0',
+  'Scope=TEST_ONLY_NO_CUSTOMER_RELEASE',
+  ('ContainerAutoRemovedAfterRun='+$containerId)
+ )
+ $summary | Set-Content -LiteralPath (Join-Path $evidence 'SUMMARY.txt') -Encoding ASCII
+ Write-Host ('EvidenceFolder='+$evidence)
  Write-Host 'PILOT05 DISTINCT JVM RESTART / SAME DISPOSABLE PG17 QA PASSED' -ForegroundColor Green
  Write-Host ('SourceCommit='+$actual)
  Write-Host 'Meaning: two test JVMs; one fictional consultation restored with new doctor session.'
