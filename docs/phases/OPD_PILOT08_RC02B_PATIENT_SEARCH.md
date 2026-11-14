@@ -21,6 +21,8 @@ Instead, `backend/src/test/resources/db/test/pilot08-rc02b-patient-search.sql` i
 - A separate, append-only audit record of each permitted search containing tenant, staff membership, branch, mode and result count, **not the raw name/MRN query**. Zero-result searches are audited. SQL role is denied SELECT/UPDATE/DELETE on that audit.
 - A constrained function search path and explicit revocation from PUBLIC. This definer is **not** a production security-reviewed substitute for patient RLS and must not be installed on a clinic DB. It requires independent function-owner, privilege-escalation, malicious-GUC, row-security, concurrency, enumeration, rate-limit and audit-retention review before production adoption.
 
+MRN and name-prefix search criteria are sent in a small authenticated **POST JSON body**, never in a URL query string, to avoid accidental exposure in browser history or request-line access logs. It is semantically read-only despite the HTTP method. Request bodies, logs, caches and audit retention still need separate privacy review.
+
 The source-owned Java `PatientCandidateSearchService` and `PatientCandidateSearchController` are present in `src/main` but gated independently via Spring Security **and** `@ConditionalOnProperty(name="aronexa.patient.search.reviewed-activation",havingValue="true",matchIfMissing=false)`. No production config enables them; production schema lacks the function. When explicitly activated only for synthetic Testcontainers, Java also binds the trusted current tenant+membership in a patient-role JDBC transaction, rechecks both live permissions, the patient module, assigned branch and every returned tenant/branch. Search has no write or identity-linking endpoint.
 
 ## Reception UX
@@ -64,7 +66,7 @@ Expected only after all focused tests, frontend tests/build, browser and two-pro
 2. Parent: accepted owner-reported RC02A SHA above, source Draft/unmerged.
 3. User story: MRN/name search to open an authorized existing registration without appointment or UUID copying.
 4. DB: test-only privileged function on disposable PG17, EXECUTE-only runtime, append-only metadata audit.
-5. API: production-source but *default-off* GET `/api/v1/branches/{branchId}/patient-search?mode=MRN|NAME_PREFIX&term=...`.
+5. API: production-source but *default-off* POST `POST /api/v1/branches/{branchId}/patient-search` with JSON body `{"mode":"MRN|NAME_PREFIX","term":"..."}`.
 6. Security: verified bearer, two permissions, branch+tenant, patient module, Java & SQL checks, no direct PII table grants.
 7. Frontend: synthetic-only Reception patient search, <=10 hits, fresh registration read before navigation.
 8. Positive QA: HTTP MRN/name, zero-result audit and unbooked search, Chromium verification; NOT RUN new SHA.
