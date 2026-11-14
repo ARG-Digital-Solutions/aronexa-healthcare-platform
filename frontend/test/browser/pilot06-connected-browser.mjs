@@ -86,6 +86,16 @@ try {
     assert.equal(existsSync(screenshot),false);
     await page.screenshot({path:screenshot,fullPage:false});
   }
+  stage='rc02a-doctor-select-without-uuid-entry';
+  await page.getByRole('button',{name:'Book test appointment'}).click();
+  const doctorSelect=page.locator('#appointment-doctor');
+  await doctorSelect.waitFor();
+  assert.equal(await doctorSelect.evaluate(node=>node.tagName),'SELECT');
+  const choices=await doctorSelect.locator('option').allTextContents();
+  assert.ok(choices.some(text=>text.startsWith('doctor_')),
+    'Server must return branch-scoped active doctor options');
+  assert.ok((await doctorSelect.inputValue()).length===36,
+    'Only server-selected doctor membership may be used');
   await page.getByRole('button',{name:'Daily appointments'}).click();
   await page.getByRole('button',{name:'Load daily queue'}).click();
   stage='reception-queue-appointment';
@@ -144,6 +154,8 @@ try {
   await page.getByText('Bills created',{exact:true}).waitFor();
   assert.ok(entered.some(e=>e.path.includes('/patient-registrations/')
     &&e.status===200),'Queue registration must be freshly authorized by server');
+  assert.ok(entered.some(e=>e.path.endsWith('/opd/doctors')
+    &&e.status===200),'Doctor options must come from live authorized server');
   assert.ok(entered.some(e=>e.path.endsWith('/check-in')&&e.status===200));
   assert.ok(entered.some(e=>e.path.endsWith('/consultation-draft')
     &&e.status===200));
