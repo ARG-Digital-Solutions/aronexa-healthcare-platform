@@ -34,12 +34,78 @@ $out=(Resolve-Path -LiteralPath $DestinationDirectory).Path
 if($out.StartsWith($repo,[StringComparison]::OrdinalIgnoreCase)){
  throw 'WIN11 STOP: output must be outside source repo'
 }
-$tools=@{}
-foreach($tool in @('java.exe','javac.exe','jar.exe','jpackage.exe','mvn.cmd','npm.cmd')){
- $tools[$tool]=(Get-Command $tool -ErrorAction Stop).Source
+# Resolve a complete JDK 21 atomically. Windows commonly has java.exe
+# on PATH (or a vendor shim) while jar.exe/jpackage.exe are missing.
+# Never mix java, javac, jar and jpackage from different installations.
+$jdkCandidates=[System.Collections.Generic.List[string]]::new()
+if($env:JAVA_HOME){[void]$jdkCandidates.Add($env:JAVA_HOME)}
+foreach($name in @('javac.exe','java.exe')){
+ $command=Get-Command $name -ErrorAction SilentlyContinue
+ if($null -ne $command){
+  $bin=Split-Path -Path $command.Source -Parent
+  [void]$jdkCandidates.Add((Split-Path -Path $bin -Parent))
+ }
 }
-$v=(& $tools['java.exe'] --version | Select-Object -First 1).ToString()
-if($v -notmatch '(?:^|[\s"])21\.'){throw ('WIN11 STOP: JDK21 required; got '+$v)}
+foreach($base in @(
+ (Join-Path $env:ProgramFiles 'Eclipse Adoptium'),
+ (Join-Path $env:ProgramFiles 'Microsoft'),
+ (Join-Path $env:ProgramFiles 'Java'),
+ (Join-Path $env:ProgramFiles 'Amazon Corretto'),
+ (Join-Path $env:ProgramFiles 'Zulu'),
+ (Join-Path $env:LOCALAPPDATA 'Programs')
+)){
+ if(Test-Path -LiteralPath $base -PathType Container){
+  foreach($directory in @(Get-ChildItem -LiteralPath $base -Directory -ErrorAction SilentlyContinue)){
+   [void]$jdkCandidates.Add($directory.FullName)
+  }
+ }
+}
+$jdkHome=$null
+$jdkBin=$null
+foreach($candidate in $jdkCandidates){
+ if(-not $candidate){continue}
+ $possibleBin=Join-Path $candidate 'bin'
+ $complete=$true
+ foreach($binary in @('java.exe','javac.exe','jar.exe','jpackage.exe')){
+  if(-not(Test-Path -LiteralPath (Join-Path $possibleBin $binary) -PathType Leaf)){
+   $complete=$false;break
+  }
+ }
+ if(-not $complete){continue}
+ $version=@(& (Join-Path $possibleBin 'java.exe') --version 2>&1 |
+  Select-Object -First 1)
+ $compiler=@(& (Join-Path $possibleBin 'javac.exe') --version 2>&1 |
+  Select-Object -First 1)
+ if($LASTEXITCODE -ne 0 -or @($version).Count -eq 0 -or
+    @($compiler).Count -eq 0){continue}
+ if(([string]$version[0]) -notmatch '(?:^|[\s"])21\.' -or
+    ([string]$compiler[0]) -notmatch '^javac 21\.'){continue}
+ $jdkHome=(Resolve-Path -LiteralPath $candidate).Path
+ $jdkBin=Join-Path $jdkHome 'bin'
+ break
+}
+if(-not $jdkHome){
+ throw ('WIN11 STOP: full JDK 21 with java.exe, javac.exe, jar.exe and '+
+  'jpackage.exe not found. Install a complete JDK 21, set JAVA_HOME '+
+  'to its installation root (NOT the bin folder), then reopen PowerShell. '+
+  'A Java runtime alone is insufficient.')
+}
+$tools=@{}
+foreach($binary in @('java.exe','javac.exe','jar.exe','jpackage.exe')){
+ $tools[$binary]=Join-Path $jdkBin $binary
+}
+foreach($binary in @('mvn.cmd','npm.cmd')){
+ $found=Get-Command $binary -ErrorAction SilentlyContinue
+ if($null -eq $found){
+  throw ('WIN11 STOP: '+$binary+' is not installed or available on PATH')
+ }
+ $tools[$binary]=$found.Source
+}
+# Child Maven and jpackage processes must use the SAME complete JDK 21.
+$env:JAVA_HOME=$jdkHome
+$env:PATH=$jdkBin+[IO.Path]::PathSeparator+$env:PATH
+Write-Host ('WIN11 Java toolchain: '+$jdkHome)
+Write-Host 'WIN11 validated: java.exe, javac.exe, jar.exe and jpackage.exe (JDK 21)'
 $name='AroNexaClinicShell'
 $output=Join-Path $out ($name+'-'+$sha.Substring(0,12))
 if(Test-Path -LiteralPath $output){
