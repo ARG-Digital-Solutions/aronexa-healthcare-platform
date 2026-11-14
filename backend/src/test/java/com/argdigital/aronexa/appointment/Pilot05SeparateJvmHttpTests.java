@@ -41,7 +41,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {"server.address=127.0.0.1", "server.error.include-message=never",
-                "aronexa.opd.directory.reviewed-activation=true"})
+                "aronexa.opd.directory.reviewed-activation=true",
+                "aronexa.patient.search.reviewed-activation=true"})
 @ActiveProfiles({"test", "appointment-candidate","registration-candidate"})
 @ContextConfiguration(initializers = Pilot05DisposableDatabaseGuard.class)
 @Import({Pilot05DisposableDatabaseGuard.VerifiedDisposableConnection.class,
@@ -112,6 +113,23 @@ class Pilot05SeparateJvmHttpTests {
         // marker checks. Never install review-only V10 on the original DB.
         if("RC03_DISPOSABLE_BROWSER_ONLY".equals(
                 System.getenv("ARONEXA_PILOT08_RC03_CONFIRM"))) {
+            // Existing V9 patient-role boundary has NO SELECT on identity.
+            // Install the bounded search function ONLY under verified
+            // disposable Testcontainers/Pilot05 marker and explicit RC03
+            // synthetic consent, never in an installed customer database.
+            try(Connection c=ownerDataSource.getConnection()){
+                c.setAutoCommit(false);
+                try {
+                    ScriptUtils.executeSqlScript(c,
+                        new EncodedResource(new ClassPathResource(
+                          "db/test/pilot08-rc02b-patient-search.sql")),
+                        false,false,ScriptUtils.DEFAULT_COMMENT_PREFIX,
+                        ScriptUtils.EOF_STATEMENT_SEPARATOR,
+                        ScriptUtils.DEFAULT_BLOCK_COMMENT_START_DELIMITER,
+                        ScriptUtils.DEFAULT_BLOCK_COMMENT_END_DELIMITER);
+                    c.commit();
+                }catch(Exception e){c.rollback();throw e;}
+            }
             Path script=Path.of(System.getProperty("user.dir"))
                     .toAbsolutePath().normalize()
                     .resolve("../deploy/registration/review-only/"
@@ -275,6 +293,10 @@ class Pilot05SeparateJvmHttpTests {
             admin.update("""
                 INSERT INTO auth_role_permission(tenant_id,role_id,permission_code)
                 VALUES (?,?, 'PATIENT_REGISTER')
+                """,tenant,receptionRole);
+            admin.update("""
+                INSERT INTO auth_role_permission(tenant_id,role_id,permission_code)
+                VALUES (?,?, 'PATIENT_CANDIDATE_SEARCH')
                 """,tenant,receptionRole);
             assertThat(admin.queryForObject("""
                 SELECT count(*) FROM patient WHERE tenant_id=?
