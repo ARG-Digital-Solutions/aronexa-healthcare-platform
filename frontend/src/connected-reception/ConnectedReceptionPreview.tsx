@@ -394,17 +394,16 @@ export default function ConnectedReceptionPreview({onDoctorHandoff}:{onDoctorHan
       const handoff=prepareDoctorHandoff(appointmentReceipt,sessionRef.current);
       // Confirm server-side revocation BEFORE switching staff role.
       await revokeStaffTokenAndConfirm(sessionRef.current.accessToken);
-      signOut();
+      clearSessionAndUi(false);
       onDoctorHandoff(handoff);
     }catch{
       // Do not transition on an unknown logout outcome; discard old session.
-      signOut();
+      clearSessionAndUi(true);
       setError('Handoff was not verified. Sign in again and reload the appointment.');
     }finally{setBusy(false);}
   }
 
-  function signOut(){
-    if(busy)return;
+  function clearSessionAndUi(revoke:boolean){
     appointmentRef.current?.dispose();
     appointmentRef.current=null;
     recoveryRef.current?.dispose();
@@ -435,7 +434,12 @@ export default function ConnectedReceptionPreview({onDoctorHandoff}:{onDoctorHan
     setError('');
     setScreen('SIGN_IN');
     // Clear all UI context before requesting server-side revocation.
-    if(token)void revokeStaffToken(token);
+    if(token&&revoke)void revokeStaffToken(token);
+  }
+
+  function signOut(){
+    if(busy)return;
+    clearSessionAndUi(true);
   }
 
   const queueSummary=queueLoaded?summarizeReceptionQueue(queueRows):null;
