@@ -41,12 +41,14 @@ export async function findPatientCandidates(
         ||(mode==='NAME_PREFIX'&&prefix.test(term))))
     throw new PatientSearchError();
   try {
-    const url='/api/v1/branches/'+branchId+'/patient-search?mode='+mode+
-        '&term='+encodeURIComponent(term);
+    // Keep patient names/MRNs out of URL query strings and access logs.
+    const url='/api/v1/branches/'+branchId+'/patient-search';
     const response=await transport(url,{
-      method:'GET',cache:'no-store',credentials:'omit',redirect:'error',
+      method:'POST',cache:'no-store',credentials:'omit',redirect:'error',
       signal:AbortSignal.timeout(10000),
-      headers:{Accept:'application/json',Authorization:'Bearer '+session.accessToken},
+      headers:{Accept:'application/json','Content-Type':'application/json',
+        Authorization:'Bearer '+session.accessToken},
+      body:JSON.stringify({mode,term}),
     });
     if(response.status!==200)throw new PatientSearchError();
     const body:unknown=await response.json();
