@@ -25,7 +25,7 @@ The earlier R1-PILOT-04 proof opens a consultation after new HTTP logins inside 
 
 ## Windows acceptance
 
-In a clean detached worktree at the *current Draft PR #130 head SHA*, from repo root:
+In a clean detached worktree at the *current R1-PILOT-05 Draft PR head SHA*, from repo root:
 
 ```powershell
 powershell.exe -NoProfile -File .\scripts\pilot\Test-AroNexa-Pilot05-DistinctJvm-Restart.ps1 -ExpectedCommit <EXACT_SHA>
