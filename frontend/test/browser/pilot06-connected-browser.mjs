@@ -69,6 +69,16 @@ try {
   await page.getByRole('button',{name:'Daily appointments'}).click();
   await page.getByRole('button',{name:'Load daily queue'}).click();
   const item=page.getByRole('listitem').filter({hasText:fixture.appointmentId});
+  // PILOT-08 RC01: no receptionist UUID copying. Start from a real
+  // authorized queue row, resolve its registration with a SECOND live
+  // patient-role SQL read, then return to managing that appointment.
+  stage='reception-queue-registration-continuity';
+  await item.getByRole('button',{name:'Open verified registration'}).click();
+  await page.getByRole('heading',{name:'Existing registration found'}).waitFor();
+  assert.equal(await page.locator('#existing-registration-id').count(),0);
+  await page.getByRole('button',{name:'Daily appointments'}).click();
+  await page.getByRole('button',{name:'Load daily queue'}).click();
+  stage='reception-queue-appointment';
   await item.getByRole('button',{name:'Manage appointment'}).click();
   await page.getByRole('button',{name:'Check in this appointment'}).click();
   await page.getByRole('button',{name:'Hand off to assigned doctor sign-in'}).click();
@@ -122,6 +132,8 @@ try {
   stage='daily-report';
   await page.getByRole('button',{name:'Load daily report'}).click();
   await page.getByText('Bills created',{exact:true}).waitFor();
+  assert.ok(entered.some(e=>e.path.includes('/patient-registrations/')
+    &&e.status===200),'Queue registration must be freshly authorized by server');
   assert.ok(entered.some(e=>e.path.endsWith('/check-in')&&e.status===200));
   assert.ok(entered.some(e=>e.path.endsWith('/consultation-draft')
     &&e.status===200));
