@@ -170,6 +170,25 @@ class OpdIntakeProductionHttpAcceptanceTests {
     }
 
     @Test
+    void prodInt02ProductionBookingRouteRemainsDisabledWithoutReviewFlag()
+            throws Exception {
+        Fixture f=seed(true,true,true,true,false);
+        String token=login(f);
+        String path="/api/v1/branches/"+f.branch()+"/opd/appointments";
+        String booking="{\"registrationId\":\""+f.registration()+"\","
+                +"\"doctorMembershipId\":\""+UUID.randomUUID()+"\","
+                +"\"visitDate\":\"2026-11-14\",\"slotStart\":\"10:30:00\","
+                +"\"requestId\":\""+UUID.randomUUID()+"\"}";
+        // Correct auth, role and module are insufficient when independent
+        // production activation or restricted SQL writer was not approved.
+        assertThat(post(path,token,booking).statusCode()).isEqualTo(403);
+        assertThat(post(path+"/"+UUID.randomUUID()+"/check-in",token,
+                "{\"expectedRevision\":1,\"requestId\":\""+
+                UUID.randomUUID()+"\"}").statusCode()).isEqualTo(403);
+        assertThat(reads(f)).isZero();
+    }
+
+    @Test
     void validIntakeUsesRealAuthenticatedNonownerPatientReadAndAudit()
             throws Exception {
         Fixture f=seed(true,true,true,true,false);
