@@ -93,3 +93,16 @@ Owner's initial exact-SHA Windows runner attempt at `0395a9069bbf982f98dc2d146bd
 Focused runner-only correction: `jar.exe` was used solely to list files inside the built Spring Boot JAR; replace its external CLI dependency with read-only `System.IO.Compression.ZipArchive` and keep the identical checks for presence of production-source `OpdBookingHttpController.class` and absence of test-only controllers. The preflight now lists exactly which of `docker.exe`, `mvn.cmd`, `npm.cmd`, `java.exe` are missing from PATH. Java 21 and a compiler-capable JDK are still needed to build source, Maven/Docker/npm remain prerequisites; the updated runner changes neither RLS nor application behavior.
 
 **This code has NOT been run on the owner's Windows machine at the corrected SHA.** Recheck the exact Draft PR #134 head and use a NEW clean worktree for retesting; do not manually bypass exact SHA, datasource/profile guards, restricted SQL or customer-release NO-GO rules. If it still stops at prerequisites, use its new specific missing-tool message to repair the Windows PATH/install before retrying.
+
+## Frontend fixture STOP — second owner attempt (2026-11-14)
+
+On exact SHA `29bc5496a362d45009efb3c92dd42320a03ee554`, owner Windows QA passed the prerequisite check and reached Node frontend regression, then **failed two** `production-opd-booking.test.mjs` assertions:
+
+- `BOOK posts only linked registration/doctor/date/slot/stable request ID`
+- `CHECK IN posts revision + request ID and checks same server object`
+
+Both shared the same incorrect expected `booked` fixture: it spread the `intake` object, leaking `status:'REGISTRATION_VERIFIED'` into the **expected appointment receipt**. The actual `bookProductionOpd` and `checkInProductionOpd` client responses correctly contain only the `ProductionBookingReceipt` fields (tenant, branch, patient, registration, appointment, doctor, stage, revision, replay flag). This is a **test expectation/schema error**, not proof of an HTTP, PostgreSQL or production runtime defect. The runner stopped before backend tests; there is no new-SHA backend acceptance result.
+
+Corrected **only** the shared test fixture to enumerate the expected receipt fields and exclude the intake status. Added an assertion that even a synthetic raw server response containing `status` and an unrelated `untrusted` field cannot cause them to be returned from the client. No changes were made to production API, authorization, SQL, frontend implementation or fixture's fake patient/role data.
+
+**Correction commit:** `1693daa3f79af67afa522c18e929c71e21f85947` (test-only). This source is **NOT TESTED** yet; use the *new exact PR head* in a fresh clean Windows QA worktree. Do not reinterpret the previous suite's failure as a production security finding or assert PASS without the full final runner marker. Original database and customer-release holds remain unchanged.
