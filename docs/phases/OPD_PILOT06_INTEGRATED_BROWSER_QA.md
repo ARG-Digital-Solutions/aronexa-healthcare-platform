@@ -58,3 +58,17 @@ Get-Content .\\backend\\target\\pilot06-vite-test.log -Tail 80
 ```
 
 Never run another Vite preview bound to this port or point the proxy at a customer backend to make the test pass.
+
+## Pilot-06 second local attempt and targeted Windows probe correction
+
+The owner ran the corrected Vite Preview SHA `4598db6854988bbde4e5407febb69b303cb08878` on Windows. The JUnit probe still FAILED before Chromium: `PILOT06 Vite preview not ready: HttpTimeoutException` (`1 test, 1 failure`). The actual Vite log showed only the startup announcement:
+
+```
+Local: http://127.0.0.1:5176/
+```
+
+This **confirms Preview announced a loopback listener, but does not prove that an HTTP GET was successfully served**. The JDK `HttpClient` timeout may reflect JVM loopback client behavior or a stalled preview response. It does not establish a Vite build failure, browser failure or clinical API failure.
+
+Correction in same Draft PR #131: `frontend/test/browser/pilot06-preview-readiness.mjs` uses Node's built-in `http.get` with an explicit 127.0.0.1 address, disabled connection pooling, a bounded 2-second per-attempt response timer, a maximum of 12 attempts, a 32 KiB HTML cap, and a strict HTTP 200 + `text/html` + expected title check. The JUnit harness runs that probe as a separate child process, bounds its runtime, validates `PILOT06_NODE_PREVIEW_READY`, and still checks Vite is alive. A failed probe emits only a safe category (`connection-error`, `read-timeout`, or `http-N-or-unexpected-html`), without echoing response bodies or credentials.
+
+**The new SHA is UNTESTED.** It still requires full actual Chromium, authorized Spring Boot API and disposable PG17 acceptance. No user-visible standalone `Write-Host "PILOT-06 LOCAL QA PASSED"` entered after a thrown failure is valid evidence; only a green result from the guarded runner with successful Surefire 1/1 XML is accepted.
