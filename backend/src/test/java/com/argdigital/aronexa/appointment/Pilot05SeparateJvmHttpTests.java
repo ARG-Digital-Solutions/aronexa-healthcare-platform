@@ -348,13 +348,23 @@ class Pilot05SeparateJvmHttpTests {
         assertThat(recovered.statusCode()).isEqualTo(200);
         assertThat(recovered.body()).contains(
                 registration.toString(),patient.toString());
+        LocalDate persistedVisitDay=admin.queryForObject("""
+            SELECT visit_date FROM appointment_proof.appointment
+            WHERE id=? AND tenant_id=? AND branch_id=?
+            """,LocalDate.class,appointment,m.get("tenant_id"),branch);
+        assertThat(persistedVisitDay).isNotNull();
         var queue=call("GET","/api/v1/branches/"+branch+
-                "/appointments?visitDate="+LocalDate.now(CLINIC_ZONE),
+                "/appointments?visitDate="+persistedVisitDay,
                 reception,null);
         assertThat(queue.statusCode()).isEqualTo(200);
         assertThat(queue.body()).contains(
                 appointment.toString(),registration.toString(),
                 "\"stage\":\"CHECKED_IN\"");
+        var differentDate=call("GET","/api/v1/branches/"+branch+
+                "/appointments?visitDate="+persistedVisitDay.minusDays(1),
+                reception,null);
+        assertThat(differentDate.statusCode()).isEqualTo(200);
+        assertThat(differentDate.body()).doesNotContain(appointment.toString());
         // The receptionist cannot read the doctor's consultation content.
         assertThat(call("GET", base + "/consultation-draft", reception, null)
                 .statusCode()).isEqualTo(403);
