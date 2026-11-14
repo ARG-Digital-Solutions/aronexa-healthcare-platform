@@ -1296,6 +1296,15 @@ class AppointmentCandidateHttpAcceptanceTests {
             WHERE tenant_id=? AND module_code='OPD'
             """,f.tenant());
         assertThat(call("GET",endpoint,token,null).statusCode()).isEqualTo(403);
+        admin.update("""
+            UPDATE tenant_module_state SET activated=true
+            WHERE tenant_id=? AND module_code='OPD'
+            """,f.tenant());
+        admin.update("""
+            DELETE FROM org_membership_branch_scope
+            WHERE tenant_id=? AND membership_id=? AND branch_id=?
+            """,f.tenant(),f.receptionist(),f.branch());
+        assertThat(call("GET",endpoint,token,null).statusCode()).isEqualTo(403);
     }
 
     @Test
