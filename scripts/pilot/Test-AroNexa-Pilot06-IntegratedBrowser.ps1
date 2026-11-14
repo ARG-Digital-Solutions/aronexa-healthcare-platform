@@ -47,6 +47,16 @@ if(-not(Test-Path -LiteralPath (Join-Path $qa 'node_modules\playwright\index.mjs
 $env:ARONEXA_PILOT06_QA_ROOT=$qa
 $env:ARONEXA_PILOT06_BROWSER='SYNTHETIC_ONLY'
 try {
+ # Fast, fixture-free Chromium launch check: fail before npm/Maven/Docker
+ # if only the Playwright npm package was installed without the browser.
+ $preflight=Join-Path $repo 'frontend\test\browser\pilot06-chromium-preflight.mjs'
+ if(-not(Test-Path -LiteralPath $preflight -PathType Leaf)){
+  throw 'PILOT06 STOP: browser preflight script missing'
+ }
+ & $node.Source $preflight
+ if($LASTEXITCODE -ne 0){
+  throw 'PILOT06 STOP: local Chromium launch preflight failed; inspect the stage and hint above'
+ }
  Push-Location (Join-Path $repo 'frontend')
  try{
   & $npm.Source ci
