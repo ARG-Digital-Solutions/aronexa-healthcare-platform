@@ -72,3 +72,18 @@ This **confirms Preview announced a loopback listener, but does not prove that a
 Correction in same Draft PR #131: `frontend/test/browser/pilot06-preview-readiness.mjs` uses Node's built-in `http.get` with an explicit 127.0.0.1 address, disabled connection pooling, a bounded 2-second per-attempt response timer, a maximum of 12 attempts, a 32 KiB HTML cap, and a strict HTTP 200 + `text/html` + expected title check. The JUnit harness runs that probe as a separate child process, bounds its runtime, validates `PILOT06_NODE_PREVIEW_READY`, and still checks Vite is alive. A failed probe emits only a safe category (`connection-error`, `read-timeout`, or `http-N-or-unexpected-html`), without echoing response bodies or credentials.
 
 **The new SHA is UNTESTED.** It still requires full actual Chromium, authorized Spring Boot API and disposable PG17 acceptance. No user-visible standalone `Write-Host "PILOT-06 LOCAL QA PASSED"` entered after a thrown failure is valid evidence; only a green result from the guarded runner with successful Surefire 1/1 XML is accepted.
+
+## Pilot-06 third local attempt — Chromium startup gate (not acceptance)
+
+Owner ran test-only source `5fbb4b2cf7f16bf000aa9415bc5e977be3ae4191`; the **Vite Preview Node readiness check passed** and the actual test reached `pilot06-connected-browser.mjs`. JUnit still FAILED at `PILOT06_BROWSER_FAILED_STAGE=startup` (1 test, 1 failure, 0 errors), **before receptionist sign-in**. The original browser script grouped Playwright import, fixture loading, browser launch, and context creation into one vague `startup` category. That log is not enough to identify the exact failing operation. In particular, an installed Playwright npm package alone does *not* prove that its Chromium executable is installed.
+
+New test-only browser startup changes:
+
+- `frontend/test/browser/pilot06-chromium-preflight.mjs` imports the local QA Central Playwright package, confirms executable existence, launches headless Chromium, creates a blank context/page and closes it. It prints **`PILOT06_CHROMIUM_PREFLIGHT_PASS`** only after a real local browser startup. Failures print safe stage and reason codes without raw exception paths or credentials.
+- `Test-AroNexa-Pilot06-IntegratedBrowser.ps1` runs this inexpensive preflight **before** `npm ci`/Maven. This avoids unnecessary full backend retries if Chromium is missing or cannot launch.
+- The integrated browser script itself now distinguishes `playwright-module`, `fixture-stdin`, `fixture-validation`, `chromium-executable`, `chromium-launch`, and `chromium-context`; it uses the QA Central-specified `ARONEXA_CHROMIUM_BIN` if explicitly configured. No API responses or secrets are printed.
+- A separate review identified a cross-role cleanup race: Reception/Doctor handoffs previously called their normal `signOut()` handlers while busy; those handlers refused to clear UI state. Handoffs now use an internal cleanup path **after confirmed server logout**; uncertain logout clears local credentials and refuses to transition. No backend permissions are relaxed.
+
+If the preflight reports `chromium-executable` or `chromium-launch`, run `npx playwright install chromium` from the **QA Central checkout** (the location whose `node_modules/playwright` is referenced) and rerun the inexpensive preflight before the full test. Installing a browser does **not** authorize real patient use. Existing holds and Draft status remain.
+
+**New changes have not yet passed owner Windows QA.** Pilot-06 is still not accepted; previous Pilot-05 distinct-JVM evidence is unaffected.
