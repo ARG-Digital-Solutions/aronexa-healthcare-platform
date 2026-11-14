@@ -174,11 +174,21 @@ VALUES ('$runId','$db','READY');
  if ($LASTEXITCODE -ne 0 -or ($asserted -join '').Trim() -ne 'PASS_B|t') {
   throw 'PILOT05 FAIL: distinct-JVM source marker was not confirmed'
  }
+ $phaseALabel=if($Rc03){
+  'PhaseA=PASS (Chromium-created fictional patient, duplicate review, booking and check-in)'
+ }else{
+  'PhaseA=PASS (different JVM and session, committed fictional consultation)'
+ }
+ $phaseBLabel=if($Rc03){
+  'PhaseB=PASS (fresh JVM, new receptionist session, server-created patient and checked-in queue)'
+ }else{
+  'PhaseB=PASS (same disposable PG17, fresh JVM and doctor, authorized read-back)'
+ }
  $summary=@(
   ('SourceCommit='+$actual),
   ('RunId='+$runId),
-  'PhaseA=PASS (different JVM and session, committed fictional consultation)',
-  'PhaseB=PASS (same disposable PG17, fresh JVM and doctor, authorized read-back)',
+  $phaseALabel,
+  $phaseBLabel,
   'SurefireTests=1+1 Failures=0 Errors=0 Skipped=0',
   'Scope=TEST_ONLY_NO_CUSTOMER_RELEASE',
   ('ContainerAutoRemovedAfterRun='+$containerId)
