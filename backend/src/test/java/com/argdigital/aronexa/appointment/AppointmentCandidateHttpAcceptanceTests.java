@@ -59,7 +59,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  * SQL role, session-bound proof and separately authorized Flyway migration.
  */
 @SpringBootTest(webEnvironment=SpringBootTest.WebEnvironment.RANDOM_PORT,
-        properties={"server.address=127.0.0.1","server.error.include-message=never"})
+        properties={"server.address=127.0.0.1","server.error.include-message=never",
+            "aronexa.opd.directory.reviewed-activation=true"})
 @ActiveProfiles({"test","appointment-candidate"})
 @Import({AppointmentCandidateHttpAcceptanceTests.CandidateController.class,
         AppointmentCandidateHttpAcceptanceTests.DailyBillingController.class})
@@ -1260,6 +1261,34 @@ class AppointmentCandidateHttpAcceptanceTests {
      * The synthetic patient/registration and initial BOOKED appointment are
      * server-side fixture setup; browser starts at the receptionist queue.
      */
+    @Test
+    void pilot08Rc02aDoctorDirectoryRequiresLiveBranchRoleAndModule()
+            throws Exception {
+        Fixture f=fixture(true);
+        String token=login(f);
+        String endpoint="/api/v1/branches/"+f.branch()+"/opd/doctors";
+        var visible=call("GET",endpoint,token,null);
+        assertThat(visible.statusCode()).as(visible.body()).isEqualTo(200);
+        assertThat(visible.headers().firstValue("Cache-Control"))
+                .contains("no-store");
+        assertThat(visible.body()).contains(
+                f.doctor().toString(),"doctor_");
+        assertThat(visible.body()).doesNotContain(
+                "password","accessToken","patientId","sessionId");
+        assertThat(call("GET",endpoint,null,null).statusCode()).isEqualTo(401);
+        assertThat(call("GET","/api/v1/branches/"+f.otherBranch()
+                +"/opd/doctors",token,null).statusCode()).isEqualTo(403);
+        Fixture withoutBooking=fixture(false);
+        assertThat(call("GET","/api/v1/branches/"+withoutBooking.branch()
+                +"/opd/doctors",login(withoutBooking),null).statusCode())
+                .isEqualTo(403);
+        admin.update("""
+            UPDATE tenant_module_state SET activated=false
+            WHERE tenant_id=? AND module_code='OPD'
+            """,f.tenant());
+        assertThat(call("GET",endpoint,token,null).statusCode()).isEqualTo(403);
+    }
+
     @Test
     void pilot06BrowserIntegratedRealHttpAcrossThreeStaffRoles() throws Exception {
         assertThat(System.getenv("ARONEXA_PILOT06_BROWSER"))
