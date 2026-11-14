@@ -1549,6 +1549,79 @@ class AppointmentCandidateHttpAcceptanceTests {
         return id;
     }
 
+    /**
+     * R1-PILOT-04: test-profile real HTTP role transition with the same
+     * server-issued patient/appointment identity. Testcontainers is disposable;
+     * this is NOT a separate-JVM/installed-Windows restart or production API.
+     */
+    @Test
+    void receptionToDoctorHandoffAcrossRevokedReceptionAndFreshDoctorSession()
+            throws Exception {
+        Fixture f=fixture(true),foreign=fixture(true);
+        String receptionist=login(f);
+        UUID appointment=checkedInAppointment(f,receptionist,"14:30");
+        String appointmentUrl=url(f)+"/"+appointment;
+        var checked=call("GET",appointmentUrl,receptionist,null);
+        assertThat(checked.statusCode()).isEqualTo(200);
+        assertThat(checked.body()).contains("\"stage\":\"CHECKED_IN\"");
+        UUID patient=id(checked.body(),"patientId");
+        assertThat(id(checked.body(),"doctorMembershipId")).isEqualTo(f.doctor());
+
+        // Reception session must not remain usable after role transfer.
+        assertThat(call("POST","/api/v1/auth/logout",receptionist,"{}")
+                .statusCode()).isBetween(200,204);
+        assertThat(call("GET",appointmentUrl,receptionist,null).statusCode())
+                .isEqualTo(401);
+        String assignedDoctor=loginDoctor(f);
+        String wrongTenantDoctor=loginDoctor(foreign);
+        String contextUrl=appointmentUrl+"/consultation-context";
+        String draftUrl=consultationPath(f,appointment);
+
+        // Both fresh doctor endpoints enforce the assigned member and the
+        // canonical patient record; reception-provided IDs grant no access.
+        var context=call("GET",contextUrl,assignedDoctor,null);
+        assertThat(context.statusCode()).isEqualTo(200);
+        assertThat(context.body()).contains("\"appointmentStage\":\"CHECKED_IN\"");
+        assertThat(id(context.body(),"patientId")).isEqualTo(patient);
+        assertThat(id(context.body(),"appointmentId")).isEqualTo(appointment);
+        assertThat(id(context.body(),"doctorMembershipId")).isEqualTo(f.doctor());
+        assertThat(call("GET",contextUrl,wrongTenantDoctor,null).statusCode())
+                .isEqualTo(403);
+        assertThat(call("GET",draftUrl,wrongTenantDoctor,null).statusCode())
+                .isEqualTo(403);
+        assertThat(call("GET",draftUrl,receptionist,null).statusCode())
+                .isEqualTo(401);
+        var draft=call("GET",draftUrl,assignedDoctor,null);
+        assertThat(draft.statusCode()).isEqualTo(200);
+        assertThat(id(draft.body(),"patientId")).isEqualTo(patient);
+        assertThat(draft.body()).contains("\"stage\":\"CHECKED_IN\"",
+                "\"revision\":0");
+
+        var saved=call("POST",draftUrl,assignedDoctor,
+                consultationInput(0,"SYNTHETIC pilot04 handoff draft"));
+        assertThat(saved.statusCode()).isEqualTo(200);
+        assertThat(saved.body()).contains("\"revision\":1",
+                "SYNTHETIC pilot04 handoff draft");
+        assertThat(id(saved.body(),"patientId")).isEqualTo(patient);
+
+        // New authenticated HTTP session reads the committed revision.
+        // This is an application-session restart only, not a JVM restart.
+        assertThat(call("POST","/api/v1/auth/logout",assignedDoctor,"{}")
+                .statusCode()).isBetween(200,204);
+        assertThat(call("GET",draftUrl,assignedDoctor,null).statusCode())
+                .isEqualTo(401);
+        String doctorAfterLogin=loginDoctor(f);
+        var reopened=call("GET",draftUrl,doctorAfterLogin,null);
+        assertThat(reopened.statusCode()).isEqualTo(200);
+        assertThat(id(reopened.body(),"patientId")).isEqualTo(patient);
+        assertThat(reopened.body()).contains("\"revision\":1",
+                "SYNTHETIC pilot04 handoff draft");
+        assertThat(admin.queryForObject("""
+            SELECT count(*) FROM appointment_proof.consultation_revision
+            WHERE appointment_id=?
+            """,Integer.class,appointment)).isOne();
+    }
+
     @Test
     void assignedDoctorSavesDurableConsultationRevisionsAcrossIndependentLogin()
             throws Exception {
