@@ -72,6 +72,7 @@ try{
  if(-not(Test-Path -LiteralPath (Join-Path $dist 'connected-reception-preview.html') -PathType Leaf)){
   throw 'WIN11 FAIL: connected Reception HTML missing'
  }
+ Set-Content -LiteralPath (Join-Path $stage 'WIN11_SOURCE_SHA.txt') -Encoding ASCII -Value $sha
  Copy-Item -LiteralPath $backend -Destination (Join-Path $stage 'aronexa-backend.jar')
  Copy-Item -LiteralPath (Join-Path $dist 'connected-reception-preview.html') -Destination (Join-Path $stage 'connected-reception-preview.html')
  Copy-Item -LiteralPath (Join-Path $dist 'assets') -Destination (Join-Path $stage 'assets') -Recurse
