@@ -12,8 +12,11 @@ const session=Object.freeze({tenantId:id(1),accessToken:'A'.repeat(43),
     'APPOINTMENT_CHECK_IN']});
 const input=Object.freeze({doctorMembershipId:id(5),requestId:id(6),
   visitDate:'2026-11-14',slotStart:'10:30'});
-const booked=Object.freeze({...intake,appointmentId:id(7),
-  doctorMembershipId:id(5),stage:'BOOKED',revision:1,replayed:false});
+// Intake verification status is NOT part of an appointment receipt.
+const booked=Object.freeze({tenantId:intake.tenantId,branchId:intake.branchId,
+  registrationId:intake.registrationId,patientId:intake.patientId,
+  appointmentId:id(7),doctorMembershipId:id(5),
+  stage:'BOOKED',revision:1,replayed:false});
 const checked=Object.freeze({...booked,stage:'CHECKED_IN',revision:2});
 const json=(value,status)=>new Response(JSON.stringify(value),
   {status,headers:{'Content-Type':'application/json'}});
@@ -33,10 +36,12 @@ test('BOOK posts only linked registration/doctor/date/slot/stable request ID',as
       doctorMembershipId:id(5),visitDate:'2026-11-14',
       slotStart:'10:30',requestId:id(6)});
     assert.ok(!JSON.stringify(request).includes(id(4)));
-    return json({...booked,untrusted:'not passed through'},201);
+    return json({...booked,status:'REGISTRATION_VERIFIED',
+      untrusted:'not passed through'},201);
   });
   assert.equal(calls,1);
   assert.deepEqual(receipt,booked);
+  assert.equal(Object.hasOwn(receipt,'status'),false);
   assert.equal(Object.isFrozen(receipt),true);
 });
 
