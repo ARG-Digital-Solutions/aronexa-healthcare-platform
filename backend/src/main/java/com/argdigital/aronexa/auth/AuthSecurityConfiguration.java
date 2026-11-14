@@ -42,7 +42,7 @@ class AuthSecurityConfiguration {
                         // RC02B: patient identity search is default DENIED.
                         // Function/privilege definition is disposable test-only;
                         // clinical privacy review required before any activation.
-                        .requestMatchers(HttpMethod.GET,
+                        .requestMatchers(HttpMethod.POST,
                                 "/api/v1/branches/{branchId}/patient-search")
                             .access((authn,request) -> new org.springframework.security.authorization.AuthorizationDecision(
                                 environment.getProperty(
