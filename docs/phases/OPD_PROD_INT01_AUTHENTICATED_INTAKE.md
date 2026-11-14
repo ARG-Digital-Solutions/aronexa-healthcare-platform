@@ -29,6 +29,8 @@ The request never accepts tenant or patient from the browser. The reused `OpdReg
 
 The frontend adapter `productionOpdIntakeClient.ts` sends an in-memory bearer over same-origin GET (no browser credential storage), validates every returned UUID and exact patient/registration continuity, and suppresses raw error bodies, tokens and demographic data. **It does not issue a booking or assume that a successful GET grants permission for a later write.**
 
+The isolated connected-Reception **test preview** now offers an optional **Verify OPD intake (read-only)** button after an authorized registration or recovery, visible only when the current staff session has both `APPOINTMENT_BOOK` and `PATIENT_REGISTRATION_READ`. It calls the **production-source** GET, shows a generic success/denial without retaining a token or authorizing the next booking, and clears the status on logout or switching registrations. This preview remains isolated from the production `App.tsx` dashboard, which still uses demonstration data.
+
 ## Production enablement and database impact
 
 - All OPD/registration modules are **unreleased and disabled by default** by existing Flyway V7/V9. Production module activation and grants are NOT made by this PR.
@@ -78,7 +80,7 @@ Customer release remains **NO-GO** pending original DB owner approval, independe
 2. **Baseline:** Pilot-07 owner-reported technical PASS on its exact earlier SHA; main remains separately governed.
 3. **Features:** real Spring GET registration→patient intake reference and frontend adapter.
 4. **DB/API:** no migrations; existing V1–V9 restricted patient RLS read/audit.
-5. **UX:** tiny read-only client primitive; customer dashboard unchanged.
+5. **UX:** optional read-only intake verification button in isolated connected-Reception preview; customer dashboard unchanged.
 6. **Security:** signed-in session, dual permission, OPD/registration module gates, branch/tenant and nonowner SQL, no-store response.
 7. **Tests:** HTTP/PG17 four cases and frontend negative tests authored; NOT EXECUTED at current PR head.
 8. **Regression:** Pilot06/07 prior exact-SHA PASSES are not a substitute for PROD-INT-01 QA.
