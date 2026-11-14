@@ -180,7 +180,16 @@ public final class ClinicWindowsShell {
                     || !Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) {
                 throw new IOException("Missing or linked app-image input");
             }
-            byte[] hash = MessageDigest.getInstance("SHA-256").digest(Files.readAllBytes(file));
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            try (var stream = Files.newInputStream(file)) {
+                byte[] buffer = new byte[64 * 1024];
+                int count;
+                while ((count = stream.read(buffer)) != -1) {
+                    digest.update(buffer, 0, count);
+                }
+                Arrays.fill(buffer, (byte) 0);
+            }
+            byte[] hash = digest.digest();
             if (!MessageDigest.isEqual(
                     java.util.HexFormat.of().formatHex(hash).toUpperCase()
                         .getBytes(StandardCharsets.US_ASCII),
@@ -189,7 +198,10 @@ public final class ClinicWindowsShell {
             }
             Arrays.fill(hash, (byte) 0);
         }
-        if (!seen.contains("aronexa-backend.jar")
+        if (!seen.contains("WIN11_SOURCE_SHA.txt")
+                || !Files.readString(root.resolve("WIN11_SOURCE_SHA.txt"))
+                    .trim().matches("[0-9a-f]{40}")
+                || !seen.contains("aronexa-backend.jar")
                 || !seen.contains("index.html")
                 || !seen.contains("connected-reception-preview.html")
                 || seen.stream().noneMatch(x -> x.startsWith("assets/")
