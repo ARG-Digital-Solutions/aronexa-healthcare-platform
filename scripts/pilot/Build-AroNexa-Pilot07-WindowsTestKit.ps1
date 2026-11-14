@@ -100,7 +100,11 @@ must be recorded. No real clinical application is installed by this kit.
  if($LASTEXITCODE -ne 0){throw 'PILOT07 BUILD FAIL: staged ZIP source integrity'}
  $zip=Join-Path $dest ('AroNexa-Clinic-OPD-TestLab-'+$sha.Substring(0,12)+'.zip')
  if(Test-Path -LiteralPath $zip){throw 'PILOT07 BUILD STOP: target ZIP already exists'}
- Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zip -CompressionLevel Optimal
+ # ZipFile.CreateFromDirectory includes dot-prefixed repository files;
+ # Compress-Archive can omit hidden files on some Windows configurations.
+ Add-Type -AssemblyName System.IO.Compression.FileSystem
+ [IO.Compression.ZipFile]::CreateFromDirectory(
+    $stage,$zip,[IO.Compression.CompressionLevel]::Optimal,$false)
  $digest=(Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash
  Write-Host 'PILOT07 WINDOWS TEST-LAB SOURCE ZIP BUILT' -ForegroundColor Green
  Write-Host ('Artifact='+$zip)
