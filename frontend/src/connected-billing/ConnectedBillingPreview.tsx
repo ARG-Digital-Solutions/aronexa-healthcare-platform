@@ -5,6 +5,7 @@ import {
   type BillingContext,type BillReceipt,type DailyCollections,BillingError,
 } from '../billingCandidateClient.ts';
 import {formatINR} from '../billing/model.ts';
+import {billingCanReceiveHandoff,billingContextMatchesHandoff,type BillingHandoff} from '../pilot06Handoff.ts';
 import '../connected-reception/connected-reception.css';
 import './billing-preview.css';
 
@@ -19,12 +20,12 @@ function todayClinic(){
   return field('year')+'-'+field('month')+'-'+field('day');
 }
 
-export default function ConnectedBillingPreview(){
+export default function ConnectedBillingPreview({handoff}:{handoff?:BillingHandoff}={}){
   const auth=useRef<StaffSession|null>(null);
   const flow=useRef<ReturnType<typeof createBillingCandidateFlow>|null>(null);
   const [credentials,setCredentials]=useState<Credentials>(blank);
-  const [branchId,setBranchId]=useState('');
-  const [appointmentId,setAppointmentId]=useState('');
+  const [branchId,setBranchId]=useState(handoff?.branchId??'');
+  const [appointmentId,setAppointmentId]=useState(handoff?.appointmentId??'');
   const [synthetic,setSynthetic]=useState(false);
   const [signedIn,setSignedIn]=useState(false);
   const [actorLabel,setActorLabel]=useState('');
@@ -55,7 +56,8 @@ export default function ConnectedBillingPreview(){
       active=await signInStaff(credentials);
       if(!active.roles.includes('BILLING')
         ||!active.permissions.includes('OPD_BILL_READ')
-        ||!active.permissions.includes('OPD_DAILY_REPORT_READ'))
+        ||!active.permissions.includes('OPD_DAILY_REPORT_READ')
+        ||(handoff&&!billingCanReceiveHandoff(handoff,active,branchId)))
         throw new BillingError('NOT_AUTHORIZED');
       auth.current=active;
       setActorLabel(active.username);
@@ -77,6 +79,8 @@ export default function ConnectedBillingPreview(){
         branchId,appointmentId.trim());
       flow.current=candidate;
       const state=await candidate.open();
+      if(handoff&&!billingContextMatchesHandoff(handoff,state.context))
+        throw new BillingError('UNVERIFIED_RESPONSE');
       setContext(state.context);setBill(state.bill);
       if(state.bill)setNotice('Existing fictional OPD bill verified on the server.');
     }catch(failure){
@@ -126,7 +130,8 @@ export default function ConnectedBillingPreview(){
     auth.current=null;
     clearVisit();setReport(null);setError('');setNotice('');
     setSignedIn(false);setActorLabel('');
-    setCredentials(blank());setBranchId('');setAppointmentId('');
+    setCredentials(blank());setBranchId(handoff?.branchId??'');
+    setAppointmentId(handoff?.appointmentId??'');
     setDate(todayClinic());setSynthetic(false);
     if(token)void revokeStaffToken(token);
   }
@@ -173,6 +178,7 @@ export default function ConnectedBillingPreview(){
               onChange={e=>setCredentials(old=>({...old,password:e.target.value}))}/>
             <label htmlFor="bill-branch">Assigned branch UUID</label>
             <input id="bill-branch" required value={branchId}
+              readOnly={!!handoff}
               onChange={e=>setBranchId(e.target.value.trim())}/>
             <label className="connected-check">
               <input type="checkbox" checked={synthetic}
@@ -189,10 +195,12 @@ export default function ConnectedBillingPreview(){
         <section className="connected-panel billing-panel"
           aria-label="Open OPD bill">
           <h2>1 · Find a checked-in consultation</h2>
+          {handoff&&<p role="status">Doctor's saved draft has been handed off. Billing must verify the clinic, patient and appointment again on the server.</p>}
           <form onSubmit={openVisit}>
             <label htmlFor="bill-appointment">Appointment UUID</label>
             <input id="bill-appointment" required autoComplete="off"
               value={appointmentId}
+              readOnly={!!handoff}
               onChange={e=>setAppointmentId(e.target.value.trim())}/>
             <button className="solid" type="submit" disabled={busy}>
               {busy?'Verifying…':'Open OPD billing'}
