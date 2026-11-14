@@ -33,6 +33,8 @@ import org.springframework.context.ConfigurableApplicationContext;
 import com.argdigital.aronexa.AronexaApplication;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Import;
+import org.springframework.context.annotation.Bean;
+import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Profile;
 import org.springframework.http.CacheControl;
 import org.springframework.http.ResponseEntity;
@@ -61,9 +63,11 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
  * clinic database, developer login or publicly routable HTTP endpoint.
  */
 @SpringBootTest(webEnvironment=SpringBootTest.WebEnvironment.RANDOM_PORT,
-        properties={"server.address=127.0.0.1","server.error.include-message=never"})
+        properties={"server.address=127.0.0.1","server.error.include-message=never",
+            "aronexa.opd.booking.reviewed-activation=true"})
 @ActiveProfiles({"test","opd-restricted-candidate"})
-@Import(OpdRestrictedBookingPostgresTests.RestrictedHttpController.class)
+@Import({OpdRestrictedBookingPostgresTests.RestrictedHttpController.class,
+        OpdRestrictedBookingPostgresTests.ProductionWriterFixture.class})
 @Testcontainers
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class OpdRestrictedBookingPostgresTests {
@@ -177,6 +181,45 @@ class OpdRestrictedBookingPostgresTests {
             throw new IllegalStateException("Isolated Spring Boot server did not bind");
         }
         return bound;
+    }
+
+    /**
+     * PROD-INT-02: permit only this isolated JUnit class to supply the
+     * source-owned production controller with a *delegating* restricted
+     * writer. Nothing from this bean or fixture is in a production JAR.
+     * The actual adapter is constructed after disposable roles/schema setup,
+     * and uses only aronexa_opd_runtime, never the migrator.
+     */
+    @TestConfiguration(proxyBeanMethods=false)
+    @Profile("test & opd-restricted-candidate & !dev & !prod")
+    static class ProductionWriterFixture {
+        @Bean
+        OpdBookingCommand.RestrictedVisitTransaction disposableProductionOpdWriter() {
+            return new OpdBookingCommand.RestrictedVisitTransaction() {
+                private OpdRestrictedSqlAdapter requireLiveRestrictedAdapter() {
+                    var instance=restrictedAdapter;
+                    if(instance==null) {
+                        throw new OpdRestrictedSqlAdapter.Rejected();
+                    }
+                    return instance;
+                }
+                @Override
+                public OpdBookingCommand.BookingReceipt bookWithinAuthorizedTransaction(
+                        com.argdigital.aronexa.auth.AuthPrincipal actor,
+                        OpdRegistrationHandoffService.VerifiedVisitSubject subject,
+                        OpdBookingCommand.BookingRequest request) {
+                    return requireLiveRestrictedAdapter()
+                            .bookWithinAuthorizedTransaction(actor,subject,request);
+                }
+                @Override
+                public OpdBookingCommand.BookingReceipt checkInWithinAuthorizedTransaction(
+                        com.argdigital.aronexa.auth.AuthPrincipal actor,
+                        OpdBookingCommand.CheckInRequest request) {
+                    return requireLiveRestrictedAdapter()
+                            .checkInWithinAuthorizedTransaction(actor,request);
+                }
+            };
+        }
     }
 
     /**
@@ -422,6 +465,122 @@ class OpdRestrictedBookingPostgresTests {
                 .matcher(json);
         assertThat(matcher.find()).as("Actual restricted SQL appointment receipt").isTrue();
         return UUID.fromString(matcher.group(1));
+    }
+
+    /**
+     * PROD-INT-02: unlike the old test-only controller route, this POST
+     * invokes src/main OpdBookingHttpController using the actual bearer,
+     * command contract, nonowner SQL login and disposable PG17.
+     */
+    @Test
+    void prodInt02RealProductionSourceHttpBooksChecksInAndReplays()
+            throws Exception {
+        assertThat(application.getBeansOfType(OpdBookingHttpController.class))
+                .hasSize(1);
+        Fixture f=fixture();
+        String token=login(f);
+        String path="/api/v1/branches/"+f.branch()+"/opd/appointments";
+        UUID request=UUID.randomUUID();
+        var first=httpPost(path,bookingJson(f,request),token);
+        assertThat(first.statusCode()).as(first.body()).isEqualTo(201);
+        assertThat(first.headers().firstValue("Cache-Control"))
+                .contains("no-store");
+        assertThat(first.body()).contains("\"stage\":\"BOOKED\"",
+                f.patient().toString(),f.registration().toString());
+        assertThat(first.body()).doesNotContain(
+                "accessToken","password","sessionId","membershipId");
+        UUID appointment=receiptId(first.body());
+        assertThat(admin.queryForObject("""
+            SELECT count(*) FROM opd_candidate.appointment_event
+            WHERE appointment_id=?
+            """,Integer.class,appointment)).isOne();
+
+        var repeated=httpPost(path,bookingJson(f,request),token);
+        assertThat(repeated.statusCode()).as(repeated.body()).isEqualTo(200);
+        assertThat(receiptId(repeated.body())).isEqualTo(appointment);
+        assertThat(repeated.body()).contains("\"replayed\":true");
+        assertThat(admin.queryForObject("""
+            SELECT count(*) FROM opd_candidate.appointment_event
+            WHERE appointment_id=?
+            """,Integer.class,appointment)).isOne();
+
+        var checked=httpPost(path+"/"+appointment+"/check-in",
+                "{\"expectedRevision\":1,\"requestId\":\""+
+                UUID.randomUUID()+"\"}",token);
+        assertThat(checked.statusCode()).as(checked.body()).isEqualTo(200);
+        assertThat(checked.body()).contains(
+                "\"stage\":\"CHECKED_IN\"","\"revision\":2");
+        assertThat(admin.queryForObject("""
+            SELECT count(*) FROM opd_candidate.appointment_event
+            WHERE appointment_id=?
+            """,Integer.class,appointment)).isEqualTo(2);
+
+        var stale=httpPost(path+"/"+appointment+"/check-in",
+                "{\"expectedRevision\":1,\"requestId\":\""+
+                UUID.randomUUID()+"\"}",token);
+        assertThat(stale.statusCode()).isEqualTo(409);
+        assertThat(admin.queryForObject("""
+            SELECT count(*) FROM opd_candidate.appointment_event
+            WHERE appointment_id=?
+            """,Integer.class,appointment)).isEqualTo(2);
+
+        assertThat(httpPost("/api/v1/auth/logout","{}",token).statusCode())
+                .isEqualTo(204);
+        assertThat(httpPost(path,bookingJson(f,request),token).statusCode())
+                .isEqualTo(401);
+        String relogin=login(f);
+        assertThat(relogin).isNotEqualTo(token);
+        var afterLogin=httpPost(path,bookingJson(f,request),relogin);
+        assertThat(afterLogin.statusCode()).as(afterLogin.body()).isEqualTo(200);
+        assertThat(receiptId(afterLogin.body())).isEqualTo(appointment);
+        assertThat(afterLogin.body()).contains("\"stage\":\"CHECKED_IN\"",
+                "\"replayed\":true");
+    }
+
+    @Test
+    void prodInt02ProductionHttpDeniesWrongScopeRevokedRoleAndConflictingSlot()
+            throws Exception {
+        Fixture f=fixture();
+        String path="/api/v1/branches/"+f.branch()+"/opd/appointments";
+        String good=bookingJson(f,UUID.randomUUID());
+        assertThat(httpPost(path,good,null).statusCode()).isEqualTo(401);
+        String token=login(f);
+        assertThat(httpPost(path,
+                good.replace(f.registration().toString(),UUID.randomUUID().toString()),
+                token).statusCode()).isEqualTo(403);
+        assertThat(httpPost("/api/v1/branches/"+UUID.randomUUID()
+                +"/opd/appointments",good,token).statusCode()).isEqualTo(403);
+        assertThat(admin.queryForObject("""
+            SELECT count(*) FROM opd_candidate.appointment WHERE tenant_id=?
+            """,Integer.class,f.tenant())).isZero();
+
+        var first=httpPost(path,good,token);
+        assertThat(first.statusCode()).as(first.body()).isEqualTo(201);
+        UUID appointment=receiptId(first.body());
+
+        // A new booking ID on the same doctor/slot may NOT create another
+        // committed appointment. The database owns the uniqueness decision.
+        var collision=httpPost(path,bookingJson(f,UUID.randomUUID()),token);
+        assertThat(collision.statusCode()).isEqualTo(409);
+        assertThat(admin.queryForObject("""
+            SELECT count(*) FROM opd_candidate.appointment WHERE tenant_id=?
+            """,Integer.class,f.tenant())).isOne();
+
+        admin.update("""
+            DELETE FROM public.auth_role_permission rp
+            USING public.auth_membership_role mr
+            WHERE rp.tenant_id=mr.tenant_id AND rp.role_id=mr.role_id
+              AND mr.tenant_id=? AND mr.membership_id=?
+              AND rp.permission_code='APPOINTMENT_CHECK_IN'
+            """,f.tenant(),f.staff());
+        var denied=httpPost(path+"/"+appointment+"/check-in",
+                "{\"expectedRevision\":1,\"requestId\":\""+
+                UUID.randomUUID()+"\"}",token);
+        assertThat(denied.statusCode()).isNotEqualTo(200);
+        assertThat(admin.queryForObject("""
+            SELECT count(*) FROM opd_candidate.appointment_event
+            WHERE appointment_id=?
+            """,Integer.class,appointment)).isOne();
     }
 
     @Test

@@ -63,6 +63,19 @@ class AuthSecurityConfiguration {
                                 environment.acceptsProfiles(Profiles.of("test & (c2-synthetic | registration-candidate) & !dev & !prod"))
                                 && authn.get().isAuthenticated()
                                 && authn.get().getPrincipal() instanceof AuthPrincipal))
+                        // PROD-INT-02: production-source command endpoints
+                        // remain DENIED unless explicitly reviewed-activated.
+                        // Even when enabled, they need a separately created
+                        // restricted SQL writer; never a default test migrator.
+                        .requestMatchers(HttpMethod.POST,
+                                "/api/v1/branches/{branchId}/opd/appointments",
+                                "/api/v1/branches/{branchId}/opd/appointments/{appointmentId}/check-in")
+                            .access((authn, request) -> new org.springframework.security.authorization.AuthorizationDecision(
+                                environment.getProperty(
+                                        "aronexa.opd.booking.reviewed-activation",
+                                        Boolean.class,false)
+                                && authn.get().isAuthenticated()
+                                && authn.get().getPrincipal() instanceof AuthPrincipal))
                         // R1-10B3A: distinct protected HTTP-to-restricted-PG17
                         // adapter, present ONLY in a disposable Testcontainers
                         // source test class. This is NEVER a production route.
