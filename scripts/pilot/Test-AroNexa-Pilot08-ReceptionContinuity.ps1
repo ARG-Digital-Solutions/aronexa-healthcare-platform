@@ -29,20 +29,25 @@ foreach($name in @('SPRING_DATASOURCE_URL','SPRING_DATASOURCE_USERNAME',
   throw ('PILOT08 STOP: inherited unsafe datasource/test setting '+$name)
  }
 }
+$production=Join-Path $PSScriptRoot 'Test-AroNexa-ProdInt02-RestrictedBooking.ps1'
 $browser=Join-Path $PSScriptRoot 'Test-AroNexa-Pilot06-IntegratedBrowser.ps1'
 $restart=Join-Path $PSScriptRoot 'Test-AroNexa-Pilot05-DistinctJvm-Restart.ps1'
-if(-not(Test-Path -LiteralPath $browser -PathType Leaf) -or
+if(-not(Test-Path -LiteralPath $production -PathType Leaf) -or
+   -not(Test-Path -LiteralPath $browser -PathType Leaf) -or
    -not(Test-Path -LiteralPath $restart -PathType Leaf)){
- throw 'PILOT08 STOP: required verified browser or distinct-JVM runner absent'
+ throw 'PILOT08 STOP: required guarded production, browser or distinct-JVM runner absent'
 }
 $root=Join-Path $env:USERPROFILE 'AroNexa-Local-QA'
 [void][System.IO.Directory]::CreateDirectory($root)
 $evidenceDir=Join-Path $root ('PILOT08-'+$sha.Substring(0,12)+'-'+[guid]::NewGuid().ToString('N'))
 [void][System.IO.Directory]::CreateDirectory($evidenceDir)
 $shot=Join-Path $evidenceDir ('PILOT08-'+$sha.Substring(0,12)+'-queue-registration.png')
+Write-Host 'PILOT08 STAGE 1/3: full PROD-INT-02 source and restricted PostgreSQL security regression'
+& powershell.exe -NoProfile -File $production -ExpectedCommit $sha
+if($LASTEXITCODE -ne 0){throw 'PILOT08 FAIL: production-source booking security regression'}
 $env:ARONEXA_PILOT08_SCREENSHOT=$shot
 try {
- Write-Host 'PILOT08 STAGE 1: real Chromium queue -> freshly authorized registration -> doctor/Rx/billing'
+ Write-Host 'PILOT08 STAGE 2/3: real Chromium queue -> freshly authorized registration -> doctor/Rx/billing'
  & powershell.exe -NoProfile -File $browser -ExpectedCommit $sha -QaCentralPath $QaCentralPath
  if($LASTEXITCODE -ne 0){throw 'PILOT08 FAIL: one-tab Chromium real HTTP/PG17 stage'}
 } finally {
@@ -51,7 +56,7 @@ try {
 if(-not(Test-Path -LiteralPath $shot -PathType Leaf)){
  throw 'PILOT08 FAIL: synthetic authorized registration screenshot missing'
 }
-Write-Host 'PILOT08 STAGE 2: two different Java JVMs on the SAME marked disposable PostgreSQL 17'
+Write-Host 'PILOT08 STAGE 3/3: two different Java JVMs on the SAME marked disposable PostgreSQL 17'
 & powershell.exe -NoProfile -File $restart -ExpectedCommit $sha
 if($LASTEXITCODE -ne 0){throw 'PILOT08 FAIL: distinct process registration/appointment/queue recovery'}
 $evidence=Join-Path $evidenceDir 'SUMMARY.txt'
@@ -61,6 +66,7 @@ if(Test-Path -LiteralPath $evidence){
 @(
  ('SourceCommit='+$sha),
  'Milestone=Integrated_Reception_Pilot_Candidate_Issue_135_RC01',
+ 'ProductionSourceSecurity=OWNER_RUNNER_EXIT_0_RESTRICTED_PG17',
  'Browser=OWNER_RUNNER_EXIT_0_REAL_CHROMIUM_HTTP_PG17',
  'QueueRegistration=FRESH_AUTHORIZED_PATIENT_ROLE_READ_NO_ID_COPY',
  'DifferentJVMs=OWNER_RUNNER_EXIT_0_SAME_MARKED_DISPOSABLE_PG17',
