@@ -65,6 +65,17 @@ try {
   await page.locator('input[type=checkbox]').first().check();
   await page.getByRole('button',{name:'Sign in and verify session'}).click();
 
+  stage='rc02b-search-without-booking';
+  assert.match(fixture.unbookedSearchMrn,/^PAT-SEARCH-[A-F0-9]{8}$/);
+  await page.getByRole('button',{name:'Find patient'}).click();
+  await page.locator('#patient-search-mode').selectOption('MRN');
+  await page.locator('#patient-search-term').fill(fixture.unbookedSearchMrn);
+  await page.getByRole('button',{name:'Search patients'}).click();
+  await page.getByText('Fictional Unbooked Search',{exact:false}).waitFor();
+  await page.getByRole('button',{name:'Open verified registration'}).click();
+  await page.getByRole('heading',{name:'Existing registration found'}).waitFor();
+  assert.equal(await page.locator('#existing-registration-id').count(),0);
+
   stage='reception-queue';
   await page.getByRole('button',{name:'Daily appointments'}).click();
   await page.getByRole('button',{name:'Load daily queue'}).click();
@@ -152,6 +163,8 @@ try {
   stage='daily-report';
   await page.getByRole('button',{name:'Load daily report'}).click();
   await page.getByText('Bills created',{exact:true}).waitFor();
+  assert.ok(entered.some(e=>e.path.endsWith('/patient-search')
+    &&e.status===200),'Unbooked patient search must be real authorized HTTP');
   assert.ok(entered.some(e=>e.path.includes('/patient-registrations/')
     &&e.status===200),'Queue registration must be freshly authorized by server');
   assert.ok(entered.some(e=>e.path.endsWith('/opd/doctors')
