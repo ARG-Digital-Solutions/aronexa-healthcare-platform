@@ -1253,6 +1253,135 @@ class AppointmentCandidateHttpAcceptanceTests {
                 " WHERE tenant_id=?",Integer.class,tenant);
     }
 
+    /**
+     * PILOT-06: actual Chromium clicks, Vite loopback proxy, authenticated
+     * Spring HTTP and automatically disposed PG17. No mock API responses.
+     * Requires the separately installed QA Central Playwright Chromium.
+     * The synthetic patient/registration and initial BOOKED appointment are
+     * server-side fixture setup; browser starts at the receptionist queue.
+     */
+    @Test
+    void pilot06BrowserIntegratedRealHttpAcrossThreeStaffRoles() throws Exception {
+        assertThat(System.getenv("ARONEXA_PILOT06_BROWSER"))
+            .as("PILOT-06 requires explicit synthetic-only runner")
+            .isEqualTo("SYNTHETIC_ONLY");
+        String qaEnv=System.getenv("ARONEXA_PILOT06_QA_ROOT");
+        assertThat(qaEnv).isNotBlank();
+        Path qaRoot=Path.of(qaEnv).toAbsolutePath().normalize();
+        assertThat(Files.isRegularFile(qaRoot.resolve(
+            "node_modules/playwright/index.mjs"))).as(
+            "QA Central Playwright package must be installed").isTrue();
+        Path repoRoot=Path.of(System.getProperty("user.dir"))
+                .toAbsolutePath().normalize().getParent();
+        Path frontend=repoRoot.resolve("frontend");
+        assertThat(Files.isRegularFile(frontend.resolve(
+            "node_modules/vite/bin/vite.js"))).isTrue();
+        assertThat(Files.isRegularFile(frontend.resolve(
+            "test/browser/pilot06-connected-browser.mjs"))).isTrue();
+
+        Fixture f=fixture(true);
+        String initialReception=login(f);
+        LocalDate today=LocalDate.now(CLINIC_ZONE);
+        var created=call("POST",url(f),initialReception,payload(
+            f,UUID.randomUUID(),f.doctor(),f.registration(),today,"15:30"));
+        assertThat(created.statusCode()).isEqualTo(201);
+        UUID appointment=id(created.body(),"appointmentId");
+        assertThat(call("POST","/api/v1/auth/logout",
+                initialReception,"{}").statusCode()).isBetween(200,204);
+        assertThat(call("GET",url(f)+"/"+appointment,
+                initialReception,null).statusCode()).isEqualTo(401);
+
+        // Refuse a preexisting local UI on 5176 (could be a different checkout).
+        boolean occupied=false;
+        try {
+            var response=http.send(HttpRequest.newBuilder(URI.create(
+                "http://127.0.0.1:5176/connected-reception-preview.html"))
+                    .timeout(java.time.Duration.ofSeconds(2)).GET().build(),
+                HttpResponse.BodyHandlers.discarding());
+            occupied=response.statusCode()>0;
+        } catch(java.io.IOException ignored) {
+            // Connection refused is expected if no server is running.
+        }
+        assertThat(occupied).as("Port 5176 must be free for this test").isFalse();
+
+        Process vite=null,browser=null;
+        try {
+            Path log=Path.of("target","pilot06-vite-test.log").toAbsolutePath();
+            var viteCommand=new ProcessBuilder(
+                "node",frontend.resolve("node_modules/vite/bin/vite.js").toString(),
+                "--config","vite.connected-reception.config.ts");
+            viteCommand.directory(frontend.toFile());
+            viteCommand.environment().put("ARONEXA_PILOT06_API_PORT",
+                Integer.toString(port));
+            viteCommand.redirectErrorStream(true);
+            viteCommand.redirectOutput(log.toFile());
+            vite=viteCommand.start();
+            boolean ready=false;
+            for(int i=0;i<50 && !ready;i++) {
+                assertThat(vite.isAlive()).as("Vite failed to start").isTrue();
+                try {
+                    var ping=http.send(HttpRequest.newBuilder(URI.create(
+                        "http://127.0.0.1:5176/connected-reception-preview.html"))
+                        .timeout(java.time.Duration.ofSeconds(2)).GET().build(),
+                        HttpResponse.BodyHandlers.discarding());
+                    ready=ping.statusCode()==200;
+                }catch(java.io.IOException ignored) {
+                    Thread.sleep(300);
+                }
+            }
+            assertThat(ready).as("Loopback Vite never became ready").isTrue();
+            String suffix=f.username().substring("r104_".length());
+            String fixtureJson="""
+                {"origin":"http://127.0.0.1:5176/","tenantCode":"%s",
+                 "receptionUser":"%s","receptionPassword":"%s",
+                 "doctorUser":"doctor_%s","doctorPassword":"DisposableDoctor-Only123!",
+                 "billingUser":"billing_%s","billingPassword":"DisposableBilling-Only123!",
+                 "branchId":"%s","appointmentId":"%s"}
+                """.formatted(f.tenantCode(),f.username(),f.password(),
+                    suffix,suffix,f.branch(),appointment);
+            var browserCommand=new ProcessBuilder("node",
+                "test/browser/pilot06-connected-browser.mjs");
+            browserCommand.directory(frontend.toFile());
+            browserCommand.environment().put("ARONEXA_PILOT06_QA_ROOT",
+                qaRoot.toString());
+            browserCommand.redirectErrorStream(true);
+            browser=browserCommand.start();
+            try(var stdin=browser.getOutputStream()) {
+                stdin.write(fixtureJson.getBytes(
+                    java.nio.charset.StandardCharsets.UTF_8));
+            }
+            if(!browser.waitFor(180,java.util.concurrent.TimeUnit.SECONDS)) {
+                browser.destroyForcibly();
+                throw new IllegalStateException("PILOT06 browser timed out");
+            }
+            String output=new String(browser.getInputStream().readAllBytes(),
+                java.nio.charset.StandardCharsets.UTF_8);
+            assertThat(browser.exitValue()).as(output).isZero();
+            assertThat(output).contains("PILOT06_CONNECTED_REAL_BROWSER_HTTP_PASS");
+            // Independent SQL read of records created by actual browser clicks.
+            assertThat(admin.queryForObject("""
+                SELECT count(*) FROM appointment_proof.consultation_revision
+                WHERE appointment_id=?
+                """,Integer.class,appointment)).isOne();
+            assertThat(admin.queryForObject("""
+                SELECT count(*) FROM appointment_proof.rx_draft_revision
+                WHERE appointment_id=?
+                """,Integer.class,appointment)).isOne();
+            assertThat(admin.queryForObject("""
+                SELECT count(*) FROM appointment_proof.opd_invoice
+                WHERE appointment_id=?
+                """,Integer.class,appointment)).isOne();
+            System.out.println("PILOT06_BROWSER_REAL_HTTP_OPD_JOURNEY_PASS");
+        } finally {
+            if(browser!=null && browser.isAlive())browser.destroyForcibly();
+            if(vite!=null) {
+                vite.destroy();
+                if(!vite.waitFor(6,java.util.concurrent.TimeUnit.SECONDS))
+                    vite.destroyForcibly();
+            }
+        }
+    }
+
     @Test
     void realHttpBookingPersistsThroughFreshLoginThenCheckInWithAudit() throws Exception {
         Fixture f=fixture(true);
