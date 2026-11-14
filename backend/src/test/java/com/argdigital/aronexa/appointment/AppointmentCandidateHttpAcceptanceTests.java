@@ -1282,6 +1282,15 @@ class AppointmentCandidateHttpAcceptanceTests {
         assertThat(call("GET","/api/v1/branches/"+withoutBooking.branch()
                 +"/opd/doctors",login(withoutBooking),null).statusCode())
                 .isEqualTo(403);
+        // An inactive doctor's directory entry must disappear immediately,
+        // independently of the receptionist's booking entitlement.
+        admin.update("""
+            UPDATE user_tenant_membership SET enabled=false
+            WHERE tenant_id=? AND id=?
+            """,f.tenant(),f.doctor());
+        var disabledDoctor=call("GET",endpoint,token,null);
+        assertThat(disabledDoctor.statusCode()).isEqualTo(200);
+        assertThat(disabledDoctor.body()).doesNotContain(f.doctor().toString());
         admin.update("""
             UPDATE tenant_module_state SET activated=false
             WHERE tenant_id=? AND module_code='OPD'
