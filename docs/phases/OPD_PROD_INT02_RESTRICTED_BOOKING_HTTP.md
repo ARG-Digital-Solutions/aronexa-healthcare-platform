@@ -85,3 +85,11 @@ Once PROD-INT-02 passes local security regression, prioritize production Doctor 
 14. **Customer UAT:** NOT RUN.
 15. **Classification:** INTERNAL_FOUNDATION / NOT READY.
 16. **Handoff:** READY FOR EXACT-SHA LOCAL QA, not permitted for clinic deployment.
+
+## Windows prerequisite STOP — first owner attempt (2026-11-14)
+
+Owner's initial exact-SHA Windows runner attempt at `0395a9069bbf982f98dc2d146bd60de2c4516007` **STOPPED before test execution** with a combined message: `PRODINT02 STOP: Docker, Java 21/JDK jar, Maven, npm required.` This message did not identify which command was absent, and must not be recorded as an HTTP/PG17 test failure or a PASS.
+
+Focused runner-only correction: `jar.exe` was used solely to list files inside the built Spring Boot JAR; replace its external CLI dependency with read-only `System.IO.Compression.ZipArchive` and keep the identical checks for presence of production-source `OpdBookingHttpController.class` and absence of test-only controllers. The preflight now lists exactly which of `docker.exe`, `mvn.cmd`, `npm.cmd`, `java.exe` are missing from PATH. Java 21 and a compiler-capable JDK are still needed to build source, Maven/Docker/npm remain prerequisites; the updated runner changes neither RLS nor application behavior.
+
+**This code has NOT been run on the owner's Windows machine at the corrected SHA.** Recheck the exact Draft PR #134 head and use a NEW clean worktree for retesting; do not manually bypass exact SHA, datasource/profile guards, restricted SQL or customer-release NO-GO rules. If it still stops at prerequisites, use its new specific missing-tool message to repair the Windows PATH/install before retrying.
