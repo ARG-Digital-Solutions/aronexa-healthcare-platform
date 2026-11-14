@@ -47,7 +47,7 @@ class Pilot05SeparateJvmHttpTests {
     private static final String PASSWORD = "DisposablePilot05-Only123!";
     private static final ZoneId CLINIC_ZONE = ZoneId.of("Asia/Kolkata");
     private static final Pattern TOKEN = Pattern.compile(
-            "\\\"accessToken\\\"\\s*:\\s*\\\"([A-Za-z0-9_-]{43})\\\"");
+            "\"accessToken\"\\s*:\\s*\"([A-Za-z0-9_-]{43})\"");
 
     @Autowired JdbcTemplate admin;
     @Autowired DataSource ownerDataSource;
@@ -116,9 +116,9 @@ class Pilot05SeparateJvmHttpTests {
     }
 
     private String login(String username) throws Exception {
-        String json = "{\\"tenantCode\\":\\"" + tenantCode()
-                + "\\",\\"username\\":\\"" + username
-                + "\\",\\"password\\":\\"" + PASSWORD + "\\"}";
+        String json = "{\"tenantCode\":\"" + tenantCode()
+                + "\",\"username\":\"" + username
+                + "\",\"password\":\"" + PASSWORD + "\"}";
         var response = call("POST", "/api/v1/auth/login", null, json);
         assertThat(response.statusCode()).isEqualTo(200);
         var matcher = TOKEN.matcher(response.body());
@@ -127,8 +127,8 @@ class Pilot05SeparateJvmHttpTests {
     }
 
     private UUID extract(String json, String key) {
-        var pattern = Pattern.compile("\\\"" + Pattern.quote(key)
-                + "\\"\\s*:\\s*\\\"([0-9a-f-]{36})\\\"", Pattern.CASE_INSENSITIVE);
+        var pattern = Pattern.compile("\"" + Pattern.quote(key)
+                + "\"\\s*:\\s*\"([0-9a-f-]{36})\"", Pattern.CASE_INSENSITIVE);
         var found = pattern.matcher(json);
         assertThat(found.find()).as("Expected server-issued " + key).isTrue();
         return UUID.fromString(found.group(1));
@@ -228,18 +228,18 @@ class Pilot05SeparateJvmHttpTests {
         Fixture f = seed();
         String reception = login(receptionUsername());
         String base = "/api/v1/branches/" + f.branch() + "/appointments";
-        String payload = "{\\"requestId\\":\\"" + UUID.randomUUID()
-                + "\\",\\"registrationId\\":\\"" + f.registration()
-                + "\\",\\"doctorMembershipId\\":\\"" + f.doctor()
-                + "\\",\\"visitDate\\":\\"" + LocalDate.now(CLINIC_ZONE)
-                + "\\",\\"slotStart\\":\\"14:30\\"}";
+        String payload = "{\"requestId\":\"" + UUID.randomUUID()
+                + "\",\"registrationId\":\"" + f.registration()
+                + "\",\"doctorMembershipId\":\"" + f.doctor()
+                + "\",\"visitDate\":\"" + LocalDate.now(CLINIC_ZONE)
+                + "\",\"slotStart\":\"14:30\"}";
         var booked = call("POST", base, reception, payload);
         assertThat(booked.statusCode()).isEqualTo(201);
         UUID appointment = extract(booked.body(), "appointmentId");
         var checked = call("POST", base + "/" + appointment + "/check-in",
-                reception, "{\\"expectedRevision\\":1}");
+                reception, "{\"expectedRevision\":1}");
         assertThat(checked.statusCode()).isEqualTo(200);
-        assertThat(checked.body()).contains("\\"stage\\":\\"CHECKED_IN\\"");
+        assertThat(checked.body()).contains("\"stage\":\"CHECKED_IN\"");
         assertThat(extract(checked.body(), "patientId")).isEqualTo(f.patient());
         assertThat(call("POST", "/api/v1/auth/logout", reception, "{}")
                 .statusCode()).isBetween(200, 204);
@@ -253,9 +253,9 @@ class Pilot05SeparateJvmHttpTests {
         assertThat(extract(context.body(), "patientId")).isEqualTo(f.patient());
         assertThat(extract(context.body(), "doctorMembershipId")).isEqualTo(f.doctor());
         var saved = call("POST", base + "/" + appointment + "/consultation-draft",
-                doctor, "{\\"expectedRevision\\":0,\\"consultationNote\\":\\"" + NOTE + "\\"}");
+                doctor, "{\"expectedRevision\":0,\"consultationNote\":\"" + NOTE + "\"}");
         assertThat(saved.statusCode()).isEqualTo(200);
-        assertThat(saved.body()).contains("\\"revision\\":1", NOTE);
+        assertThat(saved.body()).contains("\"revision\":1", NOTE);
         assertThat(call("POST", "/api/v1/auth/logout", doctor, "{}")
                 .statusCode()).isBetween(200, 204);
         long pid = ProcessHandle.current().pid();
@@ -299,7 +299,7 @@ class Pilot05SeparateJvmHttpTests {
         var readback = call("GET", base + "/consultation-draft", doctor, null);
         assertThat(readback.statusCode()).isEqualTo(200);
         assertThat(extract(readback.body(), "patientId")).isEqualTo(patient);
-        assertThat(readback.body()).contains("\\"revision\\":1", NOTE);
+        assertThat(readback.body()).contains("\"revision\":1", NOTE);
 
         String reception = login(receptionUsername());
         assertThat(call("GET", base + "/consultation-draft", reception, null)
