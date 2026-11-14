@@ -1287,6 +1287,24 @@ class AppointmentCandidateHttpAcceptanceTests {
             .as("PILOT06 STOP: prebuilt connected Reception HTML missing").isTrue();
 
         Fixture f=fixture(true);
+        // PILOT-08 RC01: isolated synthetic fixture provisioned ONLY in
+        // Testcontainers PG17 for the secure queue->registration reread.
+        // Neither module registry nor reception role is enabled in prod.
+        admin.update("""
+            UPDATE module_registry SET implemented=true,released=true
+            WHERE code='PATIENT_REGISTRATION'
+            """);
+        admin.update("""
+            INSERT INTO tenant_module_state
+                (tenant_id,module_code,entitled,activated,clinically_authorized)
+            VALUES (?,'PATIENT_REGISTRATION',true,true,true)
+            """,f.tenant());
+        assertThat(admin.update("""
+            INSERT INTO auth_role_permission(tenant_id,role_id,permission_code)
+            SELECT tenant_id,role_id,'PATIENT_REGISTRATION_READ'
+            FROM auth_membership_role
+            WHERE tenant_id=? AND membership_id=?
+            """,f.tenant(),f.receptionist())).isOne();
         String initialReception=login(f);
         LocalDate today=LocalDate.now(CLINIC_ZONE);
         var created=call("POST",url(f),initialReception,payload(
