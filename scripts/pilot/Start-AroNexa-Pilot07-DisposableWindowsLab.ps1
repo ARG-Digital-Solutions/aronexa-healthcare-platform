@@ -5,7 +5,8 @@ param(
  [Parameter(Mandatory=$true)]
  [ValidatePattern('^[0-9a-fA-F]{40}$')]
  [string]$ExpectedCommit,
- [switch]$ConfirmFictionalDisposableLab
+ [switch]$ConfirmFictionalDisposableLab,
+ [switch]$FromVerifiedArchive
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
@@ -16,13 +17,25 @@ if([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT){
  throw 'PILOT07 STOP: this operator lab is for isolated Windows QA only.'
 }
 $repo=(Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..\..')).Path
-$sha=(& git -C $repo rev-parse HEAD).Trim().ToLowerInvariant()
-if($LASTEXITCODE -ne 0 -or $sha -ne $ExpectedCommit.ToLowerInvariant()){
- throw 'PILOT07 STOP: Git source SHA mismatch.'
-}
-$dirty=@(& git -C $repo status --porcelain --untracked-files=no)
-if($LASTEXITCODE -ne 0 -or @($dirty | Where-Object {$_.Trim()}).Count -ne 0){
- throw 'PILOT07 STOP: tracked source is not clean.'
+if($FromVerifiedArchive){
+ if(Test-Path -LiteralPath (Join-Path $repo '.git')){
+  throw 'PILOT07 STOP: verified archive mode refused for Git worktree.'
+ }
+ $check=Join-Path $PSScriptRoot 'Test-AroNexa-Pilot07-Archive.ps1'
+ & powershell.exe -NoProfile -File $check -ExpectedCommit $ExpectedCommit
+ if($LASTEXITCODE -ne 0){
+  throw 'PILOT07 STOP: archived source checksum verification failed.'
+ }
+ $sha=$ExpectedCommit.ToLowerInvariant()
+}else{
+ $sha=(& git -C $repo rev-parse HEAD).Trim().ToLowerInvariant()
+ if($LASTEXITCODE -ne 0 -or $sha -ne $ExpectedCommit.ToLowerInvariant()){
+  throw 'PILOT07 STOP: Git source SHA mismatch.'
+ }
+ $dirty=@(& git -C $repo status --porcelain --untracked-files=no)
+ if($LASTEXITCODE -ne 0 -or @($dirty | Where-Object {$_.Trim()}).Count -ne 0){
+  throw 'PILOT07 STOP: tracked source is not clean.'
+ }
 }
 foreach($name in @('SPRING_DATASOURCE_URL','SPRING_DATASOURCE_USERNAME',
     'SPRING_DATASOURCE_PASSWORD','SPRING_PROFILES_ACTIVE',
@@ -41,7 +54,7 @@ if($null -eq $docker -or $null -eq $mvn -or
    $null -eq $npm -or $null -eq $node -or $null -eq $java){
  throw 'PILOT07 STOP: requires local Java 21, Maven, Docker Engine, Node and npm.'
 }
-$version=(& $java.Source -version 2>&1 | Select-Object -First 1).ToString()
+$version=(& $java.Source --version | Select-Object -First 1).ToString()
 if($version -notmatch '(?:^|[\s"])(?:21)\.'){
  throw 'PILOT07 STOP: Java 21 required.'
 }
