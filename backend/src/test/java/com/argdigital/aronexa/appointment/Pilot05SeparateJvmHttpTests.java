@@ -307,6 +307,204 @@ class Pilot05SeparateJvmHttpTests {
     }
 
 
+    /**
+     * PILOT-09 INTERNAL Windows operator lab. This does NOT mark acceptance:
+     * humans may explore fictional registrations, booked patients, checked-in
+     * queue, doctor note/Rx and billing while disposable PG17 is alive.
+     * This is a held-open JUnit JVM, not an installed offline Windows service.
+     */
+    @Test
+    void pilot09OperatorAssistedWindowsFictionalLab() throws Exception {
+        requireRc03();
+        assertThat(Pilot05DisposableDatabaseGuard.env("ARONEXA_PILOT05_PHASE"))
+                .isEqualTo("A");
+        assertThat(Pilot05DisposableDatabaseGuard.env(
+                "ARONEXA_PILOT09_INTERACTIVE_ACK"))
+                .isEqualTo("DISPOSABLE_OPERATOR_ONLY");
+        String raw=Pilot05DisposableDatabaseGuard.env("ARONEXA_PILOT09_RUN_DIR");
+        String local=Pilot05DisposableDatabaseGuard.env("LOCALAPPDATA");
+        Path allowed=Path.of(local,"ARG-Digital",
+                "AroNexa-Pilot09-Disposable").toAbsolutePath().normalize();
+        Path run=Path.of(raw).toAbsolutePath().normalize();
+        assertThat(run.getParent()).isEqualTo(allowed);
+        assertThat(run.getFileName().toString()).matches("pilot09-[0-9a-f]{32}");
+        assertThat(Files.isRegularFile(run.resolve("LAB-TEST-ONLY.marker"))).isTrue();
+        assertThat(Files.notExists(run.resolve("STOP"))).isTrue();
+        Path repoRoot=Path.of(System.getProperty("user.dir"))
+                .toAbsolutePath().normalize().getParent();
+        Path frontend=repoRoot.resolve("frontend");
+        assertThat(Files.isRegularFile(frontend.resolve(
+                "dist-connected-registration-test/connected-reception-preview.html")))
+                .isTrue();
+        assertThat(Files.isRegularFile(frontend.resolve(
+                "node_modules/vite/bin/vite.js"))).isTrue();
+        Fixture f=seed(false); // Absolutely no SQL-seeded patient/registration.
+        assertThat(admin.queryForObject("""
+            SELECT count(*) FROM patient WHERE tenant_id=?
+            """,Integer.class,f.tenant())).isZero();
+
+        // Synthetic doctor Rx draft and billing roles are granted ONLY inside
+        // the disposable test tenant created above.
+        admin.update("""
+            INSERT INTO auth_role_permission(tenant_id,role_id,permission_code)
+            SELECT tenant_id,role_id,'OPD_RX_DRAFT_WRITE'
+            FROM auth_membership_role
+            WHERE tenant_id=? AND membership_id=?
+            """,f.tenant(),f.doctor());
+        UUID billingUser=UUID.randomUUID(),billingMember=UUID.randomUUID(),
+             billingRole=UUID.randomUUID();
+        String billingName="pilot09_billing_"+suffix();
+        admin.update("""
+            INSERT INTO app_user(id,username,password_hash,must_change_password)
+            VALUES(?,?,?,false)
+            """,billingUser,billingName,passwords.encode(PASSWORD));
+        admin.update("""
+            INSERT INTO user_tenant_membership(id,user_id,tenant_id)
+            VALUES(?,?,?)
+            """,billingMember,billingUser,f.tenant());
+        admin.update("""
+            INSERT INTO org_membership_branch_scope(tenant_id,membership_id,branch_id)
+            VALUES(?,?,?)
+            """,f.tenant(),billingMember,f.branch());
+        admin.update("""
+            INSERT INTO auth_role(id,tenant_id,code,display_name)
+            VALUES (?,?,'BILLING','Fictional cashier')
+            """,billingRole,f.tenant());
+        admin.update("""
+            INSERT INTO auth_membership_role(tenant_id,membership_id,role_id)
+            VALUES (?,?,?)
+            """,f.tenant(),billingMember,billingRole);
+        for(String permission:new String[]{"OPD_BILL_CREATE","OPD_BILL_READ",
+                "OPD_PAYMENT_POST","OPD_DAILY_REPORT_READ"}) {
+            admin.update("""
+                INSERT INTO auth_role_permission(tenant_id,role_id,permission_code)
+                VALUES (?,?,?)
+                """,f.tenant(),billingRole,permission);
+        }
+        admin.update("""
+            INSERT INTO appointment_proof.fee_schedule
+               (tenant_id,branch_id,service_code,service_label,amount_paise,enabled)
+            VALUES (?,?,'OPD-CONSULTATION','Fictional OPD Consultation',50000,true)
+            """,f.tenant(),f.branch());
+
+        // Do not attach to another process's preview port.
+        try(var probe=new java.net.Socket()){
+            probe.connect(new java.net.InetSocketAddress("127.0.0.1",5176),1000);
+            throw new IllegalStateException("PILOT09 STOP: port 5176 occupied");
+        }catch(java.net.ConnectException portUnused){}
+        Path credentials=run.resolve("FICTIONAL-STAFF-ONLY.txt");
+        Process preview=null;
+        try {
+            String sheet="""
+                ARONEXA CLINIC EDITION — WINDOWS ASSISTED TEST LAB
+                PRIVATE/FICTIONAL ONLY — NO CUSTOMER/REAL PATIENT RECORDS
+                All data are DESTROYED when this lab shuts down.
+
+                URL: http://127.0.0.1:5176/connected-reception-preview.html
+                Clinic code: %s
+                Assigned branch UUID (test login only): %s
+                Reception username: %s
+                Doctor username: %s
+                Billing username: %s
+                Fictional password for ALL three roles: %s
+
+                RECEPTION
+                1. Sign in as Reception; tick fictional-only confirmation.
+                2. Create fictional patient -> Review -> Confirm -> MRN issued.
+                3. Choose server-listed Doctor -> Book -> Check in.
+                4. Open daily queue; find the same appointment and registration.
+                5. Use Find patient by MRN / name prefix to recover a record.
+                6. Try registering the SAME name a second time; confirm duplicate denial.
+
+                DOCTOR & BILLING
+                7. Sign out then sign in as Doctor; use the selected appointment.
+                8. Save a FICTIONAL consultation and Rx DRAFT only.
+                9. Sign out then sign in as Billing; create only fictional bills
+                   and review the daily summary. No actual money or Rx issuance.
+
+                To end: create the STOP file shown in PowerShell.
+                This is NOT a signed offline Windows installer or UAT signoff.
+                """.formatted(tenantCode(),f.branch(),receptionUsername(),
+                    doctorUsername(),billingName,PASSWORD);
+            Files.writeString(credentials,sheet,
+                java.nio.file.StandardOpenOption.CREATE_NEW,
+                java.nio.file.StandardOpenOption.WRITE);
+
+            Path log=run.resolve("vite-preview.log");
+            var command=new ProcessBuilder(
+                "node",frontend.resolve("node_modules/vite/bin/vite.js").toString(),
+                "preview","--config","vite.connected-reception.config.ts",
+                "--host","127.0.0.1","--port","5176","--strictPort");
+            command.directory(frontend.toFile());
+            command.environment().put("ARONEXA_PILOT06_API_PORT",
+                    Integer.toString(port));
+            command.redirectErrorStream(true);
+            command.redirectOutput(log.toFile());
+            preview=command.start();
+            var ready=new ProcessBuilder("node",
+                    "test/browser/pilot06-preview-readiness.mjs");
+            ready.directory(frontend.toFile());
+            ready.redirectErrorStream(true);
+            Process check=ready.start();
+            if(!check.waitFor(40,java.util.concurrent.TimeUnit.SECONDS)){
+                check.destroyForcibly();
+                throw new IllegalStateException("PILOT09 STOP: preview not ready");
+            }
+            assertThat(check.exitValue()).isZero();
+            assertThat(preview.isAlive()).isTrue();
+            System.out.println("PILOT09_INTERACTIVE_READY URL=http://127.0.0.1:5176/connected-reception-preview.html");
+            System.out.println("PILOT09_FICTIONAL_LOGIN_FILE="+credentials);
+            System.out.println("PILOT09_STOP_FILE="+run.resolve("STOP"));
+            System.out.flush();
+            try {
+                if(java.awt.Desktop.isDesktopSupported()){
+                    java.awt.Desktop.getDesktop().browse(URI.create(
+                      "http://127.0.0.1:5176/connected-reception-preview.html"));
+                }
+            }catch(Exception ignored){
+                System.out.println("PILOT09_OPEN_URL_MANUALLY");
+            }
+
+            long expiry=System.nanoTime()+
+                    java.util.concurrent.TimeUnit.MINUTES.toNanos(45);
+            while(System.nanoTime()<expiry
+                    &&Files.notExists(run.resolve("STOP"))){
+                assertThat(preview.isAlive()).as("Test preview died").isTrue();
+                Thread.sleep(1000);
+            }
+            int patients=admin.queryForObject("""
+                SELECT count(*) FROM patient WHERE tenant_id=?
+                """,Integer.class,f.tenant());
+            int checked=admin.queryForObject("""
+                SELECT count(*) FROM appointment_proof.appointment
+                 WHERE tenant_id=? AND status='CHECKED_IN'
+                """,Integer.class,f.tenant());
+            Files.writeString(run.resolve("SESSION-OBSERVATION.txt"),
+                    "Source=Fictional disposable test mode only\n"+
+                    "PatientRecordsCreated="+patients+"\n"+
+                    "CheckedInAppointments="+checked+"\n"+
+                    "ClinicalUAT=NOT_EVIDENCED\n"+
+                    "CustomerRelease=NO_GO\n");
+            assertThat(admin.update("""
+                UPDATE qa_guard.pilot05_run_marker SET phase='OPERATOR_ENDED',
+                    tenant_id=?,branch_id=?,process_a=?
+                WHERE run_id=? AND phase='READY'
+                """,f.tenant(),f.branch(),ProcessHandle.current().pid(),
+                    Pilot05DisposableDatabaseGuard.runId())).isOne();
+            System.out.println("PILOT09_DISPOSABLE_OPERATOR_SESSION_ENDED");
+            System.out.println("PILOT09_OPERATOR_CREATED_PATIENT_COUNT="+patients);
+            System.out.println("PILOT09_OPERATOR_CHECKED_IN_COUNT="+checked);
+            System.out.println("This is a session lifecycle, NOT clinical acceptance.");
+        }finally{
+            Files.deleteIfExists(credentials);
+            if(preview!=null){
+                preview.destroy();
+                if(!preview.waitFor(8,java.util.concurrent.TimeUnit.SECONDS))
+                    preview.destroyForcibly();
+            }
+        }
+    }
+
     private void requireRc03() {
         assertThat(Pilot05DisposableDatabaseGuard.env(
                 "ARONEXA_PILOT08_RC03_CONFIRM"))
