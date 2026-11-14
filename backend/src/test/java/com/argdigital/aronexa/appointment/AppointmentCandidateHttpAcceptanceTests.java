@@ -1495,6 +1495,13 @@ class AppointmentCandidateHttpAcceptanceTests {
         String raw=System.getenv("ARONEXA_PILOT07_RUN_DIR");
         assertThat(raw).isNotBlank();
         Path runDir=Path.of(raw).toAbsolutePath().normalize();
+        String localAppData=System.getenv("LOCALAPPDATA");
+        assertThat(localAppData).as("PILOT07 STOP: Windows local app data missing").isNotBlank();
+        Path allowedRoot=Path.of(localAppData,"ARG-Digital",
+            "AroNexa-Pilot07-Disposable").toAbsolutePath().normalize();
+        assertThat(runDir.getParent())
+            .as("PILOT07 STOP: test lab path must be inside its dedicated disposable root")
+            .isEqualTo(allowedRoot);
         assertThat(runDir.getFileName().toString()).matches("pilot07-[0-9a-f]{32}");
         assertThat(Files.isDirectory(runDir)).isTrue();
         assertThat(Files.isRegularFile(runDir.resolve("LAB-TEST-ONLY.marker")))
