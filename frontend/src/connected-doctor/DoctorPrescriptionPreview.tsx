@@ -24,9 +24,10 @@ const fields:ReadonlyArray<{key:TextField,label:string,max:number,required:boole
 ];
 
 export default function DoctorPrescriptionPreview({
-  session,branchId,appointmentId,onClose,
+  session,branchId,appointmentId,onClose,onReadyForBilling,
 }:{
   session:StaffSession;branchId:string;appointmentId:string;onClose:()=>void;
+  onReadyForBilling?:(receipt:DoctorRxReceipt)=>Promise<void>;
 }){
   const flowRef=useRef<ReturnType<typeof createDoctorPrescriptionCandidateFlow>|null>(null);
   const [rx,setRx]=useState<DoctorRxReceipt|null>(null);
@@ -170,6 +171,11 @@ export default function DoctorPrescriptionPreview({
               disabled={loading||!lines.length||!hasChanges}>
               Save prescription draft
             </button>
+            {onReadyForBilling&&rx.stage==='RX_DRAFT'&&rx.revision>=1&&
+              <button className="solid" type="button" disabled={loading||hasChanges}
+                onClick={()=>void onReadyForBilling(rx)}>
+                Hand off to billing staff sign-in
+              </button>}
             <button className="outline" type="button" disabled={loading}
               onClick={()=>void reload()}>Reopen server draft</button>
             <button className="outline" type="button" disabled={loading}
