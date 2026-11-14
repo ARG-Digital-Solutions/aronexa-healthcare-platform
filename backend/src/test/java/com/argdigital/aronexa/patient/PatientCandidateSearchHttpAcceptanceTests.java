@@ -1,11 +1,9 @@
 package com.argdigital.aronexa.patient;
 
 import java.net.URI;
-import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.util.UUID;
 import java.util.regex.Pattern;
@@ -183,9 +181,10 @@ class PatientCandidateSearchHttpAcceptanceTests {
         assertThat(m.find()).isTrue();
         return m.group(1);
     }
-    private String search(UUID branch,String mode,String term) {
-        return "/api/v1/branches/"+branch+"/patient-search?mode="+mode+
-                "&term="+URLEncoder.encode(term,StandardCharsets.UTF_8);
+    private HttpResponse<String> search(UUID branch,String mode,String term,
+            String token) throws Exception {
+        return request("POST","/api/v1/branches/"+branch+"/patient-search",
+            token,"{\\"mode\\":\\""+mode+"\\",\\"term\\":\\""+term+"\\"}");
     }
     private int audits(Fixture f) {
         return admin.queryForObject("""
@@ -199,10 +198,9 @@ class PatientCandidateSearchHttpAcceptanceTests {
             throws Exception {
         Fixture f=seed(true,true,true,false);
         String token=login(f);
-        for(var path:new String[]{
-            search(f.branch(),"MRN",f.mrn()),
-            search(f.branch(),"NAME_PREFIX","Fictional Search")}) {
-            var found=request("GET",path,token,null);
+        for(var criteria:new String[][]{
+            {"MRN",f.mrn()},{"NAME_PREFIX","Fictional Search"}}) {
+            var found=search(f.branch(),criteria[0],criteria[1],token);
             assertThat(found.statusCode()).as(found.body()).isEqualTo(200);
             assertThat(found.headers().firstValue("Cache-Control"))
                     .contains("no-store");
@@ -214,8 +212,7 @@ class PatientCandidateSearchHttpAcceptanceTests {
                     "phone","contact","birthDate","medical");
         }
         assertThat(audits(f)).isEqualTo(2);
-        var empty=request("GET",search(f.branch(),"MRN","NOT-FOUND-999"),
-                token,null);
+        var empty=search(f.branch(),"MRN","NOT-FOUND-999",token);
         assertThat(empty.statusCode()).isEqualTo(200);
         assertThat(empty.body()).isEqualTo("[]");
         assertThat(audits(f)).isEqualTo(3);
@@ -230,24 +227,26 @@ class PatientCandidateSearchHttpAcceptanceTests {
             throws Exception {
         Fixture f=seed(true,true,true,false);
         Fixture foreign=seed(true,true,true,false);
-        String path=search(f.branch(),"MRN",f.mrn());
-        assertThat(request("GET",path,null,null).statusCode()).isEqualTo(401);
+        assertThat(search(f.branch(),"MRN",f.mrn(),null).statusCode())
+                .isEqualTo(401);
         String token=login(f);
-        assertThat(request("GET",search(f.otherBranch(),"MRN",f.mrn()),
-                token,null).statusCode()).isEqualTo(403);
-        assertThat(request("GET",search(foreign.branch(),"MRN",foreign.mrn()),
-                token,null).statusCode()).isEqualTo(403);
+        assertThat(search(f.otherBranch(),"MRN",f.mrn(),token).statusCode())
+                .isEqualTo(403);
+        assertThat(search(foreign.branch(),"MRN",foreign.mrn(),token).statusCode())
+                .isEqualTo(403);
         assertThat(audits(f)).isZero();
         assertThat(audits(foreign)).isZero();
         admin.update("""
             DELETE FROM org_membership_branch_scope
             WHERE tenant_id=? AND branch_id=? AND membership_id=?
             """,f.tenant(),f.branch(),f.membership());
-        assertThat(request("GET",path,token,null).statusCode()).isEqualTo(403);
+        assertThat(search(f.branch(),"MRN",f.mrn(),token).statusCode())
+                .isEqualTo(403);
         assertThat(audits(f)).isZero();
         assertThat(request("POST","/api/v1/auth/logout",token,"{}")
                 .statusCode()).isEqualTo(204);
-        assertThat(request("GET",path,token,null).statusCode()).isEqualTo(401);
+        assertThat(search(f.branch(),"MRN",f.mrn(),token).statusCode())
+                .isEqualTo(401);
     }
 
     @Test
@@ -260,8 +259,8 @@ class PatientCandidateSearchHttpAcceptanceTests {
                 case 2 -> seed(true,true,false,false);
                 default -> seed(true,true,true,true);
             };
-            assertThat(request("GET",search(f.branch(),"MRN",f.mrn()),
-                    login(f),null).statusCode()).isEqualTo(403);
+            assertThat(search(f.branch(),"MRN",f.mrn(),login(f)).statusCode())
+                    .isEqualTo(403);
             assertThat(audits(f)).isZero();
         }
     }
@@ -279,7 +278,7 @@ class PatientCandidateSearchHttpAcceptanceTests {
             {"MRN","ab"},
             {"MRN","A'. OR TRUE"},
             {"UNREVIEWED","ABC"}}) {
-            var r=request("GET",search(f.branch(),input[0],input[1]),token,null);
+            var r=search(f.branch(),input[0],input[1],token);
             assertThat(r.statusCode()).as(input[1]).isEqualTo(400);
         }
         assertThat(audits(f)).isZero();
