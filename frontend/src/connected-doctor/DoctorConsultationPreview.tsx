@@ -5,6 +5,9 @@ import {
 } from '../doctorConsultationCandidateClient.ts';
 import DoctorPrescriptionPreview from './DoctorPrescriptionPreview.tsx';
 import {doctorCanReceiveHandoff,type DoctorHandoff} from '../receptionDoctorHandoff.ts';
+import {prepareBillingHandoff,type BillingHandoff} from '../pilot06Handoff.ts';
+import {revokeStaffTokenAndConfirm} from '../staffSessionClient.ts';
+import type {DoctorRxReceipt} from '../doctorPrescriptionCandidateClient.ts';
 import '../connected-reception/connected-reception.css';
 import './doctor-preview.css';
 
@@ -13,7 +16,10 @@ type Credentials={tenantCode:string;username:string;password:string};
 const emptyCredentials=():Credentials=>({tenantCode:'',username:'',password:''});
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export default function DoctorConsultationPreview({handoff}:{handoff?:DoctorHandoff}={}){
+export default function DoctorConsultationPreview({handoff,onBillingHandoff}:{
+  handoff?:DoctorHandoff;
+  onBillingHandoff?:(next:BillingHandoff)=>void;
+}={}){
   const sessionRef=useRef<StaffSession|null>(null);
   const flowRef=useRef<ReturnType<typeof createDoctorConsultationCandidateFlow>|null>(null);
   const [screen,setScreen]=useState<Screen>('SIGN_IN');
@@ -101,6 +107,20 @@ export default function DoctorConsultationPreview({handoff}:{handoff?:DoctorHand
       setNote('');
       setScreen('LOOKUP');
       setError(explain(failure));
+    }finally{setBusy(false);}
+  }
+
+  async function transferToBilling(receipt:DoctorRxReceipt){
+    if(busy||!handoff||!onBillingHandoff||!sessionRef.current)return;
+    setBusy(true);setError('');
+    try{
+      const next=prepareBillingHandoff(handoff,sessionRef.current,receipt);
+      await revokeStaffTokenAndConfirm(sessionRef.current.accessToken);
+      signOut();
+      onBillingHandoff(next);
+    }catch{
+      signOut();
+      setError('Billing handoff was not verified. Doctor must sign in again.');
     }finally{setBusy(false);}
   }
 
@@ -239,7 +259,8 @@ export default function DoctorConsultationPreview({handoff}:{handoff?:DoctorHand
       {screen==='RX'&&sessionRef.current&&
         <DoctorPrescriptionPreview session={sessionRef.current}
           branchId={branchId} appointmentId={appointmentId}
-          onClose={backToLookup}/>}
+          onClose={backToLookup}
+          onReadyForBilling={handoff&&onBillingHandoff?transferToBilling:undefined}/>}
     </main>
     <footer className="connected-footer">
       Synthetic QA only · No patient care · No local storage · ARG Digital Technologies
