@@ -4,7 +4,9 @@
 param(
  [Parameter(Mandatory=$true)]
  [ValidatePattern('^[0-9a-fA-F]{40}$')]
- [string]$ExpectedCommit
+ [string]$ExpectedCommit,
+ [switch]$Rc03,
+ [string]$QaCentralPath=(Join-Path $env:USERPROFILE 'Application Development\AroNexa-QA-Central')
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -19,7 +21,9 @@ if ($LASTEXITCODE -ne 0 -or @($changed | Where-Object {$_.Trim()}).Count -ne 0) 
 }
 foreach ($name in @('SPRING_DATASOURCE_URL','SPRING_DATASOURCE_USERNAME',
                     'SPRING_DATASOURCE_PASSWORD','SPRING_PROFILES_ACTIVE',
-                    'ARONEXA_PILOT05_PORT','ARONEXA_PILOT05_RUN_ID')) {
+                    'ARONEXA_PILOT05_PORT','ARONEXA_PILOT05_RUN_ID',
+                    'ARONEXA_PILOT08_RC03_CONFIRM','ARONEXA_PILOT06_QA_ROOT',
+                    'ARONEXA_PILOT06_BROWSER','ARONEXA_PILOT06_API_PORT')) {
  if ([Environment]::GetEnvironmentVariable($name)) {
   throw ('PILOT05 STOP: inherited database/profile variable: ' + $name)
  }
@@ -32,6 +36,17 @@ if ($null -eq $docker -or $null -eq $mvn) {
 & $docker.Source info '--format' '{{.ServerVersion}}'
 if ($LASTEXITCODE -ne 0) { throw 'PILOT05 STOP: Docker Engine unavailable' }
 
+if($Rc03){
+ $qa=Resolve-Path -LiteralPath $QaCentralPath -ErrorAction Stop
+ $qaPath=$qa.Path
+ if(-not(Test-Path -LiteralPath (Join-Path $qaPath 'node_modules\playwright\index.mjs'))){
+  throw 'RC03 STOP: verified QA Central Playwright installation missing'
+ }
+ $html=Join-Path $repo 'frontend\dist-connected-registration-test\connected-reception-preview.html'
+ if(-not(Test-Path -LiteralPath $html -PathType Leaf)){
+  throw 'RC03 STOP: tested connected-Reception frontend build missing'
+ }
+}
 $runId=[guid]::NewGuid().ToString('D')
 $containerName='aronexa-pilot05-' + $runId.Substring(0,12)
 $labelName='com.argdigital.aronexa.pilot05.run'
@@ -129,14 +144,24 @@ VALUES ('$runId','$db','READY');
  $env:ARONEXA_PILOT05_CONFIRM='TEST_ONLY_DISPOSABLE'
  Push-Location (Join-Path $repo 'backend')
  try {
+  if($Rc03){
+   $env:ARONEXA_PILOT08_RC03_CONFIRM='RC03_DISPOSABLE_BROWSER_ONLY'
+   $env:ARONEXA_PILOT06_QA_ROOT=$qaPath
+  }
+  $testA=if($Rc03){
+   'Pilot05SeparateJvmHttpTests#phaseARc03BrowserCreatesRegistrationBookingAndCheckIn'
+  }else{'Pilot05SeparateJvmHttpTests#phaseAWritesCheckedInConsultationAndStopsJvm'}
+  $testB=if($Rc03){
+   'Pilot05SeparateJvmHttpTests#phaseBRc03RecoversBrowserCreatedPatientAndCheckedInQueue'
+  }else{'Pilot05SeparateJvmHttpTests#phaseBReopensSameConsultationInDifferentJvm'}
   $env:ARONEXA_PILOT05_PHASE='A'
-  Write-Host 'PHASE A: first isolated Java JVM commits checked-in consultation'
-  & $mvn.Source '-Dtest=Pilot05SeparateJvmHttpTests#phaseAWritesCheckedInConsultationAndStopsJvm' '-Dsurefire.failIfNoSpecifiedTests=true' test
+  Write-Host 'PHASE A: first isolated JVM commits ' $(if($Rc03){'CHROMIUM-created registration and check-in'}else{'checked-in consultation'})
+  & $mvn.Source ('-Dtest='+$testA) '-Dsurefire.failIfNoSpecifiedTests=true' test
   if ($LASTEXITCODE -ne 0) {throw 'PILOT05 FAIL: first JVM'}
   Save-PhaseReport -Phase 'A'
   $env:ARONEXA_PILOT05_PHASE='B'
-  Write-Host 'PHASE B: new Java JVM reopens same consultation from same PG17'
-  & $mvn.Source '-Dtest=Pilot05SeparateJvmHttpTests#phaseBReopensSameConsultationInDifferentJvm' '-Dsurefire.failIfNoSpecifiedTests=true' test
+  Write-Host 'PHASE B: a DIFFERENT JVM reopens the same server-created records'
+  & $mvn.Source ('-Dtest='+$testB) '-Dsurefire.failIfNoSpecifiedTests=true' test
   if ($LASTEXITCODE -ne 0) {throw 'PILOT05 FAIL: second JVM'}
   Save-PhaseReport -Phase 'B'
  } finally {
@@ -149,24 +174,48 @@ VALUES ('$runId','$db','READY');
  if ($LASTEXITCODE -ne 0 -or ($asserted -join '').Trim() -ne 'PASS_B|t') {
   throw 'PILOT05 FAIL: distinct-JVM source marker was not confirmed'
  }
+ $phaseALabel=if($Rc03){
+  'PhaseA=PASS (Chromium-created fictional patient, duplicate review, booking and check-in)'
+ }else{
+  'PhaseA=PASS (different JVM and session, committed fictional consultation)'
+ }
+ $phaseBLabel=if($Rc03){
+  'PhaseB=PASS (fresh JVM, new receptionist session, server-created patient and checked-in queue)'
+ }else{
+  'PhaseB=PASS (same disposable PG17, fresh JVM and doctor, authorized read-back)'
+ }
  $summary=@(
   ('SourceCommit='+$actual),
   ('RunId='+$runId),
-  'PhaseA=PASS (different JVM and session, committed fictional consultation)',
-  'PhaseB=PASS (same disposable PG17, fresh JVM and doctor, authorized read-back)',
+  $phaseALabel,
+  $phaseBLabel,
   'SurefireTests=1+1 Failures=0 Errors=0 Skipped=0',
   'Scope=TEST_ONLY_NO_CUSTOMER_RELEASE',
   ('ContainerAutoRemovedAfterRun='+$containerId)
  )
+ if($Rc03){
+  $summary+=@(
+   'Rc03BrowserCreatedRegistration=true',
+   'Rc03BrowserCreatedBookingAndCheckIn=true',
+   'Rc03DuplicateRegistrationDenied=true',
+   'Rc03SameMarkedPG17RecoveredDifferentJvm=true',
+   'Rc03RealInstalledWindowsServiceRestart=false'
+  )
+ }
  $summary | Set-Content -LiteralPath (Join-Path $evidence 'SUMMARY.txt') -Encoding ASCII
  Write-Host ('EvidenceFolder='+$evidence)
- Write-Host 'PILOT05 DISTINCT JVM RESTART / SAME DISPOSABLE PG17 QA PASSED' -ForegroundColor Green
+ if($Rc03){
+  Write-Host 'PILOT08 RC03 BROWSER-CREATED REGISTRATION / DISTINCT JVM RECOVERY QA PASSED' -ForegroundColor Green
+ }else{
+  Write-Host 'PILOT05 DISTINCT JVM RESTART / SAME DISPOSABLE PG17 QA PASSED' -ForegroundColor Green
+ }
  Write-Host ('SourceCommit='+$actual)
- Write-Host 'Meaning: two test JVMs; one fictional consultation restored with new doctor session.'
+ Write-Host 'Meaning: two test JVMs reopened the same marked disposable PostgreSQL 17 records.'
  Write-Host 'Not customer UAT, installed Windows restart, production authorization or backup/restore proof.'
 } finally {
  foreach($key in @('ARONEXA_PILOT05_PORT','ARONEXA_PILOT05_RUN_ID',
-                    'ARONEXA_PILOT05_CONFIRM','ARONEXA_PILOT05_PHASE')) {
+                    'ARONEXA_PILOT05_CONFIRM','ARONEXA_PILOT05_PHASE',
+                    'ARONEXA_PILOT08_RC03_CONFIRM','ARONEXA_PILOT06_QA_ROOT')) {
   [Environment]::SetEnvironmentVariable($key,$null,'Process')
  }
  if ($started -and $containerId -match '^[0-9a-f]{64}$') {

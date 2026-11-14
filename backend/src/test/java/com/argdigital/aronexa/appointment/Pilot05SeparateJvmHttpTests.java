@@ -5,6 +5,10 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import org.springframework.core.io.FileSystemResource;
+import com.argdigital.aronexa.patient.RegistrationCandidateHttpAcceptanceTests;
 import java.sql.Connection;
 import java.time.Duration;
 import java.time.LocalDate;
@@ -36,12 +40,15 @@ import static org.assertj.core.api.Assertions.assertThat;
  * No Testcontainers static lifecycle, prod endpoint or shared database access.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-        properties = {"server.address=127.0.0.1", "server.error.include-message=never"})
-@ActiveProfiles({"test", "appointment-candidate"})
+        properties = {"server.address=127.0.0.1", "server.error.include-message=never",
+                "aronexa.opd.directory.reviewed-activation=true"})
+@ActiveProfiles({"test", "appointment-candidate","registration-candidate"})
 @ContextConfiguration(initializers = Pilot05DisposableDatabaseGuard.class)
 @Import({Pilot05DisposableDatabaseGuard.VerifiedDisposableConnection.class,
          AppointmentCandidateHttpAcceptanceTests.CandidateController.class,
-         AppointmentCandidateHttpAcceptanceTests.DailyBillingController.class})
+         AppointmentCandidateHttpAcceptanceTests.DailyBillingController.class,
+         RegistrationCandidateHttpAcceptanceTests.CandidateConfiguration.class,
+         RegistrationCandidateHttpAcceptanceTests.CandidateController.class})
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class Pilot05SeparateJvmHttpTests {
     private static final String NOTE = "SYNTHETIC PILOT05 restart consultation";
@@ -101,6 +108,31 @@ class Pilot05SeparateJvmHttpTests {
                 UPDATE module_registry SET implemented=true,released=true
                 WHERE code IN ('OPD','PATIENT_REGISTRATION')
                 """);
+        // RC03 is separately opt-in and retains all Pilot05 container
+        // marker checks. Never install review-only V10 on the original DB.
+        if("RC03_DISPOSABLE_BROWSER_ONLY".equals(
+                System.getenv("ARONEXA_PILOT08_RC03_CONFIRM"))) {
+            Path script=Path.of(System.getProperty("user.dir"))
+                    .toAbsolutePath().normalize()
+                    .resolve("../deploy/registration/review-only/"
+                            +"V10__approved_clinic_registration_writer.sql")
+                    .normalize();
+            assertThat(Files.isRegularFile(script)).isTrue();
+            try(Connection c=ownerDataSource.getConnection()){
+                c.setAutoCommit(false);
+                try {
+                    ScriptUtils.executeSqlScript(c,new EncodedResource(
+                            new FileSystemResource(script.toFile())),false,false,
+                            ScriptUtils.DEFAULT_COMMENT_PREFIX,
+                            ScriptUtils.EOF_STATEMENT_SEPARATOR,
+                            ScriptUtils.DEFAULT_BLOCK_COMMENT_START_DELIMITER,
+                            ScriptUtils.DEFAULT_BLOCK_COMMENT_END_DELIMITER);
+                    RegistrationCandidateHttpAcceptanceTests
+                            .installRc03DisposableProofKey(c);
+                    c.commit();
+                }catch(Exception e){c.rollback();throw e;}
+            }
+        }
     }
 
     private HttpResponse<String> call(String method, String path, String token,
@@ -139,7 +171,9 @@ class Pilot05SeparateJvmHttpTests {
     private record Fixture(UUID tenant, UUID branch, UUID patient,
                            UUID registration, UUID doctor) {}
 
-    private Fixture seed() {
+    private Fixture seed() { return seed(true); }
+
+    private Fixture seed(boolean seedSqlPatientIdentity) {
         String part = suffix();
         UUID tenant = UUID.randomUUID(), facility = UUID.randomUUID();
         UUID branch = UUID.randomUUID(), patient = UUID.randomUUID();
@@ -212,6 +246,7 @@ class Pilot05SeparateJvmHttpTests {
                 VALUES(?,'OPD',true,true,true),
                       (?,'PATIENT_REGISTRATION',true,true,true)
                 """, tenant,tenant);
+        if(seedSqlPatientIdentity) {
         admin.update("""
                 INSERT INTO patient(id,tenant_id,display_name)
                 VALUES(?,?,'FICTIONAL RESTART RECORD')
@@ -235,7 +270,255 @@ class Pilot05SeparateJvmHttpTests {
                  registered_by_membership_id)
                 VALUES(?,?,?,?,'RECEPTION',?)
                 """, registration, tenant, patient, branch, receptionist);
+        }
+        if(!seedSqlPatientIdentity){
+            admin.update("""
+                INSERT INTO auth_role_permission(tenant_id,role_id,permission_code)
+                VALUES (?,?, 'PATIENT_REGISTER')
+                """,tenant,receptionRole);
+            assertThat(admin.queryForObject("""
+                SELECT count(*) FROM patient WHERE tenant_id=?
+                """,Integer.class,tenant)).isZero();
+            return new Fixture(tenant,branch,null,null,doctor);
+        }
         return new Fixture(tenant, branch, patient, registration, doctor);
+    }
+
+
+    private void requireRc03() {
+        assertThat(Pilot05DisposableDatabaseGuard.env(
+                "ARONEXA_PILOT08_RC03_CONFIRM"))
+                .isEqualTo("RC03_DISPOSABLE_BROWSER_ONLY");
+    }
+
+    /**
+     * Distinct-JVM RC03 phase A: unlike the older Pilot05 acceptance,
+     * the database has ZERO patient rows before Chromium creates the
+     * registration, booking and check-in through real test-only HTTP.
+     * All processes share ONLY the previously verified disposable PG17.
+     */
+    @Test
+    void phaseARc03BrowserCreatesRegistrationBookingAndCheckIn() throws Exception {
+        requireRc03();
+        assertThat(Pilot05DisposableDatabaseGuard.env("ARONEXA_PILOT05_PHASE"))
+                .isEqualTo("A");
+        String qaEnv=Pilot05DisposableDatabaseGuard.env("ARONEXA_PILOT06_QA_ROOT");
+        Path qaRoot=Path.of(qaEnv).toAbsolutePath().normalize();
+        Path repoRoot=Path.of(System.getProperty("user.dir"))
+                .toAbsolutePath().normalize().getParent();
+        Path frontend=repoRoot.resolve("frontend");
+        assertThat(Files.isRegularFile(qaRoot.resolve(
+                "node_modules/playwright/index.mjs"))).isTrue();
+        assertThat(Files.isRegularFile(frontend.resolve(
+                "node_modules/vite/bin/vite.js"))).isTrue();
+        assertThat(Files.isRegularFile(frontend.resolve(
+                "dist-connected-registration-test/connected-reception-preview.html")))
+                .isTrue();
+        assertThat(Files.isRegularFile(frontend.resolve(
+                "test/browser/pilot08-rc03-created-restart.mjs"))).isTrue();
+        Fixture f=seed(false);
+        assertThat(admin.queryForObject("""
+            SELECT count(*) FROM patient WHERE tenant_id=?
+            """,Integer.class,f.tenant())).isZero();
+        var site=Path.of("target","pilot08-rc03-vite-test.log").toAbsolutePath();
+        Process vite=null,browser=null;
+        try {
+            // Port 5176 must be free before launching a single localhost Vite.
+            try(var probe=new java.net.Socket()){
+                probe.connect(new java.net.InetSocketAddress(
+                    "127.0.0.1",5176),1000);
+                throw new IllegalStateException("RC03 STOP: port 5176 occupied");
+            }catch(java.net.ConnectException unused){}
+            var preview=new ProcessBuilder(
+                "node",frontend.resolve("node_modules/vite/bin/vite.js").toString(),
+                "preview","--config","vite.connected-reception.config.ts",
+                "--host","127.0.0.1","--port","5176","--strictPort");
+            preview.directory(frontend.toFile());
+            preview.environment().put("ARONEXA_PILOT06_API_PORT",Integer.toString(port));
+            preview.redirectErrorStream(true);
+            preview.redirectOutput(site.toFile());
+            vite=preview.start();
+            var probe=new ProcessBuilder(
+                "node","test/browser/pilot06-preview-readiness.mjs");
+            probe.directory(frontend.toFile());
+            probe.redirectErrorStream(true);
+            Process readiness=probe.start();
+            if(!readiness.waitFor(40,java.util.concurrent.TimeUnit.SECONDS)){
+                readiness.destroyForcibly();
+                throw new IllegalStateException("RC03 STOP: Vite readiness timeout");
+            }
+            String ready=new String(readiness.getInputStream().readAllBytes(),
+                    StandardCharsets.UTF_8);
+            assertThat(readiness.exitValue()).isZero();
+            assertThat(ready).contains("PILOT06_NODE_PREVIEW_READY");
+            assertThat(vite.isAlive()).isTrue();
+
+            String fixture="""
+                {"origin":"http://127.0.0.1:5176/",
+                 "confirm":"RC03_MARKED_DISPOSABLE_ONLY",
+                 "tenantCode":"%s","receptionUser":"%s",
+                 "receptionPassword":"%s","branchId":"%s"}
+                """.formatted(tenantCode(),receptionUsername(),
+                    PASSWORD,f.branch());
+            var chromium=new ProcessBuilder(
+                    "node","test/browser/pilot08-rc03-created-restart.mjs");
+            chromium.directory(frontend.toFile());
+            chromium.environment().put("ARONEXA_PILOT06_QA_ROOT",qaEnv);
+            chromium.redirectErrorStream(true);
+            browser=chromium.start();
+            try(var stdin=browser.getOutputStream()){
+                stdin.write(fixture.getBytes(StandardCharsets.UTF_8));
+            }
+            if(!browser.waitFor(180,java.util.concurrent.TimeUnit.SECONDS)){
+                browser.destroyForcibly();
+                throw new IllegalStateException("RC03 STOP: browser timeout");
+            }
+            String output=new String(browser.getInputStream().readAllBytes(),
+                    StandardCharsets.UTF_8);
+            assertThat(browser.exitValue()).as(output).isZero();
+            assertThat(output)
+                    .contains("PILOT08_RC03_BROWSER_DUPLICATE_REVIEW_REJECTED");
+            var received=Pattern.compile(
+                "(?m)^PILOT08_RC03_BROWSER_CREATED="
+                +"([0-9a-f-]{36})\\|([0-9a-f-]{36})\\|"
+                +"([0-9a-f-]{36})\\|([0-9]{4}-[0-9]{2}-[0-9]{2})$")
+                    .matcher(output);
+            assertThat(received.find()).as("RC03 browser-issued IDs missing").isTrue();
+            UUID registration=UUID.fromString(received.group(1)),
+                 patient=UUID.fromString(received.group(2)),
+                 appointment=UUID.fromString(received.group(3));
+            LocalDate visitDate=LocalDate.parse(received.group(4));
+            assertThat(visitDate).isEqualTo(LocalDate.now(CLINIC_ZONE));
+
+            // Independent SQL checks after real browser POSTs, including
+            // prevention of a second identity following duplicate review.
+            assertThat(admin.queryForObject("""
+                SELECT count(*) FROM patient
+                 WHERE tenant_id=? AND id=?
+                  AND display_name='Fictional Rc03 Browser Registration'
+                """,Integer.class,f.tenant(),patient)).isOne();
+            assertThat(admin.queryForObject("""
+                SELECT count(*) FROM patient WHERE tenant_id=?
+                """,Integer.class,f.tenant())).isOne();
+            assertThat(admin.queryForObject("""
+                SELECT count(*) FROM patient_registration
+                 WHERE tenant_id=? AND branch_id=? AND patient_id=? AND id=?
+                """,Integer.class,f.tenant(),f.branch(),patient,registration)).isOne();
+            assertThat(admin.queryForObject("""
+                SELECT count(*) FROM patient_identifier
+                 WHERE tenant_id=? AND patient_id=? AND identifier_type='MRN'
+                """,Integer.class,f.tenant(),patient)).isOne();
+            assertThat(admin.queryForObject("""
+                SELECT count(*) FROM appointment_proof.appointment
+                 WHERE id=? AND tenant_id=? AND branch_id=?
+                   AND patient_id=? AND registration_id=?
+                   AND status='CHECKED_IN' AND visit_date=?
+                """,Integer.class,appointment,f.tenant(),f.branch(),
+                    patient,registration,visitDate)).isOne();
+            assertThat(admin.queryForObject("""
+                SELECT count(*) FROM appointment_proof.event
+                 WHERE appointment_id=?
+                """,Integer.class,appointment)).isEqualTo(2);
+            long pid=ProcessHandle.current().pid();
+            assertThat(admin.update("""
+                UPDATE qa_guard.pilot05_run_marker SET
+                    tenant_id=?,branch_id=?,patient_id=?,appointment_id=?,
+                    doctor_id=?,process_a=?,phase='READY_A'
+                WHERE run_id=? AND phase='READY'
+                """,f.tenant(),f.branch(),patient,appointment,
+                    f.doctor(),pid,Pilot05DisposableDatabaseGuard.runId())).isOne();
+            System.out.println("PILOT08_RC03_PHASE_A_BROWSER_CREATED_REGISTRATION_BOOK_CHECKIN_PASS");
+            System.out.println("PILOT08_RC03_PHASE_A_PID="+pid);
+        }finally{
+            if(browser!=null&&browser.isAlive())browser.destroyForcibly();
+            if(vite!=null){
+                vite.destroy();
+                if(!vite.waitFor(6,java.util.concurrent.TimeUnit.SECONDS))
+                    vite.destroyForcibly();
+            }
+        }
+    }
+
+    /**
+     * Phase B executes in another Java process, under the SAME out-of-band
+     * disposable database label. It must not seed or create any patient.
+     */
+    @Test
+    void phaseBRc03RecoversBrowserCreatedPatientAndCheckedInQueue() throws Exception {
+        requireRc03();
+        assertThat(Pilot05DisposableDatabaseGuard.env("ARONEXA_PILOT05_PHASE"))
+                .isEqualTo("B");
+        var markers=admin.queryForList("""
+            SELECT tenant_id,branch_id,patient_id,appointment_id,doctor_id,
+                   process_a,phase FROM qa_guard.pilot05_run_marker WHERE run_id=?
+            """,Pilot05DisposableDatabaseGuard.runId());
+        assertThat(markers).hasSize(1);
+        var m=markers.getFirst();
+        assertThat(m.get("phase")).isEqualTo("READY_A");
+        long first=((Number)m.get("process_a")).longValue();
+        long second=ProcessHandle.current().pid();
+        assertThat(second).isNotEqualTo(first);
+        UUID tenant=(UUID)m.get("tenant_id"),
+             branch=(UUID)m.get("branch_id"),
+             patient=(UUID)m.get("patient_id"),
+             appointment=(UUID)m.get("appointment_id");
+        assertThat(tenant).isNotNull();
+        assertThat(patient).isNotNull();
+        UUID registration=admin.queryForObject("""
+            SELECT id FROM patient_registration
+             WHERE tenant_id=? AND branch_id=? AND patient_id=?
+            """,UUID.class,tenant,branch,patient);
+        assertThat(registration).isNotNull();
+        assertThat(admin.queryForObject("""
+            SELECT count(*) FROM patient
+             WHERE tenant_id=? AND id=?
+               AND display_name='Fictional Rc03 Browser Registration'
+            """,Integer.class,tenant,patient)).isOne();
+        assertThat(admin.queryForObject("""
+            SELECT count(*) FROM patient WHERE tenant_id=?
+            """,Integer.class,tenant)).isOne();
+        String reception=login(receptionUsername());
+        var authorized=call("GET","/api/v1/branches/"+branch+
+                "/patient-registrations/"+registration,reception,null);
+        assertThat(authorized.statusCode()).isEqualTo(200);
+        assertThat(extract(authorized.body(),"patientId")).isEqualTo(patient);
+        assertThat(extract(authorized.body(),"registrationId"))
+                .isEqualTo(registration);
+        LocalDate day=admin.queryForObject("""
+            SELECT visit_date FROM appointment_proof.appointment
+             WHERE tenant_id=? AND id=? AND status='CHECKED_IN'
+            """,LocalDate.class,tenant,appointment);
+        assertThat(day).isNotNull();
+        var queue=call("GET","/api/v1/branches/"+branch+
+                "/appointments?visitDate="+day,reception,null);
+        assertThat(queue.statusCode()).isEqualTo(200);
+        assertThat(queue.body()).contains(
+                appointment.toString(),registration.toString(),
+                patient.toString(),"\"stage\":\"CHECKED_IN\"");
+        var wrongDay=call("GET","/api/v1/branches/"+branch+
+                "/appointments?visitDate="+day.minusDays(1),reception,null);
+        assertThat(wrongDay.statusCode()).isEqualTo(200);
+        assertThat(wrongDay.body()).doesNotContain(appointment.toString());
+        var read=call("GET","/api/v1/branches/"+branch+
+                "/appointments/"+appointment,reception,null);
+        assertThat(read.statusCode()).isEqualTo(200);
+        assertThat(extract(read.body(),"patientId")).isEqualTo(patient);
+        assertThat(admin.queryForObject("""
+            SELECT count(*) FROM appointment_proof.event
+             WHERE appointment_id=?
+            """,Integer.class,appointment)).isEqualTo(2);
+        assertThat(call("POST","/api/v1/auth/logout",reception,"{}")
+                .statusCode()).isEqualTo(204);
+        assertThat(call("GET","/api/v1/branches/"+branch+
+                "/patient-registrations/"+registration,reception,null)
+                .statusCode()).isEqualTo(401);
+        assertThat(admin.update("""
+            UPDATE qa_guard.pilot05_run_marker
+               SET process_b=?,phase='PASS_B'
+             WHERE run_id=? AND phase='READY_A' AND process_a<>?
+            """,second,Pilot05DisposableDatabaseGuard.runId(),second)).isOne();
+        System.out.println("PILOT08_RC03_PHASE_B_FRESH_JVM_BROWSER_CREATED_RECORDS_PASS");
+        System.out.println("PILOT08_RC03_PHASE_B_PID="+second);
     }
 
     @Test
