@@ -27,15 +27,26 @@ foreach($variable in @('SPRING_DATASOURCE_URL','SPRING_DATASOURCE_USERNAME',
   throw ('PRODINT02 STOP: inherited database/activation variable '+$variable)
  }
 }
-$docker=Get-Command docker.exe -ErrorAction SilentlyContinue
-$mvn=Get-Command mvn.cmd -ErrorAction SilentlyContinue
-$npm=Get-Command npm.cmd -ErrorAction SilentlyContinue
-$java=Get-Command java.exe -ErrorAction SilentlyContinue
-$jar=Get-Command jar.exe -ErrorAction SilentlyContinue
-if($null -eq $docker -or $null -eq $mvn -or $null -eq $npm -or
-   $null -eq $java -or $null -eq $jar){
- throw 'PRODINT02 STOP: Docker, Java 21/JDK jar, Maven, npm required.'
+# Report exactly which developer prerequisites are absent, rather than
+# one ambiguous failure. The JDK jar command is not required here:
+# inspect the built Spring Boot ZIP/JAR using .NET's read-only ZipArchive.
+$requirements=@(
+ @{Name='Docker Engine CLI'; Command='docker.exe'},
+ @{Name='Maven'; Command='mvn.cmd'},
+ @{Name='npm'; Command='npm.cmd'},
+ @{Name='Java 21'; Command='java.exe'}
+)
+$missing=@($requirements | Where-Object {
+ $null -eq (Get-Command $_.Command -ErrorAction SilentlyContinue)
+} | ForEach-Object { $_.Name+' ('+$_.Command+')' })
+if($missing.Count -gt 0){
+ throw ('PRODINT02 STOP: missing prerequisite(s): '+($missing -join ', ')+
+  '. Check PATH, tool installation and JAVA_HOME.')
 }
+$docker=Get-Command docker.exe -ErrorAction Stop
+$mvn=Get-Command mvn.cmd -ErrorAction Stop
+$npm=Get-Command npm.cmd -ErrorAction Stop
+$java=Get-Command java.exe -ErrorAction Stop
 $version=(& $java.Source --version | Select-Object -First 1).ToString()
 if($version -notmatch '(^|[\s"])21\.'){throw 'PRODINT02 STOP: Java 21 required.'}
 & $docker.Source info '--format' '{{.ServerVersion}}'
@@ -94,17 +105,26 @@ try {
  if(-not(Test-Path -LiteralPath $appJar -PathType Leaf)){
   throw 'PRODINT02 FAIL: Spring Boot JAR missing'
  }
- $entries=@(& $jar.Source tf $appJar)
- if($LASTEXITCODE -ne 0){throw 'PRODINT02 FAIL: cannot inspect JAR'}
- if($entries -cnotcontains 'BOOT-INF/classes/com/argdigital/aronexa/opd/OpdBookingHttpController.class'){
-  throw 'PRODINT02 FAIL: compiled production-source booking controller missing'
- }
- foreach($bad in @('OpdRestrictedBookingPostgresTests.class',
-                   'AppointmentCandidateHttpAcceptanceTests.class')){
-  if(@($entries | Where-Object {$_ -like ('*'+$bad)}).Count -gt 0){
-   throw 'PRODINT02 FAIL: test-only controller was packaged'
-  }
- }
+ # The archive is ZIP-compatible. Read its entries directly; no
+ # jar.exe PATH requirement or extra process is necessary on Windows.
+ Add-Type -AssemblyName System.IO.Compression
+ $stream=[System.IO.File]::OpenRead($appJar)
+ try {
+  $archive=[System.IO.Compression.ZipArchive]::new(
+      $stream,[System.IO.Compression.ZipArchiveMode]::Read,$false)
+  try {
+   $entries=@($archive.Entries | ForEach-Object {$_.FullName})
+   if($entries -cnotcontains 'BOOT-INF/classes/com/argdigital/aronexa/opd/OpdBookingHttpController.class'){
+    throw 'PRODINT02 FAIL: compiled production-source booking controller missing'
+   }
+   foreach($bad in @('OpdRestrictedBookingPostgresTests.class',
+                     'AppointmentCandidateHttpAcceptanceTests.class')){
+    if(@($entries | Where-Object {$_ -like ('*'+$bad)}).Count -gt 0){
+     throw 'PRODINT02 FAIL: test-only controller was packaged'
+    }
+   }
+  } finally { $archive.Dispose() }
+ } finally { $stream.Dispose() }
 } finally {Pop-Location}
 Write-Host 'PRODINT02 REAL PRODUCTION-SOURCE HTTP / RESTRICTED PG17 QA PASSED' -ForegroundColor Green
 Write-Host ('SourceCommit='+$actual)
