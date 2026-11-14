@@ -45,9 +45,10 @@ try {
  $dir=Join-Path (Get-Location) 'target\surefire-reports'
  $suites=@(
   @{Name='com.argdigital.aronexa.patient.PatientCandidateSearchHttpAcceptanceTests';
-    Minimum=5;
+    Minimum=6;
     Cases=@('realHttpExactMrnAndNamePrefixReturnOnlyBranchRegistrationAndAudit',
       'anonymousWrongBranchTenantAndRevokedBranchDoNotExposePatients',
+      'liveSearchPermissionRevocationImmediatelyDeniesSameBearer',
       'bothPermissionsModuleAndForcedPasswordAreIndependentlyRequired',
       'unsafeWildcardShortOrMalformedQueriesRejectBeforeSearch',
       'patientRoleHasFunctionExecuteButNeverDirectIdentitySelect')},
