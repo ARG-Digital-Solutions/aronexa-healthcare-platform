@@ -75,6 +75,13 @@ BEGIN
          WHERE amr.tenant_id=v_tenant AND amr.membership_id=v_member
            AND arp.permission_code='PATIENT_CANDIDATE_SEARCH'
        )
+       OR NOT EXISTS (
+         SELECT 1 FROM public.auth_membership_role amr
+         JOIN public.auth_role_permission arp
+           ON arp.tenant_id=amr.tenant_id AND arp.role_id=amr.role_id
+         WHERE amr.tenant_id=v_tenant AND amr.membership_id=v_member
+           AND arp.permission_code='PATIENT_REGISTRATION_READ'
+       )
        OR p_mode NOT IN ('MRN','NAME_PREFIX') OR p_term IS NULL
        OR (p_mode='MRN'
            AND (p_term !~ '^[A-Z0-9][A-Z0-9-]{2,47}$'))
