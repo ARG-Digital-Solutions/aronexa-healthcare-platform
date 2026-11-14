@@ -152,6 +152,18 @@ class PatientRegistrationReadHttpAcceptanceTests {
     }
 
     @Test
+    void pilot08Rc02bSearchRemainsDisabledInNormalRuntime() throws Exception {
+        Fixture f=seed(true,true,false);
+        String token=login(f);
+        var denied=get("/api/v1/branches/"+f.branch()
+                +"/patient-search?mode=MRN&term=PAT-FAKE001",token);
+        assertThat(denied.statusCode()).isEqualTo(403);
+        assertThat(denied.body()).doesNotContain(
+                "Fictional Reference Patient","accessToken");
+        assertThat(auditCount(f)).isZero();
+    }
+
+    @Test
     void authorizedReadIsAuditedAndNeverReturnsDemographicsOrMembership() throws Exception {
         Fixture f=seed(true,true,false);
         String bearer=login(f);
