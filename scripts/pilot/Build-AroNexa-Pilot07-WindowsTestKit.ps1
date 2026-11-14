@@ -86,7 +86,7 @@ must be recorded. No real clinical application is installed by this kit.
  Set-Content -LiteralPath (Join-Path $stage 'READ-ME-PILOT07-TEST-ONLY.txt') -Value $readme -Encoding ASCII
 
  $records=[System.Collections.Generic.List[string]]::new()
- $all=@(Get-ChildItem -LiteralPath $stage -File -Recurse | Sort-Object FullName)
+ $all=@(Get-ChildItem -LiteralPath $stage -File -Recurse -Force | Sort-Object FullName)
  foreach($item in $all){
   $rel=$item.FullName.Substring($stage.Length+1).Replace('\','/')
   if($rel -eq 'PILOT07_SOURCE_SHA256.tsv'){continue}
