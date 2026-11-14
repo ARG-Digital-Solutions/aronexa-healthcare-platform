@@ -112,7 +112,7 @@ export default function DoctorConsultationPreview({handoff}:{handoff?:DoctorHand
     setNote('');
     setSuccess('');
     setError('');
-    setAppointmentId('');
+    setAppointmentId(handoff?.appointmentId??'');
     setScreen('LOOKUP');
   }
 
@@ -126,7 +126,7 @@ export default function DoctorConsultationPreview({handoff}:{handoff?:DoctorHand
     setNote('');
     setSuccess('');
     setError('');
-    setAppointmentId('');
+    setAppointmentId(handoff?.appointmentId??'');
     setBranchId(handoff?.branchId??'');
     setCredentials(emptyCredentials());
     setConfirmedSynthetic(false);
