@@ -16,10 +16,11 @@ import {prepareDoctorHandoff,type DoctorHandoff} from '../receptionDoctorHandoff
 import {verifyProductionOpdIntake} from '../productionOpdIntakeClient.ts';
 import {verifiedRegistrationFromQueue} from '../queueRegistrationContinuity.ts';
 import {loadDoctorChoices,type DoctorChoice} from '../doctorDirectoryClient.ts';
+import {findPatientCandidates,type PatientCandidate,type PatientSearchMode} from '../patientCandidateSearchClient.ts';
 import {revokeStaffTokenAndConfirm} from '../staffSessionClient.ts';
 import './connected-reception.css';
 
-type Screen='SIGN_IN'|'PATIENT_DETAILS'|'REVIEW'|'UNRESOLVED'|'REGISTERED'|'RECOVERY_LOOKUP'|'REFERENCE_FOUND'|'APPOINTMENT'|'APPOINTMENT_BOOKED'|'APPOINTMENT_QUEUE';
+type Screen='PATIENT_SEARCH'|'SIGN_IN'|'PATIENT_DETAILS'|'REVIEW'|'UNRESOLVED'|'REGISTERED'|'RECOVERY_LOOKUP'|'REFERENCE_FOUND'|'APPOINTMENT'|'APPOINTMENT_BOOKED'|'APPOINTMENT_QUEUE';
 type Credentials={tenantCode:string;username:string;password:string};
 const emptyCredentials=():Credentials=>({tenantCode:'',username:'',password:''});
 
@@ -54,6 +55,11 @@ export default function ConnectedReceptionPreview({onDoctorHandoff}:{onDoctorHan
   const [lookupId,setLookupId]=useState('');
   const [foundReference,setFoundReference]=useState<RegistrationReference|null>(null);
   const [canRead,setCanRead]=useState(false);
+  const [canSearch,setCanSearch]=useState(false);
+  const [searchMode,setSearchMode]=useState<PatientSearchMode>('MRN');
+  const [searchTerm,setSearchTerm]=useState('');
+  const [searchResults,setSearchResults]=useState<readonly PatientCandidate[]>([]);
+  const [searchPerformed,setSearchPerformed]=useState(false);
   const [canBook,setCanBook]=useState(false);
   const [canReadAppointments,setCanReadAppointments]=useState(false);
   const [queueDate,setQueueDate]=useState(localCalendarDate());
@@ -91,6 +97,7 @@ export default function ConnectedReceptionPreview({onDoctorHandoff}:{onDoctorHan
       session=await signInStaff(credentials);
       const write=session.permissions.includes('PATIENT_REGISTER');
       const read=session.permissions.includes('PATIENT_REGISTRATION_READ');
+      const search=read&&session.permissions.includes('PATIENT_CANDIDATE_SEARCH');
       const book=session.permissions.includes('APPOINTMENT_BOOK');
       const readAppointments=session.permissions.includes('APPOINTMENT_READ');
       if(!write&&!read&&!readAppointments)
@@ -101,6 +108,7 @@ export default function ConnectedReceptionPreview({onDoctorHandoff}:{onDoctorHan
       flowRef.current=flow;
       recoveryRef.current=recovery;
       setCanRead(read);
+      setCanSearch(search);
       setCanBook(book);
       setCanReadAppointments(readAppointments);
       setQueueRows([]);
@@ -108,7 +116,8 @@ export default function ConnectedReceptionPreview({onDoctorHandoff}:{onDoctorHan
       setQueueDate(localCalendarDate());
       setStaffLabel(session.username);
       setCredentials(emptyCredentials());
-      setScreen(write?'PATIENT_DETAILS':read?'RECOVERY_LOOKUP':'APPOINTMENT_QUEUE');
+      setScreen(write?'PATIENT_DETAILS':search?'PATIENT_SEARCH'
+        :read?'RECOVERY_LOOKUP':'APPOINTMENT_QUEUE');
     }catch(failure){
       if(session)await revokeStaffToken(session.accessToken);
       setCredentials(old=>({...old,password:''}));
@@ -197,6 +206,55 @@ export default function ConnectedReceptionPreview({onDoctorHandoff}:{onDoctorHan
     }catch{
       setIntakeStatus('');
       setError('OPD intake is unavailable. Do not book based on this check.');
+    }finally{setBusy(false);}
+  }
+
+  function showPatientSearch(){
+    if(busy||!canSearch||!recoveryRef.current)return;
+    appointmentRef.current?.dispose();
+    appointmentRef.current=null;
+    setAppointmentReceipt(null);
+    setAppointmentContext(null);
+    setFoundReference(null);
+    setSearchResults([]);
+    setSearchPerformed(false);
+    setSearchTerm('');
+    setError('');
+    setIntakeStatus('');
+    setScreen('PATIENT_SEARCH');
+  }
+
+  async function submitPatientSearch(e:FormEvent<HTMLFormElement>){
+    e.preventDefault();
+    if(busy||!canSearch||!sessionRef.current)return;
+    const session=sessionRef.current;
+    setBusy(true);setError('');setSearchResults([]);setSearchPerformed(false);
+    try {
+      const found=await findPatientCandidates(session,branchId,searchMode,searchTerm);
+      if(sessionRef.current!==session)throw new Error('Session changed');
+      setSearchResults(found);
+      setSearchPerformed(true);
+    }catch{
+      setSearchResults([]);setSearchPerformed(false);
+      setError('Patient search is unavailable or unauthorized. Refine the search.');
+    }finally{setBusy(false);}
+  }
+
+  async function openCandidate(candidate:PatientCandidate){
+    if(busy||!canSearch||!sessionRef.current||!recoveryRef.current)return;
+    const session=sessionRef.current;
+    setBusy(true);setError('');setFoundReference(null);setIntakeStatus('');
+    try {
+      const confirmed=await recoveryRef.current.recover(candidate.registrationId);
+      const link=verifiedRegistrationFromQueue(candidate,confirmed,
+        session.tenantId,branchId);
+      if(sessionRef.current!==session)throw new Error('Session changed');
+      setSearchResults([]);setSearchPerformed(false);setSearchTerm('');
+      setFoundReference(link);
+      setScreen('REFERENCE_FOUND');
+    }catch{
+      setFoundReference(null);setSearchResults([]);setSearchPerformed(false);
+      setError('Patient registration could not be reverified. Search again.');
     }finally{setBusy(false);}
   }
 
@@ -490,6 +548,11 @@ export default function ConnectedReceptionPreview({onDoctorHandoff}:{onDoctorHan
     setFoundReference(null);
     setLookupId('');
     setCanRead(false);
+    setCanSearch(false);
+    setSearchMode('MRN');
+    setSearchTerm('');
+    setSearchResults([]);
+    setSearchPerformed(false);
     setCanBook(false);
     setCanReadAppointments(false);
     setQueueRows([]);
@@ -520,6 +583,8 @@ export default function ConnectedReceptionPreview({onDoctorHandoff}:{onDoctorHan
       <div className="connected-brand"><span className="brand-symbol">✚</span>
         <span>AroNexa <small>Reception integration test</small></span></div>
       <div className="connected-actions">
+          {active&&canSearch&&<button className="outline" disabled={busy}
+            onClick={showPatientSearch}>Find patient</button>}
           {active&&canReadAppointments&&<button className="outline" disabled={busy}
             onClick={showQueue}>Daily appointments</button>}
           {active&&<button className="outline" disabled={busy} onClick={signOut}>
@@ -536,6 +601,7 @@ export default function ConnectedReceptionPreview({onDoctorHandoff}:{onDoctorHan
         <p className="eyebrow">SECURE REGISTRATION INTEGRATION</p>
         <h1>{screen==='SIGN_IN'?'Staff sign-in':screen==='REGISTERED'?'Registration acknowledged':
           screen==='REFERENCE_FOUND'?'Existing registration found':
+          screen==='PATIENT_SEARCH'?'Find existing patient':
           screen==='RECOVERY_LOOKUP'?'Find an existing registration':
           screen==='APPOINTMENT'?'Book or reopen a saved appointment':
           screen==='APPOINTMENT_BOOKED'?'Saved appointment':
@@ -687,6 +753,62 @@ export default function ConnectedReceptionPreview({onDoctorHandoff}:{onDoctorHan
           </p>
         </section>}
 
+      {screen==='PATIENT_SEARCH'&&
+        <section className="connected-panel" aria-label="Find patient by MRN or name">
+          <h2>Search an existing patient</h2>
+          <p className="connected-footnote">
+            Fictional clinic data only. Search within your authorized branch.
+            An exact MRN is preferred; name searches require at least three letters.
+            No appointments or registration IDs are needed.
+          </p>
+          <form onSubmit={submitPatientSearch}>
+            <label htmlFor="patient-search-mode">Search by</label>
+            <select id="patient-search-mode" value={searchMode} disabled={busy}
+              onChange={e=>{
+                setSearchMode(e.target.value as PatientSearchMode);
+                setSearchTerm('');setSearchResults([]);setSearchPerformed(false);
+              }}>
+              <option value="MRN">Exact MRN</option>
+              <option value="NAME_PREFIX">Beginning of patient name</option>
+            </select>
+            <label htmlFor="patient-search-term">
+              {searchMode==='MRN'?'Patient MRN':'Patient name begins with'}
+            </label>
+            <input id="patient-search-term" required autoComplete="off"
+              minLength={3} maxLength={searchMode==='MRN'?48:60}
+              value={searchTerm} disabled={busy}
+              placeholder={searchMode==='MRN'?'PAT-EXAMPLE001':'Fictional Search'}
+              onChange={e=>{
+                setSearchTerm(e.target.value);
+                setSearchResults([]);setSearchPerformed(false);
+              }}/>
+            <button className="solid" disabled={busy} type="submit">
+              {busy?'Searching authorized records…':'Search patients'}
+            </button>
+          </form>
+          {searchPerformed&&<p role="status">
+            {searchResults.length===0?'No authorized records found.'
+              :searchResults.length===10?'Showing up to 10 matches. Refine your search.'
+              :searchResults.length+' authorized result(s) found.'}
+          </p>}
+          {searchResults.length>0&&<ul className="connected-queue-list">
+            {searchResults.map(candidate=>
+              <li key={candidate.registrationId}>
+                <strong>{candidate.displayName}</strong>
+                <span> MRN: {candidate.mrn}</span>
+                <button className="outline" disabled={busy}
+                  onClick={()=>void openCandidate(candidate)}>
+                  Open verified registration
+                </button>
+              </li>)}
+          </ul>}
+          {flowRef.current&&<div className="connected-actions">
+            <button className="outline" disabled={busy} onClick={returnToRegistration}>
+              New fictional registration
+            </button>
+          </div>}
+        </section>}
+
       {screen==='RECOVERY_LOOKUP'&&
         <section className="connected-panel" aria-label="Find existing registration">
           <h2>Look up a server-saved registration</h2>
@@ -729,6 +851,8 @@ export default function ConnectedReceptionPreview({onDoctorHandoff}:{onDoctorHan
               onClick={()=>void verifyIntake(foundReference)}>
               Verify OPD intake (read-only)
             </button>}
+            {canSearch&&<button className="outline" disabled={busy}
+              onClick={showPatientSearch}>Search another patient</button>}
             <button className="solid" disabled={busy} onClick={showRecovery}>
               Find another registration
             </button>
