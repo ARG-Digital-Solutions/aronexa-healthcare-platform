@@ -250,6 +250,26 @@ class PatientCandidateSearchHttpAcceptanceTests {
     }
 
     @Test
+    void liveSearchPermissionRevocationImmediatelyDeniesSameBearer()
+            throws Exception {
+        Fixture f=seed(true,true,true,false);
+        String bearer=login(f);
+        assertThat(search(f.branch(),"MRN",f.mrn(),bearer).statusCode())
+                .isEqualTo(200);
+        assertThat(audits(f)).isOne();
+        admin.update("""
+            DELETE FROM auth_role_permission rp
+            USING auth_membership_role mr
+            WHERE rp.tenant_id=mr.tenant_id AND rp.role_id=mr.role_id
+              AND mr.tenant_id=? AND mr.membership_id=?
+              AND rp.permission_code='PATIENT_CANDIDATE_SEARCH'
+            """,f.tenant(),f.membership());
+        assertThat(search(f.branch(),"MRN",f.mrn(),bearer).statusCode())
+                .isEqualTo(403);
+        assertThat(audits(f)).isOne();
+    }
+
+    @Test
     void bothPermissionsModuleAndForcedPasswordAreIndependentlyRequired()
             throws Exception {
         for(int mode=0;mode<4;mode++) {
