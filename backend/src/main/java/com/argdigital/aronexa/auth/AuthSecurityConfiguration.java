@@ -39,6 +39,14 @@ class AuthSecurityConfiguration {
                         .requestMatchers(HttpMethod.GET,
                                 "/api/v1/branches/{branchId}/patient-registrations/{registrationId}")
                             .authenticated()
+                        // PROD-INT-01: production-source read-only intake lookup.
+                        // Service must ALSO require APPOINTMENT_BOOK,
+                        // PATIENT_REGISTRATION_READ, both module gates, branch
+                        // authorization, tenant RLS and a successful read audit.
+                        // No patient write/booking is enabled by this rule.
+                        .requestMatchers(HttpMethod.GET,
+                                "/api/v1/branches/{branchId}/opd/intake/{registrationId}")
+                            .authenticated()
                         // R1-10A: the appointment admission handoff is a
                         // production-source SERVICE, but its HTTP adapter is
                         // test-only. Do not expose it to dev/prod or patients.
