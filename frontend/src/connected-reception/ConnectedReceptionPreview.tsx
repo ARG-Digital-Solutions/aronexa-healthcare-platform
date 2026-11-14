@@ -15,6 +15,7 @@ import {summarizeReceptionQueue} from '../receptionQueueSummary.ts';
 import {prepareDoctorHandoff,type DoctorHandoff} from '../receptionDoctorHandoff.ts';
 import {verifyProductionOpdIntake} from '../productionOpdIntakeClient.ts';
 import {verifiedRegistrationFromQueue} from '../queueRegistrationContinuity.ts';
+import {loadDoctorChoices,type DoctorChoice} from '../doctorDirectoryClient.ts';
 import {revokeStaffTokenAndConfirm} from '../staffSessionClient.ts';
 import './connected-reception.css';
 
@@ -66,6 +67,7 @@ export default function ConnectedReceptionPreview({onDoctorHandoff}:{onDoctorHan
   const [appointmentContext,setAppointmentContext]=useState<RegistrationReference|null>(null);
   const [appointmentReceipt,setAppointmentReceipt]=useState<AppointmentCandidateReceipt|null>(null);
   const [appointmentDoctor,setAppointmentDoctor]=useState('');
+  const [doctorChoices,setDoctorChoices]=useState<readonly DoctorChoice[]>([]);
   const [appointmentDate,setAppointmentDate]=useState(localCalendarDate());
   const [appointmentSlot,setAppointmentSlot]=useState('09:00');
   const [appointmentLookupId,setAppointmentLookupId]=useState('');
@@ -238,25 +240,39 @@ export default function ConnectedReceptionPreview({onDoctorHandoff}:{onDoctorHan
     }catch(failure){setError(explain(failure));}
   }
 
-  function openBooking(reference:RegistrationReference){
+  async function openBooking(reference:RegistrationReference){
     if(busy||!sessionRef.current||!canBook)return;
+    const session=sessionRef.current;
+    setBusy(true);setError('');setDoctorChoices([]);
     try{
+      const choices=await loadDoctorChoices(session,reference.branchId);
+      if(sessionRef.current!==session||reference.tenantId!==session.tenantId
+          ||reference.branchId!==branchId)
+        throw new Error('Booking context changed');
+      if(!choices.length)throw new Error('No available doctor on this branch');
       appointmentRef.current?.dispose();
-      appointmentRef.current=createAppointmentCandidateFlow(sessionRef.current,reference);
+      appointmentRef.current=createAppointmentCandidateFlow(session,reference);
       setAppointmentContext(reference);
       setAppointmentReceipt(null);
-      setAppointmentDoctor('');
+      setDoctorChoices(choices);
+      setAppointmentDoctor(choices.length===1?choices[0].membershipId:'');
       setAppointmentDate(localCalendarDate());
       setAppointmentSlot('09:00');
       setAppointmentLookupId('');
-      setError('');
       setScreen('APPOINTMENT');
-    }catch(failure){setError(explain(failure));}
+    }catch{
+      appointmentRef.current?.dispose();
+      appointmentRef.current=null;
+      setAppointmentContext(null);
+      setDoctorChoices([]);
+      setAppointmentDoctor('');
+      setError('Doctor selection could not be verified. Check staff and branch access.');
+    }finally{setBusy(false);}
   }
 
   function openSavedRegistrationBooking(){
     if(!saved)return;
-    openBooking({tenantId:saved.tenantId,branchId:saved.branchId,
+    void openBooking({tenantId:saved.tenantId,branchId:saved.branchId,
       registrationId:saved.registrationId,patientId:saved.patientId});
   }
 
@@ -484,6 +500,7 @@ export default function ConnectedReceptionPreview({onDoctorHandoff}:{onDoctorHan
     setAppointmentContext(null);
     setAppointmentReceipt(null);
     setAppointmentDoctor('');
+    setDoctorChoices([]);
     setAppointmentLookupId('');
     setError('');
     setScreen('SIGN_IN');
@@ -716,7 +733,7 @@ export default function ConnectedReceptionPreview({onDoctorHandoff}:{onDoctorHan
               Find another registration
             </button>
             {canBook&&<button className="solid" disabled={busy}
-              onClick={()=>openBooking(foundReference)}>Book test appointment</button>}
+              onClick={()=>void openBooking(foundReference)}>Book test appointment</button>}
             {flowRef.current&&<button className="outline" disabled={busy}
               onClick={returnToRegistration}>New registration</button>}
           </div>
@@ -778,19 +795,24 @@ export default function ConnectedReceptionPreview({onDoctorHandoff}:{onDoctorHan
           <h2>Book an appointment in disposable PostgreSQL</h2>
           <p className="connected-footnote">
             Patient and registration references were issued by the server.
-            Only fictional appointments are permitted. An assigned doctor membership UUID
-            is required until the reviewed clinician-directory API is implemented.
+            Only fictional appointments are permitted. This branch-scoped doctor
+            list is a review-gated internal test facility, not a clinical directory.
           </p>
           <dl className="connected-summary">
             <dt>Patient ID</dt><dd className="mono">{appointmentContext.patientId}</dd>
             <dt>Registration ID</dt><dd className="mono">{appointmentContext.registrationId}</dd>
           </dl>
           <form onSubmit={submitAppointment}>
-            <label htmlFor="appointment-doctor">Assigned doctor membership UUID</label>
-            <input id="appointment-doctor" required autoComplete="off"
-              placeholder="Doctor membership UUID from disposable fixture"
+            <label htmlFor="appointment-doctor">Select assigned doctor</label>
+            <select id="appointment-doctor" required disabled={busy||!doctorChoices.length}
               value={appointmentDoctor}
-              onChange={e=>setAppointmentDoctor(e.target.value.trim())}/>
+              onChange={e=>setAppointmentDoctor(e.target.value)}>
+              <option value="">Select an authorized doctor</option>
+              {doctorChoices.map(doctor=>
+                <option key={doctor.membershipId} value={doctor.membershipId}>
+                  {doctor.label}
+                </option>)}
+            </select>
             <label htmlFor="appointment-date">Visit date</label>
             <input id="appointment-date" required type="date" min={localCalendarDate()}
               value={appointmentDate} onChange={e=>setAppointmentDate(e.target.value)}/>
