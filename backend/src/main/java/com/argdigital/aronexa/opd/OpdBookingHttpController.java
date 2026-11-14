@@ -52,7 +52,10 @@ public final class OpdBookingHttpController {
     public record CheckIn(int expectedRevision, UUID requestId) {}
     public record Failure(String code) {}
 
-    private OpdBookingCommand command() {
+    private OpdBookingCommand command(String permission) {
+        // Authentication/role must fail closed even if the reviewed SQL
+        // writer has not yet been provisioned on this installation.
+        authorization.requirePermission(permission);
         var writer=restricted.getIfAvailable();
         if(writer==null) throw new Unavailable();
         return new OpdBookingCommand(authorization,modules,handoff,writer);
@@ -62,7 +65,7 @@ public final class OpdBookingHttpController {
     public ResponseEntity<OpdBookingCommand.BookingReceipt> book(
             @PathVariable UUID branchId,@RequestBody Book input) {
         if(input==null)throw new OpdBookingCommand.InvalidBooking();
-        var receipt=command().book(new OpdBookingCommand.BookingRequest(
+        var receipt=command(OpdBookingCommand.BOOK).book(new OpdBookingCommand.BookingRequest(
             branchId,input.registrationId(),input.doctorMembershipId(),
             input.visitDate(),input.slotStart(),input.requestId()));
         return ResponseEntity.status(receipt.replayed()
@@ -75,7 +78,7 @@ public final class OpdBookingHttpController {
             @PathVariable UUID branchId,@PathVariable UUID appointmentId,
             @RequestBody CheckIn input) {
         if(input==null)throw new OpdBookingCommand.InvalidBooking();
-        var receipt=command().checkIn(new OpdBookingCommand.CheckInRequest(
+        var receipt=command(OpdBookingCommand.CHECK_IN).checkIn(new OpdBookingCommand.CheckInRequest(
             branchId,appointmentId,input.expectedRevision(),input.requestId()));
         return ResponseEntity.ok()
                 .cacheControl(CacheControl.noStore()).body(receipt);
