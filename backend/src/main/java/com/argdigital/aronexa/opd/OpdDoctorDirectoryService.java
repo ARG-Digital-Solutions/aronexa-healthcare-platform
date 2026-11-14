@@ -3,6 +3,8 @@ package com.argdigital.aronexa.opd;
 import com.argdigital.aronexa.auth.TenantAuthorization;
 import com.argdigital.aronexa.auth.TenantSqlScope;
 import com.argdigital.aronexa.moduleregistry.ModuleAccessService;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -76,10 +78,15 @@ public final class OpdDoctorDirectoryService {
             """,UUID.class,actor.tenantId(),branchId);
         if(inBranch.size()>100)throw new AccessDeniedException("Directory too large");
         Set<UUID> allowed=new HashSet<>(inBranch);
-        // Auth runtime has SELECT on identity/role tables, no access to
-        // org branch data or patients. Filter against the authorized branch
-        // membership set before returning any staff identifiers.
-        var candidates=authJdbc.query("""
+        if(allowed.isEmpty())return List.of();
+        // Only query explicitly branch-verified membership IDs from auth
+        // datasource, not a tenant-wide clinician roster. The placeholders
+        // are generated from a checked list size; every UUID is JDBC-bound.
+        String placeholders=String.join(",",Collections.nCopies(inBranch.size(),"?"));
+        var parameters=new ArrayList<Object>();
+        parameters.add(actor.tenantId());
+        parameters.addAll(inBranch);
+        String sql="""
             SELECT DISTINCT m.id AS membership_id,u.username
               FROM public.user_tenant_membership m
               JOIN public.app_user u ON u.id=m.user_id
@@ -88,11 +95,11 @@ public final class OpdDoctorDirectoryService {
               JOIN public.auth_role r
                 ON r.id=mr.role_id AND r.tenant_id=mr.tenant_id
              WHERE m.tenant_id=? AND m.enabled AND u.enabled
-               AND r.code='DOCTOR'
-             ORDER BY u.username,m.id
-            """,(rs,i)->new DoctorOption(
+               AND r.code='DOCTOR' AND m.id IN (""" + placeholders +
+                ") ORDER BY u.username,m.id";
+        var candidates=authJdbc.query(sql,(rs,i)->new DoctorOption(
                 rs.getObject("membership_id",UUID.class),
-                rs.getString("username")),actor.tenantId());
+                rs.getString("username")),parameters.toArray());
         var selected=candidates.stream()
                 .filter(x->allowed.contains(x.membershipId())).toList();
         if(selected.size()>25)
