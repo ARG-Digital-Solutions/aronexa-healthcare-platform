@@ -91,10 +91,21 @@ class RegistrationCandidateHttpAcceptanceTests {
     @Value("$"+"{local.server.port}") int port;
     private final HttpClient http=HttpClient.newHttpClient();
 
+    /**
+     * RC03: share the already test-only proof material with the disposable
+     * distinct-JVM launcher's A-phase installation. No bytes are returned
+     * to the caller, no static secret is persisted, and only a transaction
+     * verified by Pilot05's out-of-band run marker may call this helper.
+     */
+    public static void installRc03DisposableProofKey(Connection owner)
+            throws java.sql.SQLException {
+        RegistrationDatabaseProvisioner.installProofKey(owner,1,PROOF);
+    }
+
     /** Only loaded inside this single isolated test class. */
     @TestConfiguration(proxyBeanMethods=false)
     @Profile("test & registration-candidate & !dev & !prod")
-    static class CandidateConfiguration {
+    public static class CandidateConfiguration {
         @Bean RegistrationWriteExecutor candidateRegistrationWriter(
                 TenantAuthorization authorization, PatientSqlScope scope,
                 @Qualifier("patientJdbcTemplate") JdbcTemplate patientJdbc,
@@ -109,7 +120,7 @@ class RegistrationCandidateHttpAcceptanceTests {
     @RestController
     @Profile("test & registration-candidate & !dev & !prod")
     @RequestMapping("/api/v1/branches/{branchId}/patient-registrations")
-    static class CandidateController {
+    public static class CandidateController {
         private final RegistrationWriteExecutor executor;
         CandidateController(RegistrationWriteExecutor executor) {
             this.executor=executor;
