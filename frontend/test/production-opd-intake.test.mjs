@@ -42,7 +42,7 @@ test('invalid bearer, wrong tenant or missing permissions fail before HTTP',asyn
     [{...actor,tenantId:id(8)},ref],
     [{...actor,permissions:['APPOINTMENT_BOOK']},ref],
     [{...actor,permissions:['PATIENT_REGISTRATION_READ']},ref],
-    [actor,{...ref,registrationId:id(0).replace(/^11111111/,'00000000')}],
+    [actor,{...ref,registrationId:'00000000-0000-0000-0000-000000000000'}],
   ])await throwsCode(verifyProductionOpdIntake(session,reference,transport),
     'ACCESS_DENIED');
   assert.equal(calls,0);
