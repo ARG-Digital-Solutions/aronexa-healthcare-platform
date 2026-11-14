@@ -35,17 +35,28 @@ if(-not(Test-Path -LiteralPath $browser -PathType Leaf) -or
    -not(Test-Path -LiteralPath $restart -PathType Leaf)){
  throw 'PILOT08 STOP: required verified browser or distinct-JVM runner absent'
 }
-Write-Host 'PILOT08 STAGE 1: real Chromium queue -> freshly authorized registration -> doctor/Rx/billing'
-& powershell.exe -NoProfile -File $browser -ExpectedCommit $sha -QaCentralPath $QaCentralPath
-if($LASTEXITCODE -ne 0){throw 'PILOT08 FAIL: one-tab Chromium real HTTP/PG17 stage'}
+$root=Join-Path $env:USERPROFILE 'AroNexa-Local-QA'
+[void][System.IO.Directory]::CreateDirectory($root)
+$evidenceDir=Join-Path $root ('PILOT08-'+$sha.Substring(0,12)+'-'+[guid]::NewGuid().ToString('N'))
+[void][System.IO.Directory]::CreateDirectory($evidenceDir)
+$shot=Join-Path $evidenceDir ('PILOT08-'+$sha.Substring(0,12)+'-queue-registration.png')
+$env:ARONEXA_PILOT08_SCREENSHOT=$shot
+try {
+ Write-Host 'PILOT08 STAGE 1: real Chromium queue -> freshly authorized registration -> doctor/Rx/billing'
+ & powershell.exe -NoProfile -File $browser -ExpectedCommit $sha -QaCentralPath $QaCentralPath
+ if($LASTEXITCODE -ne 0){throw 'PILOT08 FAIL: one-tab Chromium real HTTP/PG17 stage'}
+} finally {
+ [Environment]::SetEnvironmentVariable('ARONEXA_PILOT08_SCREENSHOT',$null,'Process')
+}
+if(-not(Test-Path -LiteralPath $shot -PathType Leaf)){
+ throw 'PILOT08 FAIL: synthetic authorized registration screenshot missing'
+}
 Write-Host 'PILOT08 STAGE 2: two different Java JVMs on the SAME marked disposable PostgreSQL 17'
 & powershell.exe -NoProfile -File $restart -ExpectedCommit $sha
 if($LASTEXITCODE -ne 0){throw 'PILOT08 FAIL: distinct process registration/appointment/queue recovery'}
-$root=Join-Path $env:USERPROFILE 'AroNexa-Local-QA'
-[void][System.IO.Directory]::CreateDirectory($root)
-$evidence=Join-Path $root ('PILOT08-RC01-'+$sha.Substring(0,12)+'.txt')
+$evidence=Join-Path $evidenceDir 'SUMMARY.txt'
 if(Test-Path -LiteralPath $evidence){
- throw 'PILOT08 STOP: report for this SHA already exists; preserve independent runs'
+ throw 'PILOT08 STOP: report already exists; preserve independent runs'
 }
 @(
  ('SourceCommit='+$sha),
@@ -54,6 +65,7 @@ if(Test-Path -LiteralPath $evidence){
  'QueueRegistration=FRESH_AUTHORIZED_PATIENT_ROLE_READ_NO_ID_COPY',
  'DifferentJVMs=OWNER_RUNNER_EXIT_0_SAME_MARKED_DISPOSABLE_PG17',
  'Recovered=SQL_SEEDED_REGISTRATION_BOOKING_CHECKIN_DAILY_QUEUE_CONSULTATION',
+ ('FictionalQueueScreenshot='+$shot),
  'BrowserNewPatientRegistration=NOT_TESTED_BY_THIS_SLICE',
  'StandaloneNameMRNSearch=NOT_IMPLEMENTED',
  'DoctorSelectionWithoutUUID=NOT_IMPLEMENTED',
