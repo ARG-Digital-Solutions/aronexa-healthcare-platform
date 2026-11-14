@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {pathToFileURL} from 'node:url';
 import path from 'node:path';
-import {readFileSync,existsSync} from 'node:fs';
+import {existsSync} from 'node:fs';
 
 /**
  * Real Chromium browser / actual Spring HTTP via loopback Vite proxy.
@@ -11,13 +11,17 @@ import {readFileSync,existsSync} from 'node:fs';
 let stage='startup';
 let browser;
 try {
+  stage='qa-root';
   const qaRoot=process.env.ARONEXA_PILOT06_QA_ROOT;
   assert.ok(qaRoot&&path.isAbsolute(qaRoot));
   const modulePath=path.join(qaRoot,'node_modules','playwright','index.mjs');
+  stage='playwright-module';
   assert.ok(existsSync(modulePath),'Playwright must be installed in QA Central');
   const {chromium}=await import(pathToFileURL(modulePath).href);
+  stage='fixture-stdin';
   const chunks=[];
   for await(const chunk of process.stdin) chunks.push(chunk);
+  stage='fixture-validation';
   const fixture=JSON.parse(Buffer.concat(chunks).toString('utf8'));
   const ui=new URL(fixture.origin);
   assert.equal(ui.protocol,'http:');
@@ -27,7 +31,19 @@ try {
   for(const key of ['branchId','appointmentId']) {
     assert.match(fixture[key],/^[a-f0-9]{8}(-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i);
   }
-  browser=await chromium.launch({headless:true});
+  stage='chromium-executable';
+  const configured=process.env.ARONEXA_CHROMIUM_BIN?.trim();
+  if(configured){
+    assert.ok(path.isAbsolute(configured)&&existsSync(configured));
+  } else {
+    assert.ok(existsSync(chromium.executablePath()));
+  }
+  stage='chromium-launch';
+  browser=await chromium.launch({
+    headless:true,timeout:15000,
+    ...(configured?{executablePath:configured}:{}),
+  });
+  stage='chromium-context';
   const context=await browser.newContext({
     timezoneId:'Asia/Kolkata',viewport:{width:1366,height:900},
   });
@@ -115,10 +131,14 @@ try {
   assert.ok(entered.some(e=>e.path.endsWith('/billing/daily')&&e.status===200));
   await context.close();
   process.stdout.write('PILOT06_CONNECTED_REAL_BROWSER_HTTP_PASS\n');
-} catch {
+} catch (failure) {
   // The test is synthetic but still must not log bearer tokens, clinical
   // notes, responses, fixture credentials or backend exception bodies.
-  process.stderr.write('PILOT06_BROWSER_FAILED_STAGE='+stage+'\n');
+  const reason=failure?.name==='TimeoutError'?'TIMEOUT'
+    :failure?.code==='ENOENT'||failure?.code==='EACCES'
+      ?'EXECUTABLE_ACCESS':'UNVERIFIED';
+  process.stderr.write('PILOT06_BROWSER_FAILED_STAGE='+stage+
+    '_REASON='+reason+'\n');
   process.exitCode=1;
 } finally {
   if(browser)await browser.close();
