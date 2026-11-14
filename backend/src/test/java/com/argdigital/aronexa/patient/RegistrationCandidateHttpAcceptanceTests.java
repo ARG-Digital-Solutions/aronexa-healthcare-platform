@@ -67,7 +67,7 @@ import static org.assertj.core.api.Assertions.assertThat;
         RegistrationCandidateHttpAcceptanceTests.OpdHandoffCandidateController.class})
 @Testcontainers
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
-class RegistrationCandidateHttpAcceptanceTests {
+public class RegistrationCandidateHttpAcceptanceTests {
     private static final byte[] PROOF=new byte[32];
     private static final byte[] IDEM=new byte[32];
     static {
