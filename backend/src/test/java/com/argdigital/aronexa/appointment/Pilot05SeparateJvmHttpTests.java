@@ -213,6 +213,19 @@ class Pilot05SeparateJvmHttpTests {
                 INSERT INTO patient(id,tenant_id,display_name)
                 VALUES(?,?,'FICTIONAL RESTART RECORD')
                 """, patient, tenant);
+        // The real appointment-candidate booking contract rejects registrations
+        // lacking a patient_identifier MRN. Mirror the existing R1-04 fixture;
+        // never weaken registeredPatient() or bypass its authorization checks.
+        admin.update("""
+                INSERT INTO patient_identifier
+                    (id,tenant_id,patient_id,identifier_type,identifier_value)
+                VALUES(?,?,?,'MRN',?)
+                """, UUID.randomUUID(), tenant, patient,
+                "PILOT05-FICTIONAL-" + part.toUpperCase() + "-001");
+        assertThat(admin.queryForObject("""
+                SELECT count(*) FROM patient_identifier
+                WHERE tenant_id=? AND patient_id=? AND identifier_type='MRN'
+                """, Integer.class, tenant, patient)).isOne();
         admin.update("""
                 INSERT INTO patient_registration
                 (id,tenant_id,patient_id,branch_id,registration_source,
