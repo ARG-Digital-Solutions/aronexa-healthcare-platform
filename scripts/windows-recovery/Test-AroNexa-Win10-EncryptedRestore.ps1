@@ -1,5 +1,6 @@
 # WIN-10: fictional nonempty PG17 encrypted backup -> SECOND isolated PG17.
-# Test-only: two auto-remove containers, --network none, NO volumes.
+# Test-only: two auto-remove containers, --network none, tmpfs PGDATA,
+# NO persistent Docker volumes or user/bind mounts.
 # Not an original Windows DB operation, second PC or customer recovery.
 [CmdletBinding()]
 param(
@@ -82,14 +83,18 @@ function Confirm-Container {
     $record.Name -ne ('/'+$Name) -or
     $record.HostConfig.NetworkMode -ne 'none' -or
     -not $record.HostConfig.AutoRemove -or
-    @($record.Mounts).Count -ne 0){
+    @($record.Mounts | Where-Object {
+      $_.Type -ne 'tmpfs' -or $_.Destination -ne '/var/lib/postgresql/data'
+    }).Count -ne 0){
   throw 'WIN10 STOP: container label, network or mount check failed'
  }
  return $record
 }
 function Start-DisposableDb {
  param([string]$Name)
- $args=@('run','--detach','--rm','--network','none','--name',$Name,
+ $args=@('run','--detach','--rm','--network','none',
+   '--tmpfs','/var/lib/postgresql/data:rw,size=128m',
+   '--name',$Name,
    '--label',$label,'--env',('POSTGRES_DB='+$db),
    '--env',('POSTGRES_USER='+$dbUser),
    '--env',('POSTGRES_PASSWORD='+$dbPass),'postgres:17-alpine')
