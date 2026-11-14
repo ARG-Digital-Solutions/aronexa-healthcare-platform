@@ -17,9 +17,10 @@ test('exact MRN search sends only bounded same-origin bearer and reads server da
   const rows=await findPatientCandidates(actor,branch,'MRN','PAT-FAKE001',
     async(url,init)=>{
       n++;
-      assert.equal(url,'/api/v1/branches/'+branch+
-        '/patient-search?mode=MRN&term=PAT-FAKE001');
-      assert.equal(init.method,'GET');
+      assert.equal(url,'/api/v1/branches/'+branch+'/patient-search');
+      assert.equal(init.method,'POST');
+      assert.deepEqual(JSON.parse(init.body),
+        {mode:'MRN',term:'PAT-FAKE001'});
       assert.equal(init.cache,'no-store');
       assert.equal(init.credentials,'omit');
       assert.equal(init.headers.Authorization,'Bearer '+actor.accessToken);
@@ -32,9 +33,15 @@ test('exact MRN search sends only bounded same-origin bearer and reads server da
   assert.equal(Object.hasOwn(rows[0],'ignored'),false);
 });
 
-test('name prefix is URL-escaped without placing names in any audit logging',async()=>{
+test('name prefix is sent in request body, never in URL',async()=>{
   await findPatientCandidates(actor,branch,'NAME_PREFIX','Fictional Search',
-    async(url)=>{assert.ok(url.includes('term=Fictional%20Search'));return reply([])});
+    async(url,init)=>{
+      assert.equal(url,'/api/v1/branches/'+branch+'/patient-search');
+      assert.deepEqual(JSON.parse(init.body),
+        {mode:'NAME_PREFIX',term:'Fictional Search'});
+      assert.equal(init.headers['Content-Type'],'application/json');
+      return reply([]);
+    });
 });
 
 test('missing role, expired local format or unsafe syntax stops before HTTP',async()=>{
