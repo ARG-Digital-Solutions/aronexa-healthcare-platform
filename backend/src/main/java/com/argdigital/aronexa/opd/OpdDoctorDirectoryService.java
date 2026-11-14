@@ -35,7 +35,9 @@ import org.springframework.web.bind.annotation.RestController;
  * never enable in a customer deployment without reviewed SQL lock protocol.
  */
 @Service
-public final class OpdDoctorDirectoryService {
+// Spring's @Transactional interceptor proxies this concrete service via CGLIB.
+// Do not mark it final; the public transactional list() method must remain overridable.
+public class OpdDoctorDirectoryService {
     private final TenantAuthorization auth;
     private final ModuleAccessService modules;
     private final TenantSqlScope scope;
