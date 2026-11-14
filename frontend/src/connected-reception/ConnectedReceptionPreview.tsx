@@ -13,6 +13,7 @@ import {createAppointmentCandidateFlow, loadAppointmentCandidateQueue,
   type AppointmentCandidateReceipt} from '../appointmentCandidateClient.ts';
 import {summarizeReceptionQueue} from '../receptionQueueSummary.ts';
 import {prepareDoctorHandoff,type DoctorHandoff} from '../receptionDoctorHandoff.ts';
+import {verifyProductionOpdIntake} from '../productionOpdIntakeClient.ts';
 import {revokeStaffTokenAndConfirm} from '../staffSessionClient.ts';
 import './connected-reception.css';
 
@@ -47,6 +48,7 @@ export default function ConnectedReceptionPreview({onDoctorHandoff}:{onDoctorHan
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState('');
   const [readBack,setReadBack]=useState('');
+  const [intakeStatus,setIntakeStatus]=useState('');
   const [lookupId,setLookupId]=useState('');
   const [foundReference,setFoundReference]=useState<RegistrationReference|null>(null);
   const [canRead,setCanRead]=useState(false);
@@ -164,6 +166,7 @@ export default function ConnectedReceptionPreview({onDoctorHandoff}:{onDoctorHan
       flowRef.current.nextPatient();
       setSaved(null);
       setReadBack('');
+      setIntakeStatus('');
       setForm(blankIntake());
       setScreen('PATIENT_DETAILS');
       setError('');
@@ -182,6 +185,18 @@ export default function ConnectedReceptionPreview({onDoctorHandoff}:{onDoctorHan
     finally{setBusy(false);}
   }
 
+  async function verifyIntake(reference:RegistrationReference){
+    if(busy||!canRead||!canBook||!sessionRef.current)return;
+    setBusy(true);setIntakeStatus('');setError('');
+    try{
+      await verifyProductionOpdIntake(sessionRef.current,reference);
+      setIntakeStatus('OPD registration intake verified by the production-source read API. No appointment has been booked.');
+    }catch{
+      setIntakeStatus('');
+      setError('OPD intake is unavailable. Do not book based on this check.');
+    }finally{setBusy(false);}
+  }
+
   function showRecovery(){
     if(busy||!recoveryRef.current)return;
     appointmentRef.current?.dispose();
@@ -191,6 +206,7 @@ export default function ConnectedReceptionPreview({onDoctorHandoff}:{onDoctorHan
     setError('');
     setFoundReference(null);
     setLookupId('');
+    setIntakeStatus('');
     setScreen('RECOVERY_LOOKUP');
   }
 
@@ -198,6 +214,7 @@ export default function ConnectedReceptionPreview({onDoctorHandoff}:{onDoctorHan
     e.preventDefault();
     if(busy||!recoveryRef.current)return;
     setBusy(true);setError('');setFoundReference(null);
+    setIntakeStatus('');
     try{
       const found=await recoveryRef.current.recover(lookupId.trim());
       setFoundReference(found);
@@ -212,6 +229,7 @@ export default function ConnectedReceptionPreview({onDoctorHandoff}:{onDoctorHan
       if(flowRef.current.snapshot().status==='REGISTERED')flowRef.current.nextPatient();
       setFoundReference(null);
       setLookupId('');
+      setIntakeStatus('');
       setSaved(null);
       setForm(blankIntake());
       setError('');
@@ -417,6 +435,7 @@ export default function ConnectedReceptionPreview({onDoctorHandoff}:{onDoctorHan
     setReviewed(null);
     setSaved(null);
     setReadBack('');
+    setIntakeStatus('');
     setFoundReference(null);
     setLookupId('');
     setCanRead(false);
@@ -590,10 +609,17 @@ export default function ConnectedReceptionPreview({onDoctorHandoff}:{onDoctorHan
             <dt>Journey stage</dt><dd>{saved.stage}</dd>
           </dl>
           {readBack&&<p role="status">{readBack}</p>}
+          {intakeStatus&&<p role="status">{intakeStatus}</p>}
           <div className="connected-actions">
             <button className="solid" onClick={nextPatient}>Register next fictional patient</button>
             {canRead&&<button className="outline" onClick={showRecovery}>
               Find existing registration
+            </button>}
+            {canBook&&canRead&&<button className="outline" disabled={busy}
+              onClick={()=>void verifyIntake({tenantId:saved.tenantId,
+                branchId:saved.branchId,registrationId:saved.registrationId,
+                patientId:saved.patientId})}>
+              Verify OPD intake (read-only)
             </button>}
             {canBook&&<button className="outline" onClick={openSavedRegistrationBooking}>
               Book a test appointment
@@ -645,7 +671,12 @@ export default function ConnectedReceptionPreview({onDoctorHandoff}:{onDoctorHan
             <dt>Patient ID</dt><dd className="mono">{foundReference.patientId}</dd>
             <dt>Branch ID</dt><dd className="mono">{foundReference.branchId}</dd>
           </dl>
+          {intakeStatus&&<p role="status">{intakeStatus}</p>}
           <div className="connected-actions">
+            {canBook&&canRead&&<button className="outline" disabled={busy}
+              onClick={()=>void verifyIntake(foundReference)}>
+              Verify OPD intake (read-only)
+            </button>}
             <button className="solid" disabled={busy} onClick={showRecovery}>
               Find another registration
             </button>
