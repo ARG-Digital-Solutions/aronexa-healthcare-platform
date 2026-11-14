@@ -39,7 +39,8 @@ import static org.assertj.core.api.Assertions.assertThat;
         properties = {"server.address=127.0.0.1", "server.error.include-message=never"})
 @ActiveProfiles({"test", "appointment-candidate"})
 @ContextConfiguration(initializers = Pilot05DisposableDatabaseGuard.class)
-@Import({AppointmentCandidateHttpAcceptanceTests.CandidateController.class,
+@Import({Pilot05DisposableDatabaseGuard.VerifiedDisposableConnection.class,
+         AppointmentCandidateHttpAcceptanceTests.CandidateController.class,
          AppointmentCandidateHttpAcceptanceTests.DailyBillingController.class})
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class Pilot05SeparateJvmHttpTests {
