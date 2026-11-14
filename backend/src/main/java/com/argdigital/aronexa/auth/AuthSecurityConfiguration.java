@@ -39,6 +39,17 @@ class AuthSecurityConfiguration {
                         .requestMatchers(HttpMethod.GET,
                                 "/api/v1/branches/{branchId}/patient-registrations/{registrationId}")
                             .authenticated()
+                        // RC02B: patient identity search is default DENIED.
+                        // Function/privilege definition is disposable test-only;
+                        // clinical privacy review required before any activation.
+                        .requestMatchers(HttpMethod.GET,
+                                "/api/v1/branches/{branchId}/patient-search")
+                            .access((authn,request) -> new org.springframework.security.authorization.AuthorizationDecision(
+                                environment.getProperty(
+                                    "aronexa.patient.search.reviewed-activation",
+                                    Boolean.class,false)
+                                && authn.get().isAuthenticated()
+                                && authn.get().getPrincipal() instanceof AuthPrincipal))
                         // PROD-INT-01: production-source read-only intake lookup.
                         // Service must ALSO require APPOINTMENT_BOOK,
                         // PATIENT_REGISTRATION_READ, both module gates, branch
