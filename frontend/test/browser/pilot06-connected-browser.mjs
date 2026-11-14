@@ -76,6 +76,16 @@ try {
   await item.getByRole('button',{name:'Open verified registration'}).click();
   await page.getByRole('heading',{name:'Existing registration found'}).waitFor();
   assert.equal(await page.locator('#existing-registration-id').count(),0);
+  // One optional privacy-bounded screenshot for owner QA only: it is
+  // captured AFTER sign-in, without passwords or clinical content.
+  const screenshot=process.env.ARONEXA_PILOT08_SCREENSHOT;
+  if(screenshot){
+    assert.ok(path.isAbsolute(screenshot));
+    assert.match(path.basename(screenshot),
+      /^PILOT08-[a-f0-9]{12}-queue-registration\.png$/);
+    assert.equal(existsSync(screenshot),false);
+    await page.screenshot({path:screenshot,fullPage:false});
+  }
   await page.getByRole('button',{name:'Daily appointments'}).click();
   await page.getByRole('button',{name:'Load daily queue'}).click();
   stage='reception-queue-appointment';
