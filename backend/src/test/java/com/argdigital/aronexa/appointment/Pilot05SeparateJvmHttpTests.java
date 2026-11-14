@@ -412,11 +412,11 @@ class Pilot05SeparateJvmHttpTests {
                 SELECT count(*) FROM appointment_proof.appointment
                  WHERE id=? AND tenant_id=? AND branch_id=?
                    AND patient_id=? AND registration_id=?
-                   AND stage='CHECKED_IN' AND visit_date=?
+                   AND status='CHECKED_IN' AND visit_date=?
                 """,Integer.class,appointment,f.tenant(),f.branch(),
                     patient,registration,visitDate)).isOne();
             assertThat(admin.queryForObject("""
-                SELECT count(*) FROM appointment_proof.appointment_event
+                SELECT count(*) FROM appointment_proof.event
                  WHERE appointment_id=?
                 """,Integer.class,appointment)).isEqualTo(2);
             long pid=ProcessHandle.current().pid();
@@ -486,7 +486,7 @@ class Pilot05SeparateJvmHttpTests {
                 .isEqualTo(registration);
         LocalDate day=admin.queryForObject("""
             SELECT visit_date FROM appointment_proof.appointment
-             WHERE tenant_id=? AND id=? AND stage='CHECKED_IN'
+             WHERE tenant_id=? AND id=? AND status='CHECKED_IN'
             """,LocalDate.class,tenant,appointment);
         assertThat(day).isNotNull();
         var queue=call("GET","/api/v1/branches/"+branch+
@@ -504,7 +504,7 @@ class Pilot05SeparateJvmHttpTests {
         assertThat(read.statusCode()).isEqualTo(200);
         assertThat(extract(read.body(),"patientId")).isEqualTo(patient);
         assertThat(admin.queryForObject("""
-            SELECT count(*) FROM appointment_proof.appointment_event
+            SELECT count(*) FROM appointment_proof.event
              WHERE appointment_id=?
             """,Integer.class,appointment)).isEqualTo(2);
         assertThat(call("POST","/api/v1/auth/logout",reception,"{}")
