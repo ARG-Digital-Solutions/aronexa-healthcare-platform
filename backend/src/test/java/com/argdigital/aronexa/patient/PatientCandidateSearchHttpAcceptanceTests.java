@@ -184,7 +184,7 @@ class PatientCandidateSearchHttpAcceptanceTests {
     private HttpResponse<String> search(UUID branch,String mode,String term,
             String token) throws Exception {
         return request("POST","/api/v1/branches/"+branch+"/patient-search",
-            token,"{\\"mode\\":\\""+mode+"\\",\\"term\\":\\""+term+"\\"}");
+            token,"{\"mode\":\""+mode+"\",\"term\":\""+term+"\"}");
     }
     private int audits(Fixture f) {
         return admin.queryForObject("""
