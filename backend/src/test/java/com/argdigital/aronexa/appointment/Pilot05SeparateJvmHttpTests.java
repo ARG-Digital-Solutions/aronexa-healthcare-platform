@@ -98,7 +98,8 @@ class Pilot05SeparateJvmHttpTests {
             }
         }
         admin.update("""
-                UPDATE module_registry SET implemented=true,released=true WHERE code='OPD'
+                UPDATE module_registry SET implemented=true,released=true
+                WHERE code IN ('OPD','PATIENT_REGISTRATION')
                 """);
     }
 
@@ -193,7 +194,8 @@ class Pilot05SeparateJvmHttpTests {
                     """, tenant, row[0], row[1]);
         }
         for (String permission : new String[]{
-                "APPOINTMENT_BOOK", "APPOINTMENT_READ", "APPOINTMENT_CHECK_IN"
+                "APPOINTMENT_BOOK", "APPOINTMENT_READ", "APPOINTMENT_CHECK_IN",
+                "PATIENT_REGISTRATION_READ"
         }) {
             admin.update("""
                     INSERT INTO auth_role_permission(tenant_id,role_id,permission_code)
@@ -207,8 +209,9 @@ class Pilot05SeparateJvmHttpTests {
         admin.update("""
                 INSERT INTO tenant_module_state
                   (tenant_id,module_code,entitled,activated,clinically_authorized)
-                VALUES(?,'OPD',true,true,true)
-                """, tenant);
+                VALUES(?,'OPD',true,true,true),
+                      (?,'PATIENT_REGISTRATION',true,true,true)
+                """, tenant,tenant);
         admin.update("""
                 INSERT INTO patient(id,tenant_id,display_name)
                 VALUES(?,?,'FICTIONAL RESTART RECORD')
@@ -255,6 +258,21 @@ class Pilot05SeparateJvmHttpTests {
         assertThat(checked.statusCode()).isEqualTo(200);
         assertThat(checked.body()).contains("\"stage\":\"CHECKED_IN\"");
         assertThat(extract(checked.body(), "patientId")).isEqualTo(f.patient());
+        // PILOT-08 RC01 — real server-authenticated registration and queue
+        // read before shutdown, not merely privileged owner SQL existence.
+        var registrationRead=call("GET", "/api/v1/branches/"+f.branch()
+                +"/patient-registrations/"+f.registration(),reception,null);
+        assertThat(registrationRead.statusCode()).isEqualTo(200);
+        assertThat(registrationRead.body()).contains(
+                f.registration().toString(),f.patient().toString());
+        assertThat(registrationRead.body()).doesNotContain(
+                "FICTIONAL RESTART RECORD","displayName","accessToken");
+        var beforeRestartQueue=call("GET",base+"?visitDate="
+                +LocalDate.now(CLINIC_ZONE),reception,null);
+        assertThat(beforeRestartQueue.statusCode()).isEqualTo(200);
+        assertThat(beforeRestartQueue.body()).contains(
+                appointment.toString(),f.registration().toString(),
+                "\"stage\":\"CHECKED_IN\"");
         assertThat(call("POST", "/api/v1/auth/logout", reception, "{}")
                 .statusCode()).isBetween(200, 204);
         assertThat(call("GET", base + "/" + appointment, reception, null)
@@ -281,6 +299,7 @@ class Pilot05SeparateJvmHttpTests {
                 """, f.tenant(), f.branch(), f.patient(), appointment, f.doctor(),
                 pid, Pilot05DisposableDatabaseGuard.runId())).isOne();
         System.out.println("PILOT05_PHASE_A_PASS JVM_PID=" + pid);
+        System.out.println("PILOT08_RECEPTION_PHASE_A_REGISTRATION_BOOK_CHECKIN_QUEUE_PASS");
     }
 
     @Test
@@ -316,8 +335,45 @@ class Pilot05SeparateJvmHttpTests {
         assertThat(readback.body()).contains("\"revision\":1", NOTE);
 
         String reception = login(receptionUsername());
+        // PILOT-08 RC01: this is a fresh server session in a distinct
+        // JVM. The same marked disposable PG17 must retain registration,
+        // booking/check-in and the date-filtered daily queue.
+        UUID registration=admin.queryForObject("""
+            SELECT id FROM public.patient_registration
+            WHERE tenant_id=? AND branch_id=? AND patient_id=?
+            """,UUID.class,m.get("tenant_id"),branch,patient);
+        assertThat(registration).isNotNull();
+        var recovered=call("GET","/api/v1/branches/"+branch
+                +"/patient-registrations/"+registration,reception,null);
+        assertThat(recovered.statusCode()).isEqualTo(200);
+        assertThat(recovered.body()).contains(
+                registration.toString(),patient.toString());
+        LocalDate persistedVisitDay=admin.queryForObject("""
+            SELECT visit_date FROM appointment_proof.appointment
+            WHERE id=? AND tenant_id=? AND branch_id=?
+            """,LocalDate.class,appointment,m.get("tenant_id"),branch);
+        assertThat(persistedVisitDay).isNotNull();
+        var queue=call("GET","/api/v1/branches/"+branch+
+                "/appointments?visitDate="+persistedVisitDay,
+                reception,null);
+        assertThat(queue.statusCode()).isEqualTo(200);
+        assertThat(queue.body()).contains(
+                appointment.toString(),registration.toString(),
+                "\"stage\":\"CHECKED_IN\"");
+        var differentDate=call("GET","/api/v1/branches/"+branch+
+                "/appointments?visitDate="+persistedVisitDay.minusDays(1),
+                reception,null);
+        assertThat(differentDate.statusCode()).isEqualTo(200);
+        assertThat(differentDate.body()).doesNotContain(appointment.toString());
+        // The receptionist cannot read the doctor's consultation content.
         assertThat(call("GET", base + "/consultation-draft", reception, null)
                 .statusCode()).isEqualTo(403);
+        assertThat(admin.queryForObject("""
+            SELECT count(*) FROM public.patient_registration_access_audit
+            WHERE tenant_id=? AND branch_id=? AND registration_id=?
+              AND action='READ'
+            """,Integer.class,m.get("tenant_id"),branch,registration))
+            .isGreaterThanOrEqualTo(2);
         assertThat(admin.queryForObject("""
                 SELECT count(*) FROM appointment_proof.consultation_revision
                 WHERE appointment_id=? AND consultation_note=?
@@ -327,5 +383,6 @@ class Pilot05SeparateJvmHttpTests {
                 WHERE run_id=? AND phase='READY_A'
                 """, secondPid, Pilot05DisposableDatabaseGuard.runId())).isOne();
         System.out.println("PILOT05_PHASE_B_PASS JVM_PID=" + secondPid);
+        System.out.println("PILOT08_RECEPTION_PHASE_B_FRESH_SESSION_REGISTRATION_QUEUE_PASS");
     }
 }

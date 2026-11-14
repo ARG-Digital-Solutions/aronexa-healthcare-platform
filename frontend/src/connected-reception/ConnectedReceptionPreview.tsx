@@ -14,6 +14,7 @@ import {createAppointmentCandidateFlow, loadAppointmentCandidateQueue,
 import {summarizeReceptionQueue} from '../receptionQueueSummary.ts';
 import {prepareDoctorHandoff,type DoctorHandoff} from '../receptionDoctorHandoff.ts';
 import {verifyProductionOpdIntake} from '../productionOpdIntakeClient.ts';
+import {verifiedRegistrationFromQueue} from '../queueRegistrationContinuity.ts';
 import {revokeStaffTokenAndConfirm} from '../staffSessionClient.ts';
 import './connected-reception.css';
 
@@ -325,6 +326,40 @@ export default function ConnectedReceptionPreview({onDoctorHandoff}:{onDoctorHan
       setQueueLoaded(true);
     }catch(failure){setQueueRows([]);setError(explain(failure));}
     finally{setBusy(false);}
+  }
+
+  /**
+   * The queue supplies a registration ID for navigation only. A separate
+   * authenticated patient-role SQL read must confirm it still belongs to
+   * this staff session/branch and maps to the same patient. Nothing is
+   * cached in browser storage and no UUID is manually copied by staff.
+   */
+  async function openRegistrationFromQueue(item:AppointmentCandidateReceipt){
+    if(busy||!sessionRef.current||!recoveryRef.current||!canRead)return;
+    setBusy(true);setError('');setIntakeStatus('');setFoundReference(null);
+    try{
+      const session=sessionRef.current;
+      if(item.branchId!==branchId||item.tenantId!==session.tenantId)
+        throw new Error('Queue context changed');
+      const fresh=await recoveryRef.current.recover(item.registrationId);
+      const linked=verifiedRegistrationFromQueue(
+        item,fresh,session.tenantId,branchId);
+      if(sessionRef.current!==session)
+        throw new Error('Session changed');
+      appointmentRef.current?.dispose();
+      appointmentRef.current=null;
+      setAppointmentReceipt(null);
+      setAppointmentContext(null);
+      setFoundReference(linked);
+      setLookupId('');
+      setScreen('REFERENCE_FOUND');
+    }catch{
+      setFoundReference(null);
+      setQueueRows([]);
+      setQueueLoaded(false);
+      setScreen('APPOINTMENT_QUEUE');
+      setError('Registration could not be reverified. Refresh the queue and try again.');
+    }finally{setBusy(false);}
   }
 
   async function openQueuedAppointment(item:AppointmentCandidateReceipt){
@@ -726,6 +761,10 @@ export default function ConnectedReceptionPreview({onDoctorHandoff}:{onDoctorHan
                   <p className="connected-footnote">
                     Doctor membership: {item.doctorMembershipId}
                   </p>
+                  {canRead&&<button className="outline" disabled={busy}
+                    onClick={()=>void openRegistrationFromQueue(item)}>
+                    Open verified registration
+                  </button>}
                   {canBook&&<button className="outline" disabled={busy}
                     onClick={()=>void openQueuedAppointment(item)}>
                     Manage appointment
