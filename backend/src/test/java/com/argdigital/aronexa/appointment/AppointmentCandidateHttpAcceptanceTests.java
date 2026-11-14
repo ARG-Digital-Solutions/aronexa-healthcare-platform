@@ -1278,6 +1278,8 @@ class AppointmentCandidateHttpAcceptanceTests {
             "node_modules/vite/bin/vite.js"))).isTrue();
         assertThat(Files.isRegularFile(frontend.resolve(
             "test/browser/pilot06-connected-browser.mjs"))).isTrue();
+        assertThat(Files.isRegularFile(frontend.resolve(
+            "test/browser/pilot06-preview-readiness.mjs"))).isTrue();
         // The frontend runner builds the test-only bundle first. Reuse that
         // exact artifact; never depend on another Vite dev transformation pass.
         assertThat(Files.isRegularFile(frontend.resolve(
@@ -1325,33 +1327,31 @@ class AppointmentCandidateHttpAcceptanceTests {
             viteCommand.redirectErrorStream(true);
             viteCommand.redirectOutput(log.toFile());
             vite=viteCommand.start();
-            boolean ready=false;
-            String lastProbe="No HTTP response";
-            for(int i=0;i<35 && !ready;i++) {
-                if(!vite.isAlive()) {
-                    throw new IllegalStateException(
-                        "PILOT06 Vite preview exited before readiness. Log: "+log);
-                }
-                try {
-                    var ping=http.send(HttpRequest.newBuilder(URI.create(
-                        "http://127.0.0.1:5176/connected-reception-preview.html"))
-                        .timeout(java.time.Duration.ofMillis(1200))
-                        .header("Cache-Control","no-store").GET().build(),
-                        HttpResponse.BodyHandlers.ofString());
-                    ready=ping.statusCode()==200
-                        && ping.body().contains("Connected Reception (Disposable QA Only)");
-                    lastProbe="HTTP "+ping.statusCode()+
-                        (ready?" verified built HTML":" without matching test HTML");
-                } catch(java.io.IOException failure) {
-                    lastProbe=failure.getClass().getSimpleName();
-                } catch(InterruptedException failure) {
-                    Thread.currentThread().interrupt();
-                    throw failure;
-                }
-                if(!ready)Thread.sleep(400);
+            // On Windows, Vite reported its listening address but the
+            // Spring test JVM's asynchronous HttpClient timed out. Probe the
+            // same prebuilt HTML using Node's native HTTP client: the runtime
+            // used by the actual Chromium browser harness. No UI/API mocks.
+            var readinessCommand=new ProcessBuilder("node",
+                "test/browser/pilot06-preview-readiness.mjs");
+            readinessCommand.directory(frontend.toFile());
+            readinessCommand.redirectErrorStream(true);
+            Process readiness=readinessCommand.start();
+            boolean finished=readiness.waitFor(
+                40,java.util.concurrent.TimeUnit.SECONDS);
+            if(!finished){
+                readiness.destroyForcibly();
+                throw new IllegalStateException(
+                    "PILOT06 Node preview readiness timed out. Vite log: "+log);
             }
-            assertThat(ready).as("PILOT06 Vite preview not ready: "+lastProbe
-                +". Inspect local startup log: "+log).isTrue();
+            String probeOutput=new String(
+                readiness.getInputStream().readAllBytes(),
+                java.nio.charset.StandardCharsets.UTF_8).trim();
+            boolean ready=readiness.exitValue()==0
+                &&probeOutput.contains("PILOT06_NODE_PREVIEW_READY");
+            assertThat(ready).as("PILOT06 Node preview check failed: "+
+                probeOutput+". Inspect Vite startup log: "+log).isTrue();
+            assertThat(vite.isAlive())
+                .as("PILOT06 preview exited after readiness. Log: "+log).isTrue();
             String suffix=f.username().substring("r104_".length());
             String fixtureJson="""
                 {"origin":"http://127.0.0.1:5176/","tenantCode":"%s",
