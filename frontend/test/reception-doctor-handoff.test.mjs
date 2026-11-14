@@ -37,3 +37,10 @@ test('wrong doctor, tenant, branch and permission fail closed before opening dra
   assert.equal(doctorCanReceiveHandoff(value,{...doctor,permissions:[]},id(2)),false);
   assert.equal(doctorCanReceiveHandoff({...value,patientId:'bad'},doctor,id(2)),false);
 });
+
+test('malformed four-group appointment identifier cannot be handed to doctor',()=>{
+  const malformed='11111111-1111-4111-000000000005';
+  assert.throws(()=>prepareDoctorHandoff({...receipt,appointmentId:malformed},reception));
+  const handoff=prepareDoctorHandoff(receipt,reception);
+  assert.equal(doctorCanReceiveHandoff({...handoff,appointmentId:malformed},doctor,id(2)),false);
+});
