@@ -7,6 +7,7 @@ import java.util.regex.Pattern;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.CacheControl;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.access.AccessDeniedException;
@@ -117,5 +118,11 @@ final class PatientCandidateSearchController {
             @RequestParam String mode,@RequestParam String term) {
         return ResponseEntity.ok().cacheControl(CacheControl.noStore())
                 .body(service.search(branchId,mode,term));
+    }
+
+    @org.springframework.web.bind.annotation.ExceptionHandler(IllegalArgumentException.class)
+    ResponseEntity<Void> invalidSearch(IllegalArgumentException ignored) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .cacheControl(CacheControl.noStore()).build();
     }
 }
