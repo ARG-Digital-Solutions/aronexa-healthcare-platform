@@ -73,7 +73,7 @@ try {
   await page.getByRole('heading',{name:'Registration acknowledged'}).waitFor();
   stage='verified-registration-read';
   await page.getByRole('button',{name:'Verify authorized read-back'}).click();
-  await page.getByText('Registration read verified',{exact:false}).waitFor();
+  await page.getByText('Authorized server read-back confirms this registration/patient reference.',{exact:false}).waitFor();
   stage='select-doctor';
   await page.getByRole('button',{name:'Book a test appointment'}).click();
   const doctor=page.locator('#appointment-doctor');
