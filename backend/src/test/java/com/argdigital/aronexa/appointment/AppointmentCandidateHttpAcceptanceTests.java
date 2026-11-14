@@ -1404,6 +1404,234 @@ class AppointmentCandidateHttpAcceptanceTests {
         }
     }
 
+    /**
+     * PILOT-07 nonempty PostgreSQL restore rehearsal. Source and destination
+     * databases both live INSIDE ONE automatically disposable PG17 container.
+     * This is not encrypted/retained real clinic backup or disaster recovery.
+     */
+    @Test
+    void pilot07NonemptyDisposablePostgresSnapshotRestoresToFreshDatabase()
+            throws Exception {
+        assertThat(System.getenv("ARONEXA_PILOT07_RECOVERY_ACK"))
+            .isEqualTo("DISPOSABLE_SYNTHETIC_RECOVERY_ONLY");
+        assertThat(postgres.isRunning()).isTrue();
+        assertThat(postgres.getDatabaseName())
+            .isEqualTo("aronexa_r104_disposable_only");
+        String account="aronexa_r104_disposable_only";
+        String sourceDb="aronexa_r104_disposable_only";
+        String key=UUID.randomUUID().toString().replace("-","").substring(0,12);
+        String targetDb="aronexa_pilot07_restore_"+key;
+        String backup="/tmp/pilot07-"+key+".dump";
+
+        Fixture f=fixture(true);
+        String receptionist=login(f),doctor=loginDoctor(f);
+        UUID appointment=checkedInAppointment(f,receptionist,"16:30");
+        assertThat(call("POST",consultationPath(f,appointment),doctor,
+            consultationInput(0,"FICTIONAL PILOT07 NONEMPTY RESTORE"))
+            .statusCode()).isEqualTo(200);
+        assertThat(admin.queryForObject("""
+            SELECT count(*) FROM appointment_proof.consultation_revision
+            WHERE appointment_id=?
+            """,Integer.class,appointment)).isOne();
+
+        boolean created=false;
+        try {
+            var exported=postgres.execInContainer("pg_dump","-U",account,
+                "-d",sourceDb,"-Fc","-f",backup);
+            assertThat(exported.getExitCode()).as("pg_dump into disposable container")
+                .isZero();
+            var size=postgres.execInContainer("stat","-c","%s",backup);
+            assertThat(size.getExitCode()).isZero();
+            assertThat(Long.parseLong(size.getStdout().trim()))
+                .as("backup must contain real nonempty test schema and data")
+                .isGreaterThan(10_000L);
+            var create=postgres.execInContainer("createdb","-U",account,targetDb);
+            assertThat(create.getExitCode()).as("fresh target database").isZero();
+            created=true;
+            var restore=postgres.execInContainer("pg_restore","-U",account,
+                "-d",targetDb,"--no-owner","--no-acl",backup);
+            assertThat(restore.getExitCode()).as(
+                "restore complete into a different automatically disposed test DB")
+                .isZero();
+
+            // Compare a specific test-only appointment and its immutable
+            // clinical revision, not merely pg_restore's exit status.
+            String sql="SELECT "+
+                "(SELECT count(*) FROM appointment_proof.appointment WHERE id='"+
+                    appointment+"')::text || '|' || "+
+                "(SELECT count(*) FROM appointment_proof.consultation_revision "+
+                    "WHERE appointment_id='"+appointment+"')::text";
+            var verified=postgres.execInContainer("psql","-X","-t","-A",
+                "-U",account,"-d",targetDb,"-c",sql);
+            assertThat(verified.getExitCode()).isZero();
+            assertThat(verified.getStdout().trim())
+                .as("restored exact same fictional appointment and consultation")
+                .isEqualTo("1|1");
+            System.out.println(
+                "PILOT07_DISPOSABLE_NONEMPTY_PG17_RESTORE_PASS (unencrypted, test-only)");
+        } finally {
+            if(created){
+                var drop=postgres.execInContainer("dropdb","--if-exists",
+                    "--force","-U",account,targetDb);
+                assertThat(drop.getExitCode())
+                    .as("discard recreated disposable test database").isZero();
+            }
+            var remove=postgres.execInContainer("rm","-f",backup);
+            assertThat(remove.getExitCode()).isZero();
+        }
+    }
+
+    /**
+     * PILOT-07 assisted Windows operator lab. Disposable Testcontainers PG17
+     * and test-only HTTP endpoints ONLY; never a customer clinic build.
+     * Keeps Spring+Vite alive for at most 25 minutes for REAL human UI review.
+     * The operator can end early by writing STOP into the isolated run folder.
+     */
+    @Test
+    void pilot07OperatorInteractiveDisposableWindowsClinicLab() throws Exception {
+        assertThat(System.getenv("ARONEXA_PILOT07_ACK"))
+            .as("PILOT07 STOP: operator must explicitly accept fictional-only lab")
+            .isEqualTo("DISPOSABLE_FICTIONAL_LAB_ONLY");
+        String raw=System.getenv("ARONEXA_PILOT07_RUN_DIR");
+        assertThat(raw).isNotBlank();
+        Path runDir=Path.of(raw).toAbsolutePath().normalize();
+        String localAppData=System.getenv("LOCALAPPDATA");
+        assertThat(localAppData).as("PILOT07 STOP: Windows local app data missing").isNotBlank();
+        Path allowedRoot=Path.of(localAppData,"ARG-Digital",
+            "AroNexa-Pilot07-Disposable").toAbsolutePath().normalize();
+        assertThat(runDir.getParent())
+            .as("PILOT07 STOP: test lab path must be inside its dedicated disposable root")
+            .isEqualTo(allowedRoot);
+        assertThat(runDir.getFileName().toString()).matches("pilot07-[0-9a-f]{32}");
+        assertThat(Files.isDirectory(runDir)).isTrue();
+        assertThat(Files.isRegularFile(runDir.resolve("LAB-TEST-ONLY.marker")))
+            .as("PILOT07 STOP: missing operator-created disposable marker").isTrue();
+        assertThat(Files.notExists(runDir.resolve("STOP"))).isTrue();
+
+        Path repoRoot=Path.of(System.getProperty("user.dir"))
+            .toAbsolutePath().normalize().getParent();
+        Path frontend=repoRoot.resolve("frontend");
+        Path html=frontend.resolve(
+            "dist-connected-registration-test/connected-reception-preview.html");
+        assertThat(Files.isRegularFile(html))
+            .as("Run the same exact-SHA connected frontend build first").isTrue();
+        assertThat(Files.isRegularFile(frontend.resolve(
+            "test/browser/pilot06-preview-readiness.mjs"))).isTrue();
+        assertThat(Files.isRegularFile(frontend.resolve(
+            "node_modules/vite/bin/vite.js"))).isTrue();
+
+        Fixture fixture=fixture(true);
+        String receptionist=login(fixture);
+        var booked=call("POST",url(fixture),receptionist,
+            payload(fixture,UUID.randomUUID(),fixture.doctor(),
+                fixture.registration(),LocalDate.now(CLINIC_ZONE),"15:30"));
+        assertThat(booked.statusCode()).isEqualTo(201);
+        UUID appointment=id(booked.body(),"appointmentId");
+        assertThat(call("POST","/api/v1/auth/logout",receptionist,
+            "{}").statusCode()).isBetween(200,204);
+
+        // Ensure that the fixed preview port belongs only to this run.
+        try(var socket=new java.net.Socket()) {
+            socket.connect(new java.net.InetSocketAddress("127.0.0.1",5176),1000);
+            throw new IllegalStateException(
+                "PILOT07 STOP: another process owns the test preview port 5176");
+        }catch(java.net.ConnectException expected) {
+            // No prior server on this loopback port.
+        }
+
+        Process preview=null;
+        Path credentials=runDir.resolve("FICTIONAL-STAFF-ONLY.txt");
+        try {
+            // This file contains exclusively synthetic, disposable account
+            // credentials and no token, real patient name, Rx or PHI.
+            String suffix=fixture.username().substring("r104_".length());
+            String text="""
+                ARONEXA PILOT07 - FICTIONAL, DISPOSABLE TEST DATA ONLY
+                This is NOT customer software. All records are destroyed on exit.
+                URL: http://127.0.0.1:5176/connected-reception-preview.html
+                Clinic code: %s
+                Branch UUID: %s
+                Booked appointment UUID: %s
+                Reception username: %s
+                Reception password: %s
+                Doctor username: doctor_%s
+                Doctor password: DisposableDoctor-Only123!
+                Billing username: billing_%s
+                Billing password: DisposableBilling-Only123!
+
+                Steps:
+                1. Open URL and sign in as Reception; tick fictional-only.
+                2. Daily appointments -> load queue -> manage the booked UUID.
+                3. Check in -> hand off to assigned Doctor sign-in.
+                4. Sign in as Doctor -> open consultation -> save fictional note.
+                5. Open Rx -> add one FICTIONAL medicine -> save draft -> Billing handoff.
+                6. Sign in as Billing -> open bill -> create fictional bill.
+                7. Load daily report. Never use money, prescriptions or real records.
+                8. End lab by creating STOP in the same folder as this file.
+                """.formatted(fixture.tenantCode(),fixture.branch(),appointment,
+                    fixture.username(),fixture.password(),suffix,suffix);
+            Files.writeString(credentials,text,
+                java.nio.file.StandardOpenOption.CREATE_NEW,
+                java.nio.file.StandardOpenOption.WRITE);
+            Path log=runDir.resolve("vite-preview.log");
+            var cmd=new ProcessBuilder("node",
+                frontend.resolve("node_modules/vite/bin/vite.js").toString(),
+                "preview","--config","vite.connected-reception.config.ts",
+                "--host","127.0.0.1","--port","5176","--strictPort");
+            cmd.directory(frontend.toFile());
+            cmd.environment().put("ARONEXA_PILOT06_API_PORT",
+                Integer.toString(port));
+            cmd.redirectErrorStream(true);
+            cmd.redirectOutput(log.toFile());
+            preview=cmd.start();
+            var probeCmd=new ProcessBuilder("node",
+                "test/browser/pilot06-preview-readiness.mjs");
+            probeCmd.directory(frontend.toFile());
+            probeCmd.redirectErrorStream(true);
+            var probe=probeCmd.start();
+            if(!probe.waitFor(40,java.util.concurrent.TimeUnit.SECONDS)){
+                probe.destroyForcibly();
+                throw new IllegalStateException(
+                    "PILOT07 STOP: preview readiness probe timed out. Inspect "+log);
+            }
+            String proof=new String(probe.getInputStream().readAllBytes(),
+                java.nio.charset.StandardCharsets.UTF_8);
+            assertThat(probe.exitValue()).as(proof).isZero();
+            assertThat(preview.isAlive()).as("Vite preview exited").isTrue();
+
+            System.out.println("PILOT07_DISPOSABLE_LAB_READY URL=http://127.0.0.1:5176/connected-reception-preview.html");
+            System.out.println("PILOT07_FICTIONAL_LOGIN_FILE="+credentials);
+            System.out.println("PILOT07_STOP_FILE="+runDir.resolve("STOP"));
+            System.out.flush();
+            try {
+                if(java.awt.Desktop.isDesktopSupported()) {
+                    java.awt.Desktop.getDesktop().browse(URI.create(
+                        "http://127.0.0.1:5176/connected-reception-preview.html"));
+                }
+            } catch(Exception ignored) {
+                System.out.println("PILOT07_BROWSER_AUTO_OPEN_UNAVAILABLE - open printed URL manually");
+            }
+            // This is human exploration, NOT automated clinical UAT.
+            var end=System.nanoTime()+
+                java.util.concurrent.TimeUnit.MINUTES.toNanos(25);
+            while(System.nanoTime()<end
+                    &&Files.notExists(runDir.resolve("STOP"))) {
+                assertThat(preview.isAlive())
+                    .as("PILOT07 preview stopped during test lab").isTrue();
+                Thread.sleep(1000);
+            }
+            System.out.println("PILOT07_DISPOSABLE_LAB_ENDED; automated clinic UAT NOT asserted");
+        } finally {
+            // Never persist even fictional passwords after the manual lab.
+            Files.deleteIfExists(credentials);
+            if(preview!=null){
+                preview.destroy();
+                if(!preview.waitFor(8,java.util.concurrent.TimeUnit.SECONDS))
+                    preview.destroyForcibly();
+            }
+        }
+    }
+
     @Test
     void realHttpBookingPersistsThroughFreshLoginThenCheckInWithAudit() throws Exception {
         Fixture f=fixture(true);
