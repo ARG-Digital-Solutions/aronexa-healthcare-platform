@@ -4,6 +4,7 @@ import {
   createDoctorConsultationCandidateFlow,type DoctorConsultationDraft,
 } from '../doctorConsultationCandidateClient.ts';
 import DoctorPrescriptionPreview from './DoctorPrescriptionPreview.tsx';
+import {doctorCanReceiveHandoff,type DoctorHandoff} from '../receptionDoctorHandoff.ts';
 import '../connected-reception/connected-reception.css';
 import './doctor-preview.css';
 
@@ -12,13 +13,13 @@ type Credentials={tenantCode:string;username:string;password:string};
 const emptyCredentials=():Credentials=>({tenantCode:'',username:'',password:''});
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export default function DoctorConsultationPreview(){
+export default function DoctorConsultationPreview({handoff}:{handoff?:DoctorHandoff}={}){
   const sessionRef=useRef<StaffSession|null>(null);
   const flowRef=useRef<ReturnType<typeof createDoctorConsultationCandidateFlow>|null>(null);
   const [screen,setScreen]=useState<Screen>('SIGN_IN');
   const [credentials,setCredentials]=useState<Credentials>(emptyCredentials);
-  const [branchId,setBranchId]=useState('');
-  const [appointmentId,setAppointmentId]=useState('');
+  const [branchId,setBranchId]=useState(handoff?.branchId??'');
+  const [appointmentId,setAppointmentId]=useState(handoff?.appointmentId??'');
   const [confirmedSynthetic,setConfirmedSynthetic]=useState(false);
   const [staffLabel,setStaffLabel]=useState('');
   const [draft,setDraft]=useState<DoctorConsultationDraft|null>(null);
@@ -44,13 +45,15 @@ export default function DoctorConsultationPreview(){
       session=await signInStaff(credentials);
       if(!session.permissions.includes('OPD_DRAFT_WRITE'))
         throw new Error('Doctor draft permission denied');
+      if(handoff&&!doctorCanReceiveHandoff(handoff,session,branchId))
+        throw new Error('Assigned doctor or clinic did not match handoff');
       sessionRef.current=session;
       setStaffLabel(session.username);
       setCredentials(emptyCredentials());
       setScreen('LOOKUP');
     }catch(failure){
       if(session)await revokeStaffToken(session.accessToken);
-      setError(explain(failure));
+      setError(handoff?'Doctor sign-in or handoff verification failed. Confirm the assigned doctor and branch.':explain(failure));
       setCredentials(v=>({...v,password:''}));
     }finally{setBusy(false);}
   }
@@ -65,6 +68,10 @@ export default function DoctorConsultationPreview(){
         sessionRef.current,branchId,appointmentId.trim());
       flowRef.current=flow;
       const current=await flow.open();
+      if(handoff&&(current.patientId!==handoff.patientId
+        ||current.appointmentId!==handoff.appointmentId
+        ||current.doctorMembershipId!==handoff.doctorMembershipId))
+        throw new Error('Consultation context did not match Reception handoff');
       setDraft(current);
       setNote(current.consultationNote);
       setScreen('DRAFT');
@@ -120,7 +127,7 @@ export default function DoctorConsultationPreview(){
     setSuccess('');
     setError('');
     setAppointmentId('');
-    setBranchId('');
+    setBranchId(handoff?.branchId??'');
     setCredentials(emptyCredentials());
     setConfirmedSynthetic(false);
     setStaffLabel('');
@@ -174,7 +181,7 @@ export default function DoctorConsultationPreview(){
               onChange={e=>setCredentials(v=>({...v,password:e.target.value}))}/>
             <label htmlFor="doctor-branch">Assigned branch UUID</label>
             <input id="doctor-branch" required autoComplete="off"
-              value={branchId} onChange={e=>setBranchId(e.target.value.trim())}/>
+              value={branchId} readOnly={!!handoff} onChange={e=>setBranchId(e.target.value.trim())}/>
             <label className="connected-check">
               <input type="checkbox" checked={confirmedSynthetic}
                 onChange={e=>setConfirmedSynthetic(e.target.checked)}/>
@@ -188,11 +195,11 @@ export default function DoctorConsultationPreview(){
       {screen==='LOOKUP'&&
         <section className="connected-panel" aria-label="Open checked-in appointment">
           <h2>Read consultation from the server</h2>
-          <p>Enter a server-issued appointment UUID that Reception has checked in.</p>
+          <p>{handoff?'Reception checked in this appointment. Doctor authorization and patient context will be verified again by the server.':'Enter a server-issued appointment UUID that Reception has checked in.'}</p>
           <form onSubmit={openConsultation}>
             <label htmlFor="consult-appointment">Checked-in appointment UUID</label>
             <input id="consult-appointment" required autoComplete="off"
-              value={appointmentId}
+              value={appointmentId} readOnly={!!handoff}
               onChange={e=>setAppointmentId(e.target.value.trim())}/>
             <button className="solid" type="submit" disabled={busy}>
               {busy?'Opening…':'Open consultation'}
