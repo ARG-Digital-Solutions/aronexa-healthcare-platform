@@ -12,6 +12,7 @@ import {createRegistrationRecoveryFlow} from '../registrationRecoveryFlow.ts';
 import {createAppointmentCandidateFlow, loadAppointmentCandidateQueue,
   type AppointmentCandidateReceipt} from '../appointmentCandidateClient.ts';
 import {summarizeReceptionQueue} from '../receptionQueueSummary.ts';
+import {prepareDoctorHandoff,type DoctorHandoff} from '../receptionDoctorHandoff.ts';
 import './connected-reception.css';
 
 type Screen='SIGN_IN'|'PATIENT_DETAILS'|'REVIEW'|'UNRESOLVED'|'REGISTERED'|'RECOVERY_LOOKUP'|'REFERENCE_FOUND'|'APPOINTMENT'|'APPOINTMENT_BOOKED'|'APPOINTMENT_QUEUE';
@@ -29,7 +30,7 @@ const emptyCredentials=():Credentials=>({tenantCode:'',username:'',password:''})
  * selection, user provisioning, clinical privacy/consent, migration readiness,
  * accessibility testing and a properly secured install process.
  */
-export default function ConnectedReceptionPreview(){
+export default function ConnectedReceptionPreview({onDoctorHandoff}:{onDoctorHandoff?:(handoff:DoctorHandoff)=>void}={}){
   const sessionRef=useRef<StaffSession|null>(null);
   const flowRef=useRef<ConnectedRegistrationFlow|null>(null);
   const recoveryRef=useRef<ReturnType<typeof createRegistrationRecoveryFlow>|null>(null);
@@ -383,6 +384,18 @@ export default function ConnectedReceptionPreview(){
       setQueueLoaded(false);
       setError(explain(failure));
     }finally{setBusy(false);}
+  }
+
+  function transferToDoctor(){
+    if(busy||!onDoctorHandoff||!appointmentReceipt||!sessionRef.current)return;
+    try{
+      const handoff=prepareDoctorHandoff(appointmentReceipt,sessionRef.current);
+      // Invalidate Reception state and request logout before switching role.
+      signOut();
+      onDoctorHandoff(handoff);
+    }catch{
+      setError('This appointment is not eligible for doctor handoff. Refresh from the server.');
+    }
   }
 
   function signOut(){
@@ -753,6 +766,10 @@ export default function ConnectedReceptionPreview(){
               <button className="outline" disabled={busy}
                 onClick={()=>{setEditAppointment(false);setCancelConfirm(true);}}>
                 Cancel appointment
+              </button>}
+            {onDoctorHandoff&&appointmentReceipt.stage==='CHECKED_IN'&&
+              <button className="solid" disabled={busy} onClick={transferToDoctor}>
+                Hand off to assigned doctor sign-in
               </button>}
             {canReadAppointments&&
               <button className="outline" disabled={busy} onClick={showQueue}>
