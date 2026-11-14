@@ -52,7 +52,10 @@ foreach($base in @(
  (Join-Path $env:ProgramFiles 'Java'),
  (Join-Path $env:ProgramFiles 'Amazon Corretto'),
  (Join-Path $env:ProgramFiles 'Zulu'),
- (Join-Path $env:LOCALAPPDATA 'Programs')
+ (Join-Path $env:LOCALAPPDATA 'Programs'),
+ (Join-Path $env:LOCALAPPDATA 'Programs\Eclipse Adoptium'),
+ (Join-Path $env:LOCALAPPDATA 'Programs\Microsoft'),
+ (Join-Path $env:USERPROFILE '.jdks')
 )){
  if(Test-Path -LiteralPath $base -PathType Container){
   foreach($directory in @(Get-ChildItem -LiteralPath $base -Directory -ErrorAction SilentlyContinue)){
@@ -60,6 +63,9 @@ foreach($base in @(
   }
  }
 }
+# Also account for the user-scoped Temurin MSI layout under
+# %LOCALAPPDATA%\Programs\Eclipse Adoptium\jdk-21...; earlier
+# discovery considered the outer Programs folder but only one child level.
 $jdkHome=$null
 $jdkBin=$null
 foreach($candidate in $jdkCandidates){
