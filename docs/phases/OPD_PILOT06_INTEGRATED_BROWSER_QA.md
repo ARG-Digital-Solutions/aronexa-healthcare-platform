@@ -15,7 +15,7 @@ A single **test-only connected Reception preview** now carries server-verified, 
 
 ## Browser acceptance — actual backend, not mocks
 
-The backend test method `AppointmentCandidateHttpAcceptanceTests#pilot06BrowserIntegratedRealHttpAcrossThreeStaffRoles` owns a **disposable Testcontainers PG17** and Spring random-port test controller. It seeds one fictional patient/registration, reception/doctor/billing roles, and a BOOKED appointment through authenticated HTTP. A Vite process bound to `127.0.0.1:5176` proxies `/api/v1` only to the random **loopback test port**. Chromium performs actual clicks from daily queue → check-in → doctor → consultation → structured prescription draft → billing → bill → daily report. The test refuses stale UI port reuse, verifies actual success HTTP statuses, and independently checks SQL consultation, Rx and invoice rows after browser automation.
+The backend test method `AppointmentCandidateHttpAcceptanceTests#pilot06BrowserIntegratedRealHttpAcrossThreeStaffRoles` owns a **disposable Testcontainers PG17** and Spring random-port test controller. It seeds one fictional patient/registration, reception/doctor/billing roles, and a BOOKED appointment through authenticated HTTP. The targeted browser test launches **Vite Preview** against the already-built `dist-connected-registration-test` artifact on `127.0.0.1:5176`, with its explicit `preview.proxy` forwarding `/api/v1` only to the random **loopback test port**. It avoids running Vite's development transforms during backend acceptance. Chromium performs actual clicks from daily queue → check-in → doctor → consultation → structured prescription draft → billing → bill → daily report. The test refuses stale UI port reuse, verifies actual success HTTP statuses, and independently checks SQL consultation, Rx and invoice rows after browser automation.
 
 **Scope limitation:** this browser test starts from a **server-seeded existing patient and BOOKED appointment**; it does not validate new patient registration UI. It also does not verify printing, digital signatures, WhatsApp, real payment, backup, or Windows installer. A separate browser registration/new-booking scenario is still required.
 
@@ -47,3 +47,14 @@ On failure, capture first error / `PILOT06_BROWSER_FAILED_STAGE=...` and Surefir
 This proof is **not** an installed Windows service, production runtime migration/SQL permission proof, permanent encrypted backup/restore, signed installer, clinical prescription issuance, real payment, independent security/accessibility/doctor UAT, or customer-release approval. Existing original DB hold #31, #45 independent security review, #123/#125 authorization revocation reviews and all nine R1-09 NO-GO gates remain. No automatic merge, deployment or real-patient use.
 
 R1-PILOT-05's independently accepted two-JVM, same-disposable-DB restart remains separate evidence. Pilot-06's browser test uses one disposable Spring JVM; it does not redo a two-process restart.
+
+## Pilot-06 first local failure and revised Vite readiness
+
+Owner-reported run at `8e60aeb00c1c0120ca002d654d902f6f7ee68ed7` returned `Tests run: 1, Failures: 1`, stopped before Chromium and failed `[Loopback Vite never became ready]` after the original 50x2s HTTP poll. The exact Vite startup reason is **not proven** without `backend/target/pilot06-vite-test.log`. This branch now switches to the prebuilt Vite Preview server, explicitly configures its loopback API proxy, refuses any open listener on port 5176, verifies the expected built HTML, uses a bounded polling loop, and reports the Vite log path on failure. The new source SHA requires a fresh Windows retest; do not infer PASS from the corrected build alone.
+
+If retest fails, inspect the Vite startup log in the *new isolated worktree*:
+```powershell
+Get-Content .\\backend\\target\\pilot06-vite-test.log -Tail 80
+```
+
+Never run another Vite preview bound to this port or point the proxy at a customer backend to make the test pass.
