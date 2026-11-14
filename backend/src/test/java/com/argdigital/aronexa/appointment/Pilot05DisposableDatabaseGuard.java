@@ -3,6 +3,10 @@ package com.argdigital.aronexa.appointment;
 import java.sql.DriverManager;
 import java.util.Map;
 import java.util.UUID;
+import org.springframework.boot.jdbc.autoconfigure.JdbcConnectionDetails;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.ApplicationContextInitializer;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.core.env.MapPropertySource;
@@ -47,6 +51,32 @@ public final class Pilot05DisposableDatabaseGuard
             throw new IllegalStateException("PILOT05 STOP: phase must be A or B");
         }
         return "jdbc:postgresql://127.0.0.1:" + port + "/" + DATABASE;
+    }
+
+    /**
+     * Explicitly imported only by the Pilot-05 test class. Spring Boot 4's
+     * AuthPersistenceConfiguration requires JdbcConnectionDetails, not merely
+     * spring.datasource.* values. This bean is installed only AFTER this
+     * initializer has verified the out-of-band disposable database run marker.
+     */
+    @TestConfiguration(proxyBeanMethods = false)
+    public static class VerifiedDisposableConnection {
+        @Bean
+        JdbcConnectionDetails pilot05JdbcConnectionDetails(
+                @Value("${spring.datasource.url}") String url,
+                @Value("${spring.datasource.username}") String user,
+                @Value("${spring.datasource.password}") String password) {
+            if (!url.equals(validatedUrl()) || !USER.equals(user)
+                    || !PASSWORD.equals(password)) {
+                throw new IllegalStateException(
+                        "PILOT05 STOP: only the exact verified disposable datasource is permitted");
+            }
+            return new JdbcConnectionDetails() {
+                @Override public String getJdbcUrl() { return url; }
+                @Override public String getUsername() { return user; }
+                @Override public String getPassword() { return password; }
+            };
+        }
     }
 
     @Override
