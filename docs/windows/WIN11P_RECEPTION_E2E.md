@@ -85,3 +85,16 @@ Prior full-Maven failures remain unresolved until their own exact-SHA rerun pass
 - Operator-created records do not survive shutdown of the manual lab.
 - Full Maven QA, independent security review and WIN-14 customer-release approval
   remain open. No merge, deployment, production migration or release approval.
+
+## Read-only verification of owner's existing Windows database (new)
+
+The existing database at `127.0.0.1:49742` is **not** authorized for the automated RC03/manual PILOT09 write suites. Before using the separately provisioned database as a local Spring Boot smoke-test baseline, run this **read-only** acceptance on the owner's Windows machine:
+
+```powershell
+$repo = Join-Path $env:USERPROFILE 'Application Development\AroNexa-WIN11P-Portable-QA'
+& (Join-Path $repo 'scripts\windows-runtime\Test-AroNexa-WIN11P-ExistingDisposableDb.ps1') -CheckHttp401
+```
+
+This enforces exact container name, Docker synthetic-only label, localhost port 49742 and database identity, then checks nine successful V1–V9 migrations, restricted role attributes, RLS table settings, four expected privilege outcomes and optionally the unauthenticated HTTP 401. **It does not test row-level data denial, create accounts or patients, apply review-only V10/V11 SQL, write any tables, or establish persistent Reception E2E.** If the local port/container changes, do not bypass the checks; reassess the disposable identity and review the script.
+
+The old portable source worktree may not contain this script until the branch is fetched/checked out. Keep the new draft PR unmerged and run only on synthetic infrastructure.
