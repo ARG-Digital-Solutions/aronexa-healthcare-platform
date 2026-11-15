@@ -89,7 +89,7 @@ test('backend denial, lost session and network failure have no identity fallback
 
 test('digit-containing NAME_PREFIX values are rejected before HTTP',async()=>{
   let calls=0;
-  for(const prefix of ['Fictional Rc03','3Fictional','Fictional3','Fictional ?'])
+  for(const prefix of ['Fictional Rc03','3Fictional','Fictional3','Fictional \u0663'])
     await assert.rejects(findPatientCandidates(actor,branch,'NAME_PREFIX',prefix,
       async()=>{calls++;return reply([])}),PatientSearchError);
   assert.equal(calls,0);
