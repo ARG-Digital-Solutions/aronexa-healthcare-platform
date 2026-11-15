@@ -2,11 +2,12 @@
 param(
     [Parameter(Mandatory=$true)][ValidatePattern('^[0-9a-f]{40}$')][string]$ExpectedCommit,
     [ValidateSet('Ordinary','All')][string]$Mode='Ordinary',
-    [string]$EvidenceDirectory=(Join-Path $PSScriptRoot '..\..\target\win11p-evidence')
+    [string]$EvidenceDirectory
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 $repo=(Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..\..')).Path
+if([string]::IsNullOrWhiteSpace($EvidenceDirectory)){$EvidenceDirectory=Join-Path $repo 'target\win11p-evidence'}
 $module=Join-Path $PSScriptRoot 'Win11p-MavenMatrix.psm1'
 Import-Module $module -Force
 $config=Get-Win11pMatrixConfig
