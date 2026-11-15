@@ -41,12 +41,12 @@ $assignments=@(Get-Win11pTestAssignment -Inventory $inventory)
 $ordinaryExpected=@($assignments|Where-Object{$_.lane -eq 'ordinary'})
 $child2=Invoke-Win11pChildProcess -PowerShellCommand $commands[1] -WorkingDirectory $backend -LogPath (Join-Path $evidence 'ordinary.log') -Environment @{}
 $ordinary=ConvertFrom-Win11pSurefireReports -ReportDirectory $ordinaryReport -Lane ordinary
-$executed=@($ordinary.results)
-$notRun=@($assignments|Where-Object{$_.lane -ne 'ordinary'}|ForEach-Object{[pscustomobject]@{id=$_.id;outcome='NOT_RUN';lane=$_.lane}})
+$executed=@($discovery.results)+@($ordinary.results)
+$notRun=@($assignments|Where-Object{$_.lane -ne 'ordinary' -and $_.lane -ne 'discovery'}|ForEach-Object{[pscustomobject]@{id=$_.id;outcome='NOT_RUN';lane=$_.lane}})
 $decision=Compare-Win11pTestMatrix -Inventory $inventory -Results @($executed+$notRun)
 $manifest=[ordered]@{
     schema_version=1;run_id=$runId;source_sha=$sha;mode=$Mode
-    inventory_methods=$inventory.Count;ordinary_expected_methods=$ordinaryExpected.Count
+    inventory_methods=$inventory.Count;ordinary_expected_methods=$ordinaryExpected.Count;guarded_methods_not_run=$notRun.Count
     ordinary_testcases=$ordinary.tests;ordinary_failures=$ordinary.failures;ordinary_errors=$ordinary.errors;ordinary_skipped=$ordinary.skipped
     discovery_testcases=$discovery.tests;child_process_ids=@($child1.process_id,$child2.process_id)
     required_tests_not_run=$notRun;matrix_overall=$decision.overall;matrix_issues=$decision.issues
