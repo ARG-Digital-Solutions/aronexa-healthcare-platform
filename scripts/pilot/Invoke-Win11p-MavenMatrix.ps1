@@ -44,7 +44,6 @@ $ordinary=ConvertFrom-Win11pSurefireReports -ReportDirectory $ordinaryReport -La
 $executed=@($ordinary.results)
 $notRun=@($assignments|Where-Object{$_.lane -ne 'ordinary'}|ForEach-Object{[pscustomobject]@{id=$_.id;outcome='NOT_RUN';lane=$_.lane}})
 $decision=Compare-Win11pTestMatrix -Inventory $inventory -Results @($executed+$notRun)
-$allTests=$ordinary.tests
 $manifest=[ordered]@{
     schema_version=1;run_id=$runId;source_sha=$sha;mode=$Mode
     inventory_methods=$inventory.Count;ordinary_expected_methods=$ordinaryExpected.Count
@@ -58,5 +57,6 @@ $manifest|ConvertTo-Json -Depth 8|Set-Content -LiteralPath $manifestPath -Encodi
 Write-Output ('WIN11P ordinary lane: '+$ordinary.tests+' tests; failures='+$ordinary.failures+' errors='+$ordinary.errors+' skipped='+$ordinary.skipped)
 Write-Output ('WIN11P inventory methods: '+$inventory.Count+'; ordinary expected='+$ordinaryExpected.Count+'; guarded NOT_RUN='+$notRun.Count)
 Write-Output ('WIN11P matrix result: '+$decision.overall+'; evidence='+$manifestPath)
-if($child2.exit_code -ne 0 -or $decision.overall -eq 'PASS'){exit 1}
+if($child2.exit_code -ne 0){exit 1}
+if($decision.overall -ne 'PASS'){exit 2}
 exit 0
