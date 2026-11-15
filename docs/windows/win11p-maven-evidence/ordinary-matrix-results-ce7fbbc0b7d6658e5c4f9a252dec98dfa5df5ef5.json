@@ -1,0 +1,79 @@
+﻿{
+    "schema_version":  1,
+    "run_id":  "78c2bb77f4b24bf4ae6766033ef4a891",
+    "source_sha":  "ce7fbbc0b7d6658e5c4f9a252dec98dfa5df5ef5",
+    "mode":  "Ordinary",
+    "inventory_methods":  352,
+    "ordinary_expected_methods":  343,
+    "guarded_methods_not_run":  8,
+    "ordinary_testcases":  343,
+    "ordinary_failures":  0,
+    "ordinary_errors":  0,
+    "ordinary_skipped":  0,
+    "discovery_testcases":  1,
+    "child_process_ids":  [
+                              13488,
+                              41248
+                          ],
+    "required_tests_not_run":  [
+                                   {
+                                       "id":  "com.argdigital.aronexa.appointment.AppointmentCandidateHttpAcceptanceTests#pilot06BrowserIntegratedRealHttpAcrossThreeStaffRoles",
+                                       "outcome":  "NOT_RUN",
+                                       "lane":  "pilot06-browser"
+                                   },
+                                   {
+                                       "id":  "com.argdigital.aronexa.appointment.AppointmentCandidateHttpAcceptanceTests#pilot07NonemptyDisposablePostgresSnapshotRestoresToFreshDatabase",
+                                       "outcome":  "NOT_RUN",
+                                       "lane":  "pilot07-recovery"
+                                   },
+                                   {
+                                       "id":  "com.argdigital.aronexa.appointment.AppointmentCandidateHttpAcceptanceTests#pilot07OperatorInteractiveDisposableWindowsClinicLab",
+                                       "outcome":  "NOT_RUN",
+                                       "lane":  "pilot07-operator"
+                                   },
+                                   {
+                                       "id":  "com.argdigital.aronexa.appointment.Pilot05SeparateJvmHttpTests#phaseARc03BrowserCreatesRegistrationBookingAndCheckIn",
+                                       "outcome":  "NOT_RUN",
+                                       "lane":  "pilot05-rc03-phase-a"
+                                   },
+                                   {
+                                       "id":  "com.argdigital.aronexa.appointment.Pilot05SeparateJvmHttpTests#phaseAWritesCheckedInConsultationAndStopsJvm",
+                                       "outcome":  "NOT_RUN",
+                                       "lane":  "pilot05-phase-a"
+                                   },
+                                   {
+                                       "id":  "com.argdigital.aronexa.appointment.Pilot05SeparateJvmHttpTests#phaseBRc03RecoversBrowserCreatedPatientAndCheckedInQueue",
+                                       "outcome":  "NOT_RUN",
+                                       "lane":  "pilot05-rc03-phase-b"
+                                   },
+                                   {
+                                       "id":  "com.argdigital.aronexa.appointment.Pilot05SeparateJvmHttpTests#phaseBReopensSameConsultationInDifferentJvm",
+                                       "outcome":  "NOT_RUN",
+                                       "lane":  "pilot05-phase-b"
+                                   },
+                                   {
+                                       "id":  "com.argdigital.aronexa.appointment.Pilot05SeparateJvmHttpTests#pilot09OperatorAssistedWindowsFictionalLab",
+                                       "outcome":  "NOT_RUN",
+                                       "lane":  "pilot09-operator"
+                                   }
+                               ],
+    "guarded_lane_results":  [
+
+                             ],
+    "matrix_overall":  "NOT_PASS",
+    "matrix_issues":  [
+                          "non-pass outcome NOT_RUN: com.argdigital.aronexa.appointment.AppointmentCandidateHttpAcceptanceTests#pilot06BrowserIntegratedRealHttpAcrossThreeStaffRoles",
+                          "non-pass outcome NOT_RUN: com.argdigital.aronexa.appointment.Pilot05SeparateJvmHttpTests#pilot09OperatorAssistedWindowsFictionalLab",
+                          "non-pass outcome NOT_RUN: com.argdigital.aronexa.appointment.Pilot05SeparateJvmHttpTests#phaseBReopensSameConsultationInDifferentJvm",
+                          "non-pass outcome NOT_RUN: com.argdigital.aronexa.appointment.Pilot05SeparateJvmHttpTests#phaseAWritesCheckedInConsultationAndStopsJvm",
+                          "non-pass outcome NOT_RUN: com.argdigital.aronexa.appointment.AppointmentCandidateHttpAcceptanceTests#pilot07NonemptyDisposablePostgresSnapshotRestoresToFreshDatabase",
+                          "non-pass outcome NOT_RUN: com.argdigital.aronexa.appointment.Pilot05SeparateJvmHttpTests#phaseBRc03RecoversBrowserCreatedPatientAndCheckedInQueue",
+                          "non-pass outcome NOT_RUN: com.argdigital.aronexa.appointment.Pilot05SeparateJvmHttpTests#phaseARc03BrowserCreatesRegistrationBookingAndCheckIn",
+                          "non-pass outcome NOT_RUN: com.argdigital.aronexa.appointment.AppointmentCandidateHttpAcceptanceTests#pilot07OperatorInteractiveDisposableWindowsClinicLab"
+                      ],
+    "encrypted_recovery":  "NOT_IMPLEMENTED_IN_EXISTING_TEST",
+    "full_verification":  "NOT_PASS",
+    "ordinary_exit_code":  0,
+    "central_qa":  "NOT_RUN",
+    "win11b":  "NOT_READY"
+}

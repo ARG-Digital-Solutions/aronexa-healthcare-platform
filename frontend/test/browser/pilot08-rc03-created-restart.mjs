@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import {rc03PreviewPort,verifyRc03Origin} from './rc03-preview-port.ts';
 import {pathToFileURL} from 'node:url';
 import path from 'node:path';
 import {existsSync} from 'node:fs';
@@ -20,11 +21,8 @@ try {
   const buffers=[];
   for await(const bytes of process.stdin)buffers.push(bytes);
   const input=JSON.parse(Buffer.concat(buffers).toString('utf8'));
-  const origin=new URL(input.origin);
-  assert.equal(origin.protocol,'http:');
-  assert.equal(origin.hostname,'127.0.0.1');
-  assert.equal(origin.port,'5176');
-  assert.equal(origin.pathname,'/');
+  const expectedPort=rc03PreviewPort(process.env.ARONEXA_PILOT08_RC03_PREVIEW_PORT);
+  const origin=verifyRc03Origin(input.origin,expectedPort);
   assert.match(input.branchId,/^[a-f0-9-]{36}$/i);
   assert.equal(input.confirm,'RC03_MARKED_DISPOSABLE_ONLY');
   const configured=process.env.ARONEXA_CHROMIUM_BIN?.trim();
@@ -44,7 +42,7 @@ try {
   const registrationUrl='/api/v1/branches/'+input.branchId+'/patient-registrations';
   const appointmentUrl='/api/v1/branches/'+input.branchId+'/appointments';
   const uuid=/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
-  const fictionalName='Fictional Rc03 Browser Registration';
+  const fictionalName='Fictional Reception Browser Registration';
   async function signIn() {
     await page.locator('#tenant').fill(input.tenantCode);
     await page.locator('#username').fill(input.receptionUser);
@@ -60,7 +58,7 @@ try {
   stage='empty-patient-search-before-registration';
   await page.getByRole('button',{name:'Find patient',exact:true}).click();
   await page.locator('#patient-search-mode').selectOption('NAME_PREFIX');
-  await page.locator('#patient-search-term').fill('Fictional Rc03');
+  await page.locator('#patient-search-term').fill('Fictional Reception');
   await page.getByRole('button',{name:'Search patients',exact:true}).click();
   await page.getByText('No authorized records found.',{exact:true}).waitFor();
   await page.getByRole('button',{name:'New fictional registration',exact:true}).click();

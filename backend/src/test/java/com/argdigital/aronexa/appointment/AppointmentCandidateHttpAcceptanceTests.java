@@ -19,6 +19,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -1310,6 +1311,7 @@ class AppointmentCandidateHttpAcceptanceTests {
     }
 
     @Test
+    @Tag("win11p-pilot06-browser")
     void pilot06BrowserIntegratedRealHttpAcrossThreeStaffRoles() throws Exception {
         assertThat(System.getenv("ARONEXA_PILOT06_BROWSER"))
             .as("PILOT-06 requires explicit synthetic-only runner")
@@ -1505,6 +1507,7 @@ class AppointmentCandidateHttpAcceptanceTests {
      * This is not encrypted/retained real clinic backup or disaster recovery.
      */
     @Test
+    @Tag("win11p-pilot07-recovery")
     void pilot07NonemptyDisposablePostgresSnapshotRestoresToFreshDatabase()
             throws Exception {
         assertThat(System.getenv("ARONEXA_PILOT07_RECOVERY_ACK"))
@@ -1583,6 +1586,7 @@ class AppointmentCandidateHttpAcceptanceTests {
      * The operator can end early by writing STOP into the isolated run folder.
      */
     @Test
+    @Tag("win11p-pilot07-operator")
     void pilot07OperatorInteractiveDisposableWindowsClinicLab() throws Exception {
         assertThat(System.getenv("ARONEXA_PILOT07_ACK"))
             .as("PILOT07 STOP: operator must explicitly accept fictional-only lab")

@@ -85,3 +85,29 @@ test('backend denial, lost session and network failure have no identity fallback
   await assert.rejects(findPatientCandidates(actor,branch,'MRN','PAT-FAKE001',
     async()=>{throw Error('Internal sensitive response')}),PatientSearchError);
 });
+
+
+test('digit-containing NAME_PREFIX values are rejected before HTTP',async()=>{
+  let calls=0;
+  for(const prefix of ['Fictional Rc03','3Fictional','Fictional3','Fictional \u0663'])
+    await assert.rejects(findPatientCandidates(actor,branch,'NAME_PREFIX',prefix,
+      async()=>{calls++;return reply([])}),PatientSearchError);
+  assert.equal(calls,0);
+});
+
+test('RC03 fictional registration and empty-search fixture satisfy the real search contract',async()=>{
+  const {readFile}=await import('node:fs/promises');
+  const source=await readFile(new URL('./browser/pilot08-rc03-created-restart.mjs',import.meta.url),'utf8');
+  const name=source.match(/const fictionalName='([^']+)'/)[1];
+  const prefix=source.match(/locator\('#patient-search-term'\)\.fill\('([^']+)'\)/)[1];
+  assert.match(name,/^[A-Za-z ]+$/);
+  assert.equal(name.startsWith(prefix),true);
+  let calls=0;
+  const rows=await findPatientCandidates(actor,branch,'NAME_PREFIX',prefix,async(url,init)=>{
+    calls++;
+    assert.deepEqual(JSON.parse(init.body),{mode:'NAME_PREFIX',term:prefix});
+    return reply([]);
+  });
+  assert.equal(calls,1);
+  assert.deepEqual(rows,[]);
+});

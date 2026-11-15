@@ -1,4 +1,5 @@
 import http from 'node:http';
+import {rc03PreviewPort} from './rc03-preview-port.ts';
 
 /**
  * R1-PILOT-06 isolated, Node-native readiness check for the prebuilt Vite
@@ -6,7 +7,8 @@ import http from 'node:http';
  * cross-process check: the browser test uses Node/Chromium on loopback.
  * No remote host, dynamic URL, credentials or response body is logged.
  */
-const url='http://127.0.0.1:5176/connected-reception-preview.html';
+const port=rc03PreviewPort(process.env.ARONEXA_PILOT08_RC03_PREVIEW_PORT);
+const url=`http://127.0.0.1:${port}/connected-reception-preview.html`;
 const expected='Connected Reception (Disposable QA Only)';
 let last='not-started';
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));

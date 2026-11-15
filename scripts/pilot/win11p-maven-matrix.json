@@ -1,0 +1,58 @@
+﻿{
+  "schema_version": 1,
+  "plan_id": "WIN11P_RECEPTION_E2E",
+  "source_plan_update_required_before_central_execution": true,
+  "default_maven_is_unfiltered": true,
+  "profiles": {
+    "discovery": "win11p-discovery",
+    "ordinary": "win11p-ordinary",
+    "guarded_method": "win11p-method"
+  },
+  "ordinary_excluded_tags": [
+    "win11p-discovery",
+    "win11p-pilot05-phase-a",
+    "win11p-pilot05-phase-b",
+    "win11p-pilot05-rc03-phase-a",
+    "win11p-pilot05-rc03-phase-b",
+    "win11p-pilot06-browser",
+    "win11p-pilot07-recovery",
+    "win11p-pilot07-operator",
+    "win11p-pilot09-operator"
+  ],
+  "lanes": [
+    {"id":"discovery","tag":"win11p-discovery","kind":"inventory"},
+    {"id":"ordinary","tag":null,"kind":"maven-verify"},
+    {"id":"pilot05-phase-a","tag":"win11p-pilot05-phase-a","kind":"pilot05-pair"},
+    {"id":"pilot05-phase-b","tag":"win11p-pilot05-phase-b","kind":"pilot05-pair"},
+    {"id":"pilot05-rc03-phase-a","tag":"win11p-pilot05-rc03-phase-a","kind":"pilot05-rc03-pair"},
+    {"id":"pilot05-rc03-phase-b","tag":"win11p-pilot05-rc03-phase-b","kind":"pilot05-rc03-pair"},
+    {"id":"pilot06-browser","tag":"win11p-pilot06-browser","kind":"operator-acceptance","ack_env":"ARONEXA_PILOT06_BROWSER","ack_value":"SYNTHETIC_ONLY"},
+    {"id":"pilot07-recovery","tag":"win11p-pilot07-recovery","kind":"operator-acceptance","ack_env":"ARONEXA_PILOT07_RECOVERY_ACK","ack_value":"DISPOSABLE_SYNTHETIC_RECOVERY_ONLY"},
+    {"id":"pilot07-operator","tag":"win11p-pilot07-operator","kind":"operator-acceptance","ack_env":"ARONEXA_PILOT07_ACK","ack_value":"DISPOSABLE_FICTIONAL_LAB_ONLY"},
+    {"id":"pilot09-operator","tag":"win11p-pilot09-operator","kind":"operator-acceptance","ack_env":"ARONEXA_PILOT09_INTERACTIVE_ACK","ack_value":"DISPOSABLE_OPERATOR_ONLY"}
+  ],
+  "guarded_tests": [
+    {"id":"com.argdigital.aronexa.appointment.Pilot05SeparateJvmHttpTests#phaseAWritesCheckedInConsultationAndStopsJvm","lane":"pilot05-phase-a","tag":"win11p-pilot05-phase-a"},
+    {"id":"com.argdigital.aronexa.appointment.Pilot05SeparateJvmHttpTests#phaseBReopensSameConsultationInDifferentJvm","lane":"pilot05-phase-b","tag":"win11p-pilot05-phase-b"},
+    {"id":"com.argdigital.aronexa.appointment.Pilot05SeparateJvmHttpTests#phaseARc03BrowserCreatesRegistrationBookingAndCheckIn","lane":"pilot05-rc03-phase-a","tag":"win11p-pilot05-rc03-phase-a"},
+    {"id":"com.argdigital.aronexa.appointment.Pilot05SeparateJvmHttpTests#phaseBRc03RecoversBrowserCreatedPatientAndCheckedInQueue","lane":"pilot05-rc03-phase-b","tag":"win11p-pilot05-rc03-phase-b"},
+    {"id":"com.argdigital.aronexa.appointment.Pilot05SeparateJvmHttpTests#pilot09OperatorAssistedWindowsFictionalLab","lane":"pilot09-operator","tag":"win11p-pilot09-operator"},
+    {"id":"com.argdigital.aronexa.appointment.AppointmentCandidateHttpAcceptanceTests#pilot06BrowserIntegratedRealHttpAcrossThreeStaffRoles","lane":"pilot06-browser","tag":"win11p-pilot06-browser"},
+    {"id":"com.argdigital.aronexa.appointment.AppointmentCandidateHttpAcceptanceTests#pilot07NonemptyDisposablePostgresSnapshotRestoresToFreshDatabase","lane":"pilot07-recovery","tag":"win11p-pilot07-recovery"},
+    {"id":"com.argdigital.aronexa.appointment.AppointmentCandidateHttpAcceptanceTests#pilot07OperatorInteractiveDisposableWindowsClinicLab","lane":"pilot07-operator","tag":"win11p-pilot07-operator"},
+    {"id":"com.argdigital.aronexa.appointment.Win11pTestInventoryTests#writeDiscoveredTestMethodInventory","lane":"discovery","tag":"win11p-discovery"}
+  ],
+  "not_run_policy": {
+    "operator_dependent_lanes": ["pilot06-browser","pilot07-recovery","pilot07-operator","pilot09-operator"],
+    "overall_pass_requires_every_required_test_exactly_once": true,
+    "missing_or_not_run_blocks_pass": true,
+    "skipped_blocks_pass": true,
+    "failure_or_error_blocks_pass": true
+  },
+  "port_contract": {
+    "default": 5176,
+    "approved_rc03_alternate": 5186,
+    "pilot06_must_not_auto_switch": true
+  }
+}
+

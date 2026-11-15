@@ -1,5 +1,7 @@
 import {defineConfig} from 'vite';
 import react from '@vitejs/plugin-react';
+import {rc03PreviewPort} from './test/browser/rc03-preview-port.ts';
+const previewPort=rc03PreviewPort(process.env.ARONEXA_PILOT08_RC03_PREVIEW_PORT);
 
 /**
  * PILOT-06 JUnit starts Spring on a random loopback port. Never accept
@@ -14,11 +16,11 @@ const apiTarget='http://127.0.0.1:'+(pilotPort??'8080');
 /** Manually invoked test-only preview. NOT included in the standard build. */
 export default defineConfig({
   plugins:[react()],
-  server:{host:'127.0.0.1',port:5176,strictPort:true,
+  server:{host:'127.0.0.1',port:previewPort,strictPort:true,
     proxy:{'/api/v1':{target:apiTarget,changeOrigin:false}}},
   // The real-browser acceptance uses the already-built bundle via Vite
   // Preview, avoiding dev-server transforms and dependency optimization.
-  preview:{host:'127.0.0.1',port:5176,strictPort:true,
+  preview:{host:'127.0.0.1',port:previewPort,strictPort:true,
     proxy:{'/api/v1':{target:apiTarget,changeOrigin:false}}},
   build:{outDir:'dist-connected-registration-test',
     rollupOptions:{input:'connected-reception-preview.html'}},
