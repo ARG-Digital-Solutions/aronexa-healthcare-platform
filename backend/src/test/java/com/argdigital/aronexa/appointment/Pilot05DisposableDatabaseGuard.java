@@ -81,6 +81,14 @@ public final class Pilot05DisposableDatabaseGuard
 
     @Override
     public void initialize(ConfigurableApplicationContext context) {
+        String portableHome = System.getenv("ARONEXA_WIN11P_JAVA_HOME");
+        if (portableHome != null) {
+            try {
+                Win11pPortableRuntimeGuard.verify(portableHome, System.getProperty("java.home"));
+            } catch (java.io.IOException failure) {
+                throw new IllegalStateException("WIN11P STOP: portable runtime path not verified", failure);
+            }
+        }
         String jdbcUrl = validatedUrl();
         UUID expectedRun = runId();
         // Read the marker BEFORE any Spring context, migration or test seed.
