@@ -4,14 +4,16 @@
 **Authoritative QA repository:** https://github.com/ARG-Digital-Solutions/aronexa-qa-central  
 **QA setup and audit:** `docs/AUTO_QA_01_CROSS_REPO_SETUP.md` in the QA Central automation PR.
 
+**Current personnel policy:** [GOV_SINGLE_DEV_01](../docs/SINGLE_DEVELOPER_DELIVERY_POLICY.md) authorizes owner review and owner-operated internal acceptance supported by AI review and automated evidence. A separate human is not a blanket prerequisite for routine authorized work. This supersedes older blanket personnel wording, while preserving rule 27, exact-source QA, technical acceptance and release conditions. Existing WIN11P author-excluding validators are not adapted yet; no workflow is enabled by this document.
+
 ## How the development agent uses QA Central
 
 1. Implement *only* a separately owner-authorized task in one isolated branch/worktree and create a draft PR. Do not merge.
-2. Ensure QA Central has an independently reviewed `qa/plans/<PLAN_ID>.json` specifying the required test suites, exact authorized source paths, baseline, frontend reference and security gates. A new module needs its own plan and reviewed workflow; unrelated plans cannot be silently reused.
+2. Ensure QA Central has a plan reviewed under the current personnel policy at `qa/plans/<PLAN_ID>.json`, specifying the required test suites, exact authorized source paths, baseline, frontend reference and security gates. A new module needs its own plan and reviewed workflow; unrelated plans cannot be silently reused.
 3. Add **exactly one** development PR label `qa-plan:<PLAN_ID>`. For P01-T07-INT-REG-01 only: `qa-plan:P01_T07_INT_REG_01`.
 4. The trusted default-branch `.github/workflows/central-qa-handoff.yml` is triggered by PR opened/updated/labeled events. It does not checkout or execute PR source. It dispatches exact PR SHA + QA plan to QA Central and waits for a uniquely correlated commit status. No local PowerShell interaction is required after initial setup.
 5. Read the latest **exact-SHA** commit status `aronexa/central-qa/<PLAN_ID>`, linked QA Central Actions child run and its JUnit/Playwright artifacts and reviewer comments. Failed, skipped, missing, timed-out, stale or mismatched results are **not PASS**.
-6. A green automated result permits continuation **only on already-authorized development work**. Do not auto-merge, deploy, run original DB migrations, enable clinical APIs, release to customers or independently sign off security. Independent reviewer and owner decision remain required wherever specified.
+6. A green automated result permits continuation **only on already-authorized development work**. Record owner review and actual automated/operator evidence under GOV_SINGLE_DEV_01. Applicable clinical/security and customer-release conditions remain separate; do not label owner/AI review independent human signoff or automatically merge, deploy, migrate an original DB or activate clinical APIs.
 
 ## Required setup by repository administrator
 
