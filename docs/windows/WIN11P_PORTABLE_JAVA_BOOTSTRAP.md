@@ -22,6 +22,16 @@ $commit = (git -C $project rev-parse HEAD).Trim()
 4. In the authorized **test** process environment, provision `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME`, and `SPRING_DATASOURCE_PASSWORD` using the project's secure local runtime configuration. **Do not commit credentials or echo passwords into logs.** Other role/authentication configuration may be required by the current app contract.
 5. Double-click `Start-AroNexa.cmd` on a Windows host whose application control permits the packaged Java runtime. It starts the **backend process only**. Close the console or use Ctrl+C to stop it.
 
+## Troubleshooting: intentionally gated suites and diagnostic-only packaging
+
+The backend includes special disposable PostgreSQL, Playwright and two-JVM operator acceptance suites that cannot be run by an ordinary `mvn clean verify` without their reviewed synthetic-only runner. In particular, PILOT-06 expects `ARONEXA_PILOT06_BROWSER=SYNTHETIC_ONLY` and its QA root, PILOT-07 recovery expects `ARONEXA_PILOT07_RECOVERY_ACK=DISPOSABLE_SYNTHETIC_RECOVERY_ONLY`, and PILOT-07 interactive expects `ARONEXA_PILOT07_ACK=DISPOSABLE_FICTIONAL_LAB_ONLY` plus a specially constrained run directory. PILOT-05 requires a phase A/B disposable database with unique run marker; merely setting env variables is **not** authorization to run it against an ordinary PostgreSQL instance.
+
+**Default** builder mode remains `mvn clean verify` and stops on test failure. To investigate Java packaging independently, an owner/operator may explicitly invoke `-PackageOnlyUnverified`. This runs Maven packaging with tests skipped and labels the output `SKIPPED_FAILED_QA_UNVERIFIED`. Such artifacts are useful only for verifying JDK/jlink/launcher mechanics; they are **not** full QA passes, customer pilots, or release builds. Restore proper specialist QA using its approved isolated runner, and investigate premature PostgreSQL Testcontainers shutdown separately. Do not set acknowledgement values indiscriminately or reuse production databases.
+
+```powershell
+& (Join-Path $project 'scripts\windows-runtime\Build-AroNexa-WIN11P-Portable.ps1') -ExpectedCommit $commit -PackageOnlyUnverified
+```
+
 ## Explicit exclusions / remaining WIN-11P + WIN-11B work
 - This is a **bootstrap artifact**, **not** the finished integrated clinic application. There is no guarantee that this branch includes complete connected Reception UI, static React asset serving, appointment/queue clinical contract, or separate-process restart evidence.
 - PostgreSQL 17 must already be provisioned separately; **no bundled database** or automated service/startup, encrypted backup/restore, signed offline licensing, recoverability, secure installer, or clinical approval is provided by this script.
