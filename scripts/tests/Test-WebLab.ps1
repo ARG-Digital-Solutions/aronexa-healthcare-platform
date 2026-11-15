@@ -12,11 +12,17 @@ $fixture=Join-Path ([IO.Path]::GetTempPath()) ('websource-'+[guid]::NewGuid().To
 try{
  & git -C $fixture init --quiet
  [IO.File]::WriteAllText((Join-Path $fixture 'tracked.txt'),'before')
- & git -C $fixture add tracked.txt
+ Copy-Item (Join-Path $repo '.gitignore') (Join-Path $fixture '.gitignore')
+ & git -C $fixture add tracked.txt .gitignore
  & git -C $fixture -c user.name=WebLabTest -c user.email=test@example.invalid commit --quiet -m fixture
  $fixed=(& git -C $fixture rev-parse HEAD).Trim()
  [IO.File]::WriteAllText((Join-Path $fixture 'tracked.txt'),'after')
  try{Get-WebLabSource -Repo $fixture -ExpectedCommit $fixed;throw 'dirty source accepted'}catch{Assert ($_.Exception.Message -match 'tracked changes|untracked implementation') 'dirty source failed outside guard'}
+ [IO.File]::WriteAllText((Join-Path $fixture 'tracked.txt'),'before')
+ $generated=Join-Path $fixture 'frontend/dist-connected-registration-test'
+ [void][IO.Directory]::CreateDirectory($generated)
+ [IO.File]::WriteAllText((Join-Path $generated 'bundle.js'),'generated-output-fixture')
+ Assert ((Get-WebLabSource -Repo $fixture -ExpectedCommit $fixed) -eq $fixed) 'known generated connected build blocks repeat startup'
 }finally{Remove-Item $fixture -Recurse -Force}
 $prior=[Environment]::GetEnvironmentVariable('ARONEXA_DB_URL','Process')
 try{
