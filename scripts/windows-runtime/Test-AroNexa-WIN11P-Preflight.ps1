@@ -34,7 +34,7 @@ if ($recorded -notmatch ('(?i)\b' + [regex]::Escape($actual) + '\b')) {
 }
 Write-Host ('PASS: JAR SHA256=' + $actual)
 
-Add-Type -AssemblyName System.IO.Compression
+Add-Type -AssemblyName System.IO.Compression.FileSystem
 $archive = [IO.Compression.ZipFile]::OpenRead($jar)
 try {
   $entries = @($archive.Entries | ForEach-Object { $_.FullName })
