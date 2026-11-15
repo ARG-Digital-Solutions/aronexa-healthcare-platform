@@ -32,6 +32,18 @@ The backend includes special disposable PostgreSQL, Playwright and two-JVM opera
 & (Join-Path $project 'scripts\windows-runtime\Build-AroNexa-WIN11P-Portable.ps1') -ExpectedCommit $commit -PackageOnlyUnverified
 ```
 
+## Read-only portable preflight (before any database startup)
+
+For an already-created portable folder, run the preflight separately. It checks the source manifest, non-release designation, JAR SHA-256, Spring Boot JAR layout, bundled Java 21 version, launcher DB configuration guards and localhost bind contract. **It will not start the backend, PostgreSQL, Docker or clinical APIs.**
+
+```powershell
+$worktree = Join-Path $env:USERPROFILE 'Application Development\AroNexa-WIN11P-Portable-QA'
+$portable = 'C:\Users\ganes\Downloads\AroNexa-Clinic-Portable-Java21-55da40e0ca01'
+& (Join-Path $worktree 'scripts\windows-runtime\Test-AroNexa-WIN11P-Preflight.ps1') -PortableDirectory $portable
+```
+
+This is not a replacement for the separately isolated database test or WIN-14 clinical/security acceptance. Never point the launcher to existing demo/pilot/customer PostgreSQL instances just to force startup. A future disposable DB runner must verify ephemeral provisioning, exact run-specific marker, runtime least-privilege roles, test-only migration scope, clean teardown, and distinct-process restart. The current application-dev profile expects separate migration owner, app, authentication and patient DB principals, so the three simple datasource variables in the launcher alone do not establish a valid secured runtime.
+
 ## Explicit exclusions / remaining WIN-11P + WIN-11B work
 - This is a **bootstrap artifact**, **not** the finished integrated clinic application. There is no guarantee that this branch includes complete connected Reception UI, static React asset serving, appointment/queue clinical contract, or separate-process restart evidence.
 - PostgreSQL 17 must already be provisioned separately; **no bundled database** or automated service/startup, encrypted backup/restore, signed offline licensing, recoverability, secure installer, or clinical approval is provided by this script.
