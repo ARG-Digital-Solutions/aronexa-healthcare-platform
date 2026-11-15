@@ -262,7 +262,7 @@ function Invoke-Win11pChildProcess {
     foreach($name in $Environment.Keys){$psi.EnvironmentVariables[[string]$name]=[string]$Environment[$name]}
     $process=New-Object Diagnostics.Process;$process.StartInfo=$psi
     $started=$false;$timedOut=$false;$stdout='';$stderr='';$exitCode=124;$processId=0
-    $job=[IntPtr]::Zero;$ownedGroup=$false;$cleanupComplete=$false
+    $job=[IntPtr]::Zero;$jobAssigned=$false;$ownedGroup=$false;$cleanupComplete=$false
     try{
         if($windows){$job=[Win11pOwnedProcessNative]::CreateKillOnCloseJob()}
         if(-not $process.Start()){throw 'WIN11P child process failed to start'}
@@ -270,6 +270,7 @@ function Invoke-Win11pChildProcess {
         $stdoutTask=$process.StandardOutput.ReadToEndAsync();$stderrTask=$process.StandardError.ReadToEndAsync()
         if($windows){
             if(-not [Win11pOwnedProcessNative]::AssignProcessToJobObject($job,$process.Handle)){throw 'WIN11P child Windows Job ownership could not be established'}
+            $jobAssigned=$true
         }else{
             for($i=0;$i -lt 40;$i++){
                 if([Win11pOwnedProcessNative]::getpgid($processId) -eq $processId){$ownedGroup=$true;break}
@@ -290,7 +291,7 @@ function Invoke-Win11pChildProcess {
         if($started){
             # Ownership failure happens before opening the command gate; the
             # bootstrap has spawned no descendants and only its exact PID dies.
-            if(-not $process.HasExited -and -not($ownedGroup -or $windows -and $cleanupComplete)){$process.Kill()}
+            if(-not $process.HasExited -and -not($ownedGroup -or $jobAssigned -and $cleanupComplete)){$process.Kill()}
             if(-not $process.WaitForExit(5000)){$cleanupComplete=$false}
             if($stdoutTask.Wait(2000)){$stdout=$stdoutTask.Result}else{$cleanupComplete=$false}
             if($stderrTask.Wait(2000)){$stderr=$stderrTask.Result}else{$cleanupComplete=$false}
