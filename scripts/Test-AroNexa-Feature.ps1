@@ -15,7 +15,7 @@ if(Test-Path -LiteralPath $ReportDirectory){throw 'Use a new private report dire
 [void][IO.Directory]::CreateDirectory($ReportDirectory)
 $reports=(Resolve-Path -LiteralPath $ReportDirectory).Path
 $run=[guid]::NewGuid().ToString('N')
-$summary=[ordered]@{source_sha=$sha;run_id=$run;flow=$Flow;level=$Level;developer_feedback='NOT_RUN';feature_http='NOT_RUN';browser_journey='NOT_RUN';typecheck='NOT_RUN';central_qa='NOT_RUN';full_acceptance='NOT_RUN';classification='NOT_READY';node_tests=0;http_tests=0;http_assertions='NOT_RUN';lifecycle='NOT_RUN';surefire_shutdown_error=$false;hikari_closed_warnings=0;commands=@();duration_seconds=0}
+$summary=[ordered]@{source_sha=$sha;source_integrity='PASS';overall='NOT_RUN';result_scope='LOCAL_SELECTED_FEEDBACK_ONLY';run_id=$run;flow=$Flow;level=$Level;developer_feedback='NOT_RUN';feature_http='NOT_RUN';browser_journey='NOT_RUN';typecheck='NOT_RUN';central_qa='NOT_RUN';full_acceptance='NOT_RUN';classification='NOT_READY';node_tests=0;http_tests=0;http_assertions='NOT_RUN';lifecycle='NOT_RUN';surefire_shutdown_error=$false;hikari_closed_warnings=0;commands=@();duration_seconds=0}
 $clock=[Diagnostics.Stopwatch]::StartNew();$failed=$false
 try{
  $node=(Get-Command node -ErrorAction Stop).Source
@@ -67,12 +67,16 @@ try{
   if($diagnostics.lifecycle -ne 'PASS'){throw 'HTTP assertions passed but runtime lifecycle diagnostics remain unresolved'}
   $summary.feature_http='PASS'
  }
- $null=Get-WebLabSource -Repo $repo -ExpectedCommit $sha
 }catch{
  $failed=$true
  if($summary.developer_feedback -ne 'PASS'){$summary.developer_feedback='FAIL'}elseif($Level -eq 'Feature'){$summary.feature_http='FAIL'}
  Write-Warning 'Local feedback failed; inspect private logs. No acceptance PASS.'
 }finally{
+ try{$null=Get-WebLabSource -Repo $repo -ExpectedCommit $sha}catch{
+  $failed=$true;$summary.source_integrity='FAIL';$summary.developer_feedback='FAIL'
+  if($Level -eq 'Feature'){$summary.feature_http='FAIL'}
+ }
+ $summary.overall=if($failed){'FAIL'}else{'PASS'}
  $clock.Stop();$summary.duration_seconds=[Math]::Round($clock.Elapsed.TotalSeconds,3)
  [IO.File]::WriteAllText((Join-Path $reports 'feedback.json'),($summary|ConvertTo-Json -Depth 8),[Text.UTF8Encoding]::new($false))
 }
