@@ -15,7 +15,7 @@ if(Test-Path -LiteralPath $ReportDirectory){throw 'Use a new private report dire
 [void][IO.Directory]::CreateDirectory($ReportDirectory)
 $reports=(Resolve-Path -LiteralPath $ReportDirectory).Path
 $run=[guid]::NewGuid().ToString('N')
-$summary=[ordered]@{source_sha=$sha;run_id=$run;flow=$Flow;level=$Level;developer_feedback='NOT_RUN';feature_http='NOT_RUN';browser_journey='NOT_RUN';central_qa='NOT_RUN';full_acceptance='NOT_RUN';classification='NOT_READY';node_tests=0;http_tests=0;commands=@();duration_seconds=0}
+$summary=[ordered]@{source_sha=$sha;run_id=$run;flow=$Flow;level=$Level;developer_feedback='NOT_RUN';feature_http='NOT_RUN';browser_journey='NOT_RUN';typecheck='NOT_RUN';central_qa='NOT_RUN';full_acceptance='NOT_RUN';classification='NOT_READY';node_tests=0;http_tests=0;http_assertions='NOT_RUN';lifecycle='NOT_RUN';surefire_shutdown_error=$false;hikari_closed_warnings=0;commands=@();duration_seconds=0}
 $clock=[Diagnostics.Stopwatch]::StartNew();$failed=$false
 try{
  $node=(Get-Command node -ErrorAction Stop).Source
@@ -59,6 +59,12 @@ try{
   if(@($ids|Where-Object{$_ -notin $expected}).Count -or @($expected|Where-Object{$_ -notin $ids}).Count){throw 'Selected method inventory mismatch'}
   if($child.exit_code -ne 0 -or $child.timed_out -or -not $child.cleanup_complete -or $parsed.issues.Count -or $parsed.tests -le 0 -or $parsed.failures -or $parsed.errors -or $parsed.skipped -or @($ids|Select-Object -Unique).Count -ne $ids.Count){throw 'Selected HTTP/PG17 reports failed/incomplete'}
   foreach($class in $selection.classes){if(@($ids|Where-Object{$_ -match ('\.'+[regex]::Escape($class)+'#')}).Count -eq 0){throw 'Selected HTTP class missing'}}
+  $summary.http_assertions='PASS'
+  $diagnostics=Get-WebLabDiagnostics -Text ([IO.File]::ReadAllText((Join-Path $reports 'http-private.log')))
+  $summary.lifecycle=$diagnostics.lifecycle
+  $summary.surefire_shutdown_error=$diagnostics.surefire_shutdown_error
+  $summary.hikari_closed_warnings=$diagnostics.hikari_closed_warnings
+  if($diagnostics.lifecycle -ne 'PASS'){throw 'HTTP assertions passed but runtime lifecycle diagnostics remain unresolved'}
   $summary.feature_http='PASS'
  }
  $null=Get-WebLabSource -Repo $repo -ExpectedCommit $sha

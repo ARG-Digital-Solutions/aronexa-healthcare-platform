@@ -51,3 +51,8 @@ try{
  }
 }finally{Remove-Item $temp -Recurse -Force}
 Write-Output 'PASS: exact source, dirty refusal, bounded selection, owned STOP and path/marker/link denial'
+$bad=Get-WebLabDiagnostics -Text "[ERROR] Surefire is going to kill self fork JVM. The exit has elapsed 30 seconds after System.exit(0)."
+Assert ($bad.lifecycle -eq 'FAIL') 'fork shutdown failure hidden'
+$warning=Get-WebLabDiagnostics -Text 'WARN com.zaxxer.hikari.pool.PoolBase - Failed to validate connection (This connection has been closed.)'
+Assert ($warning.lifecycle -eq 'BLOCKED' -and $warning.hikari_closed_warnings -eq 1) 'Hikari diagnostic hidden'
+Assert ((Get-WebLabDiagnostics -Text '[INFO] BUILD SUCCESS').lifecycle -eq 'PASS') 'clean log misclassified'

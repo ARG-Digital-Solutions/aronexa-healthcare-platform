@@ -46,3 +46,10 @@ function Assert-WebLabCleanEnvironment {
  }
 }
 Export-ModuleMember -Function Assert-WebLabCleanEnvironment
+function Get-WebLabDiagnostics {
+ param([string]$Text)
+ $shutdown=$Text -match 'Surefire is going to kill self fork JVM|exit has elapsed 30 seconds after System.exit'
+ $hikari=@($Text -split "`n"|Where-Object{$_ -match 'WARN' -and $_ -match 'PoolBase|Hikari' -and $_ -match 'closed|validate connection'}).Count
+ return [pscustomobject]@{lifecycle=$(if($shutdown){'FAIL'}elseif($hikari){'BLOCKED'}else{'PASS'});surefire_shutdown_error=$shutdown;hikari_closed_warnings=$hikari}
+}
+Export-ModuleMember -Function Get-WebLabDiagnostics
