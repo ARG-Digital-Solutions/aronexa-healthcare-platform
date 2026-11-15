@@ -598,6 +598,8 @@ class Pilot05SeparateJvmHttpTests {
             assertThat(browser.exitValue()).as(output).isZero();
             assertThat(output)
                     .contains("PILOT08_RC03_BROWSER_DUPLICATE_REVIEW_REJECTED");
+            assertThat(output)
+                    .contains("PILOT08_RC03_BROWSER_CREATED_PATIENT_SEARCH_PASS");
             var received=Pattern.compile(
                 "(?m)^PILOT08_RC03_BROWSER_CREATED="
                 +"([0-9a-f-]{36})\\|([0-9a-f-]{36})\\|"

@@ -57,6 +57,13 @@ try {
   stage='first-login';
   await page.goto(url);
   await signIn();
+  stage='empty-patient-search-before-registration';
+  await page.getByRole('button',{name:'Find patient',exact:true}).click();
+  await page.locator('#patient-search-mode').selectOption('NAME_PREFIX');
+  await page.locator('#patient-search-term').fill('Fictional Rc03');
+  await page.getByRole('button',{name:'Search patients',exact:true}).click();
+  await page.getByText('No authorized records found.',{exact:true}).waitFor();
+  await page.getByRole('button',{name:'New fictional registration',exact:true}).click();
   stage='register-review';
   await page.locator('#full-name').fill(fictionalName);
   await page.getByRole('button',{name:'Review registration'}).click();
@@ -115,6 +122,17 @@ try {
   await item.getByRole('button',{name:'Open verified registration'}).click();
   await page.getByRole('heading',{name:'Existing registration found'}).waitFor();
   await page.getByText(registered.registrationId,{exact:true}).waitFor();
+  stage='find-browser-created-patient-by-mrn';
+  await page.getByRole('button',{name:'Find patient',exact:true}).click();
+  await page.locator('#patient-search-mode').selectOption('MRN');
+  await page.locator('#patient-search-term').fill(registered.mrn);
+  await page.getByRole('button',{name:'Search patients',exact:true}).click();
+  await page.getByText('1 authorized result(s) found.',{exact:true}).waitFor();
+  const searchResult=page.getByRole('listitem').filter({hasText:registered.mrn});
+  assert.equal(await searchResult.count(),1);
+  await searchResult.getByRole('button',{name:'Open verified registration'}).click();
+  await page.getByRole('heading',{name:'Existing registration found'}).waitFor();
+  await page.getByText(registered.registrationId,{exact:true}).waitFor();
   stage='duplicate-review-new-session';
   await page.getByRole('button',{name:/^Sign out/}).click();
   await page.getByRole('heading',{name:'Staff sign-in'}).waitFor();
@@ -136,6 +154,7 @@ try {
     [registered.registrationId,registered.patientId,
       booked.appointmentId,booked.visitDate].join('|')+'\n');
   process.stdout.write('PILOT08_RC03_BROWSER_DUPLICATE_REVIEW_REJECTED\n');
+  process.stdout.write('PILOT08_RC03_BROWSER_CREATED_PATIENT_SEARCH_PASS\n');
 } catch (failure) {
   // Preserve test privacy: no response bodies, patient names, bearer or
   // credentials in failure logs. Stage/reason only.
