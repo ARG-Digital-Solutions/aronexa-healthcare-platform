@@ -1,3 +1,19 @@
+# Standing-owner-authorized bounded QA engineering correction
+
+Status: NOT_READY / rule27 HOLD. Owner authorized bounded implementation and synthetic testing under issues146/38, including the exact26-path source scope. Owner approval and AI review are not independent human signoff.
+
+Implemented strict report parsing/counter reconciliation, complete ten-lane orchestration, explicit parser and process-exit propagation, source/request-bound authorization, fresh PG17 provisioning with bootstrap/marker/observed image/version identities, journalled request recovery and identity-bound teardown. Child processes use bounded waits and owned Windows jobs/Unix sessions, credential filtering and descendant cleanup. Separate independent operator acknowledgements remain mandatory; no acknowledgement is generated.
+
+The current existing recovery test still proves unencrypted disposable restore only. Full verification remains NOT_PASS/nonzero even if a synthetic method matrix is PASS. No encrypted-recovery or clinical acceptance is claimed.
+
+Verification details and exact final source SHA are recorded in the QA38 issue update and QA engineering results. Focused PowerShell tests include malformed/missing XML, counter disagreement, matrix identities, child exits/timeouts/descendants, credential isolation, resource mismatches/interruption and simulated ten-lane scheduling. Real fresh PG17 smoke observed17.12/version_num170012, restricted roles, matching marker and random loopback; identity-bound teardown removed only the owned container. Initial image-pull stdout/optional Docker field failures were corrected and retained in scratch diagnostics. Backend test compilation succeeded using verified JDK21/Maven and existing proxy/trust settings. All249 frontend tests and connected build passed.
+
+No Windows/operator or independent Central acceptance run occurred. Runner/protected environment activation remains blocked by actual administration API403s, unverified Windows isolation and unreviewed policy exception. No original database, merge, customer deployment or commercial release.
+
+The prior developer-local record below is historical evidence, not a current-head waiver.
+
+---
+
 # Issue 146 / QA38 Maven lifecycle correction
 
 1. **Scope and classification:** owner-authorized test lifecycle infrastructure only. WIN-11B **NOT_READY**, Central QA **NOT_RUN**. Existing PR148/worktree reused. No clinical/runtime source, production configuration, dependencies, migrations, release settings or workflow activation changed.
