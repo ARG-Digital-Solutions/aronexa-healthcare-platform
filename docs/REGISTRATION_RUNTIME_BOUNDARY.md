@@ -12,7 +12,7 @@ When a test-only configuration supplies the existing executor, it uses `patientJ
 
 Admission uses shared helpers with the existing synthetic adapters: an actual-stream 4096-byte cap and bounded per-JVM budgets of 12 attempts per membership and 120 per tenant per minute. Malformed authenticated JSON consumes quota. These are single-instance controls; distributed admission, deployment resource controls and production readiness are not established.
 
-A real HTTP regression exposed a raw-URI filter bypass: encoding a valid route character allowed a 4097-byte chunked body through to the writer. The filter now uses Spring parsed-path matching. Tests cover encoding in the UUID, `api`, `v1`, `branches` and `patient-registrations` segments. This also fixes the shared synthetic filter; the cap was not increased.
+A real HTTP regression exposed a raw-URI filter bypass: encoding a valid route character allowed a 4097-byte chunked body through to the writer. The filter now uses Spring parsed-path matching. Five test variants cover encoding in the UUID, `v1`, `branches` and two positions in `patient-registrations`. This also fixes the shared synthetic filter; the cap was not increased.
 
 ## Reproduction and evidence
 
