@@ -2,6 +2,8 @@
 
 Status: NOT_READY / rule27 HOLD. Owner authorized bounded implementation and synthetic testing under issues146/38, including the exact26-path source scope. Owner approval and AI review are not independent human signoff.
 
+Final genuine-report reconciliation exposed PowerShell XML attribute shadowing: Surefire suite name attributes masked element .Name and all41 real reports were initially refused. The correction uses CLR XML accessors and adds authentic-name, attribute-shadow and foreign-namespace regressions. Replay parsed1 discovery plus343 ordinary results,0 issues/duplicates/unexpected IDs and exactly8 guarded methods absent. The original failure is retained; fresh immutable-head Maven verification follows the correction.
+
 Implemented strict report parsing/counter reconciliation, complete ten-lane orchestration, explicit parser and process-exit propagation, source/request-bound authorization, fresh PG17 provisioning with bootstrap/marker/observed image/version identities, journalled request recovery and identity-bound teardown. Child processes use bounded waits and owned Windows jobs/Unix sessions, credential filtering and descendant cleanup. Separate independent operator acknowledgements remain mandatory; no acknowledgement is generated.
 
 The current existing recovery test still proves unencrypted disposable restore only. Full verification remains NOT_PASS/nonzero even if a synthetic method matrix is PASS. No encrypted-recovery or clinical acceptance is claimed.

@@ -88,13 +88,15 @@ function ConvertFrom-Win11pSurefireReports {
             $doc.Load($reader)
         }catch{$issues.Add('malformed or prohibited Surefire XML: '+$file.Name);continue}
         finally{if($null -ne $reader){$reader.Dispose()}}
-        $root=$doc.DocumentElement
-        if($null -eq $root -or $root.NamespaceURI -ne '' -or $root.Name -notin @('testsuite','testsuites')){
+        # Invoke CLR accessors: PowerShell's XML adapter lets an attribute named
+        # 'name', 'LocalName' or 'NamespaceURI' shadow the corresponding property.
+        $root=$doc.get_DocumentElement()
+        if($null -eq $root -or $root.get_NamespaceURI() -ne '' -or $root.get_LocalName() -notin @('testsuite','testsuites')){
             $issues.Add('non-suite Surefire XML: '+$file.Name);continue
         }
-        $suites=if($root.Name -eq 'testsuite'){@($root)}else{@($root.SelectNodes('./testsuite'))}
+        $suites=if($root.get_LocalName() -eq 'testsuite'){@($root)}else{@($root.SelectNodes('./testsuite'))}
         if($suites.Count -eq 0){$issues.Add('empty Surefire suites: '+$file.Name)}
-        if($root.Name -eq 'testsuites' -and @($root.SelectNodes('./*')).Count -ne $suites.Count){
+        if($root.get_LocalName() -eq 'testsuites' -and @($root.SelectNodes('./*')).Count -ne $suites.Count){
             $issues.Add('unexpected Surefire suite nesting: '+$file.Name)
         }
         $fileStart=$results.Count
@@ -131,7 +133,7 @@ function ConvertFrom-Win11pSurefireReports {
                 }
             }
         }
-        if($root.Name -eq 'testsuites'){
+        if($root.get_LocalName() -eq 'testsuites'){
             $fileCases=@($results.ToArray()|Select-Object -Skip $fileStart)
             foreach($counter in @('tests','failures','errors','skipped')){
                 if(-not $root.HasAttribute($counter)){continue}

@@ -67,7 +67,7 @@ $reportRoot=Join-Path ([IO.Path]::GetTempPath()) ('win11p-surefire-'+[guid]::New
 [void][IO.Directory]::CreateDirectory($reportRoot)
 try {
     $xml=@'
-<testsuite tests="3" failures="1" errors="0" skipped="1">
+<testsuite name="sample.ReportTests" LocalName="unrelated" NamespaceURI="urn:attribute-value" tests="3" failures="1" errors="0" skipped="1">
  <properties><property name="java.home" value="/synthetic/portable-java"/></properties>
  <testcase classname="sample.ReportTests" name="passes" />
  <testcase classname="sample.ReportTests" name="fails"><failure message="synthetic" /></testcase>
@@ -81,6 +81,10 @@ try {
     Assert-Condition ($parsed.issues.Count -eq 0) 'valid XML unexpectedly has parser issues'
     Assert-Condition (@($parsed.java_homes).Count -eq 1 -and $parsed.java_homes[0] -eq '/synthetic/portable-java') 'observed suite Java home missing'
     $reportFile=Join-Path $reportRoot 'TEST-synthetic.xml'
+    [IO.File]::WriteAllText($reportFile,'<testsuites name="suite wrapper" LocalName="unrelated" NamespaceURI="urn:attribute" tests="1" failures="0" errors="0" skipped="0"><testsuite name="sample.Wrapped" tests="1" failures="0" errors="0" skipped="0"><testcase classname="sample.Wrapped" name="runs"/></testsuite></testsuites>')
+    $wrapped=ConvertFrom-Win11pSurefireReports -ReportDirectory $reportRoot -Lane ordinary
+    Assert-Condition ($wrapped.tests -eq 1 -and $wrapped.issues.Count -eq 0 -and $wrapped.results[0].id -eq 'sample.Wrapped#runs') 'attribute-shaped suite wrapper or testcase identity was misread'
+
     $invalidReports=@{
         'counter mismatch'='<testsuite tests="2" failures="0" errors="0" skipped="0"><testcase classname="sample.X" name="one"/></testsuite>'
         'negative counter'='<testsuite tests="-1" failures="0" errors="0" skipped="0"/>'
@@ -91,6 +95,8 @@ try {
         'empty identity'='<testsuite tests="1" failures="0" errors="0" skipped="0"><testcase name="one"/></testsuite>'
         'contradictory outcome'='<testsuite tests="1" failures="1" errors="0" skipped="0"><testcase classname="sample.X" name="one"><failure/><skipped/></testcase></testsuite>'
         'malformed XML'='<testsuite'
+        'name attribute masquerading as suite'='<unrelated name="testsuite" tests="1" failures="0" errors="0" skipped="0"><testcase classname="sample.X" name="one"/></unrelated>'
+        'namespace attribute masquerading as unqualified suite'='<testsuite xmlns="urn:foreign" NamespaceURI="" name="testsuite" tests="0" failures="0" errors="0" skipped="0"/>'
         'non suite XML'='<unrelated><testcase classname="sample.X" name="one"/></unrelated>'
         'nested test case'='<testsuite tests="1" failures="0" errors="0" skipped="0"><other><testcase classname="sample.X" name="one"/></other></testsuite>'
         'DTD'='<!DOCTYPE testsuite [<!ENTITY x "one">]><testsuite tests="1" failures="0" errors="0" skipped="0"><testcase classname="sample.X" name="&x;"/></testsuite>'
@@ -119,7 +125,7 @@ try {
     Assert-Condition ($missing.issues.Count -gt 0 -and $missing.tests -eq 0) 'missing report allowed success'
     $noDirectory=ConvertFrom-Win11pSurefireReports -ReportDirectory (Join-Path $reportRoot absent) -Lane ordinary
     Assert-Condition ($noDirectory.issues.Count -gt 0 -and $noDirectory.tests -eq 0) 'missing report directory allowed success'
-    Write-Output 'Parser checks PASS: 18 invalid or missing report cases and valid outcome counts'
+    Write-Output 'Parser checks PASS: Surefire name attributes, CLR property shadows, 20 invalid or missing report cases and outcome counts'
 } finally { Remove-Item -LiteralPath $reportRoot -Recurse -Force }
 
 }
