@@ -27,8 +27,8 @@ $inventoryReport=Join-Path $backend ('target\win11p-reports\'+$runId+'\discovery
 $ordinaryReport=Join-Path $backend ('target\win11p-reports\'+$runId+'\ordinary')
 $laneResults=@()
 $commands=@(
-    "& '$mvn' -B -ntp -Pwin11p-discovery -Dwin11p.run.id=$runId -Dwin11p.lane=discovery -Dwin11p.source.sha=$sha test",
-    "& '$mvn' -B -ntp -Pwin11p-ordinary -Dwin11p.run.id=$runId -Dwin11p.lane=ordinary -Dwin11p.source.sha=$sha verify"
+    "& '$mvn' -B -ntp -Pwin11p-discovery '-Dwin11p.run.id=$runId' '-Dwin11p.lane=discovery' '-Dwin11p.source.sha=$sha' test",
+    "& '$mvn' -B -ntp -Pwin11p-ordinary '-Dwin11p.run.id=$runId' '-Dwin11p.lane=ordinary' '-Dwin11p.source.sha=$sha' verify"
 )
 $child1=Invoke-Win11pChildProcess -PowerShellCommand $commands[0] -WorkingDirectory $backend -LogPath (Join-Path $evidence 'discovery.log') -Environment @{}
 $discovery=ConvertFrom-Win11pSurefireReports -ReportDirectory $inventoryReport -Lane discovery
