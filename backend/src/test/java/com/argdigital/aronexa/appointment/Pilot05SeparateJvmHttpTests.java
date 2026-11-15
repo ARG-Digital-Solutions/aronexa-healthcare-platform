@@ -520,6 +520,10 @@ class Pilot05SeparateJvmHttpTests {
     @Test
     void phaseARc03BrowserCreatesRegistrationBookingAndCheckIn() throws Exception {
         requireRc03();
+        String rawPreviewPort=System.getenv("ARONEXA_PILOT08_RC03_PREVIEW_PORT");
+        String previewPort=rawPreviewPort==null?"5176":rawPreviewPort;
+        if(!"5176".equals(previewPort) && !"5186".equals(previewPort))
+            throw new IllegalStateException("RC03 STOP: invalid preview port");
         assertThat(Pilot05DisposableDatabaseGuard.env("ARONEXA_PILOT05_PHASE"))
                 .isEqualTo("A");
         String qaEnv=Pilot05DisposableDatabaseGuard.env("ARONEXA_PILOT06_QA_ROOT");
@@ -543,16 +547,17 @@ class Pilot05SeparateJvmHttpTests {
         var site=Path.of("target","pilot08-rc03-vite-test.log").toAbsolutePath();
         Process vite=null,browser=null;
         try {
-            // Port 5176 must be free before launching a single localhost Vite.
+            // Selected port must be free; never attach to an existing QA session.
             try(var probe=new java.net.Socket()){
                 probe.connect(new java.net.InetSocketAddress(
-                    "127.0.0.1",5176),1000);
-                throw new IllegalStateException("RC03 STOP: port 5176 occupied");
+                    "127.0.0.1",Integer.parseInt(previewPort)),1000);
+                throw new IllegalStateException("RC03 STOP: selected preview port occupied");
             }catch(java.net.ConnectException unused){}
             var preview=new ProcessBuilder(
                 "node",frontend.resolve("node_modules/vite/bin/vite.js").toString(),
                 "preview","--config","vite.connected-reception.config.ts",
-                "--host","127.0.0.1","--port","5176","--strictPort");
+                "--host","127.0.0.1","--port",previewPort,"--strictPort");
+            preview.environment().put("ARONEXA_PILOT08_RC03_PREVIEW_PORT",previewPort);
             preview.directory(frontend.toFile());
             preview.environment().put("ARONEXA_PILOT06_API_PORT",Integer.toString(port));
             preview.redirectErrorStream(true);
@@ -560,6 +565,7 @@ class Pilot05SeparateJvmHttpTests {
             vite=preview.start();
             var probe=new ProcessBuilder(
                 "node","test/browser/pilot06-preview-readiness.mjs");
+            probe.environment().put("ARONEXA_PILOT08_RC03_PREVIEW_PORT",previewPort);
             probe.directory(frontend.toFile());
             probe.redirectErrorStream(true);
             Process readiness=probe.start();
@@ -574,14 +580,15 @@ class Pilot05SeparateJvmHttpTests {
             assertThat(vite.isAlive()).isTrue();
 
             String fixture="""
-                {"origin":"http://127.0.0.1:5176/",
+                {"origin":"http://127.0.0.1:%s/",
                  "confirm":"RC03_MARKED_DISPOSABLE_ONLY",
                  "tenantCode":"%s","receptionUser":"%s",
                  "receptionPassword":"%s","branchId":"%s"}
-                """.formatted(tenantCode(),receptionUsername(),
+                """.formatted(previewPort,tenantCode(),receptionUsername(),
                     PASSWORD,f.branch());
             var chromium=new ProcessBuilder(
                     "node","test/browser/pilot08-rc03-created-restart.mjs");
+            chromium.environment().put("ARONEXA_PILOT08_RC03_PREVIEW_PORT",previewPort);
             chromium.directory(frontend.toFile());
             chromium.environment().put("ARONEXA_PILOT06_QA_ROOT",qaEnv);
             chromium.redirectErrorStream(true);

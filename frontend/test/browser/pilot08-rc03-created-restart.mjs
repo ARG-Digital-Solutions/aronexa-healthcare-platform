@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import {rc03PreviewPort,verifyRc03Origin} from './rc03-preview-port.ts';
 import {pathToFileURL} from 'node:url';
 import path from 'node:path';
 import {existsSync} from 'node:fs';
@@ -20,11 +21,8 @@ try {
   const buffers=[];
   for await(const bytes of process.stdin)buffers.push(bytes);
   const input=JSON.parse(Buffer.concat(buffers).toString('utf8'));
-  const origin=new URL(input.origin);
-  assert.equal(origin.protocol,'http:');
-  assert.equal(origin.hostname,'127.0.0.1');
-  assert.equal(origin.port,'5176');
-  assert.equal(origin.pathname,'/');
+  const expectedPort=rc03PreviewPort(process.env.ARONEXA_PILOT08_RC03_PREVIEW_PORT);
+  const origin=verifyRc03Origin(input.origin,expectedPort);
   assert.match(input.branchId,/^[a-f0-9-]{36}$/i);
   assert.equal(input.confirm,'RC03_MARKED_DISPOSABLE_ONLY');
   const configured=process.env.ARONEXA_CHROMIUM_BIN?.trim();

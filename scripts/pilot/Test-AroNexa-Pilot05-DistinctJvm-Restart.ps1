@@ -6,10 +6,12 @@ param(
  [ValidatePattern('^[0-9a-fA-F]{40}$')]
  [string]$ExpectedCommit,
  [switch]$Rc03,
+ [ValidateSet(5176,5186)][int]$PreviewPort=5176,
  [string]$QaCentralPath=(Join-Path $env:USERPROFILE 'Application Development\AroNexa-QA-Central')
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+if($PreviewPort -ne 5176 -and -not $Rc03){throw 'RC03 STOP: alternate preview port requires -Rc03'}
 $repo = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..\..')).Path
 $actual = (& git -C $repo rev-parse HEAD).Trim().ToLowerInvariant()
 if ($LASTEXITCODE -ne 0 -or $actual -ne $ExpectedCommit.ToLowerInvariant()) {
@@ -23,7 +25,8 @@ foreach ($name in @('SPRING_DATASOURCE_URL','SPRING_DATASOURCE_USERNAME',
                     'SPRING_DATASOURCE_PASSWORD','SPRING_PROFILES_ACTIVE',
                     'ARONEXA_PILOT05_PORT','ARONEXA_PILOT05_RUN_ID',
                     'ARONEXA_PILOT08_RC03_CONFIRM','ARONEXA_PILOT06_QA_ROOT',
-                    'ARONEXA_PILOT06_BROWSER','ARONEXA_PILOT06_API_PORT')) {
+                    'ARONEXA_PILOT06_BROWSER','ARONEXA_PILOT06_API_PORT',
+                    'ARONEXA_PILOT08_RC03_PREVIEW_PORT')) {
  if ([Environment]::GetEnvironmentVariable($name)) {
   throw ('PILOT05 STOP: inherited database/profile variable: ' + $name)
  }
@@ -147,6 +150,7 @@ VALUES ('$runId','$db','READY');
   if($Rc03){
    $env:ARONEXA_PILOT08_RC03_CONFIRM='RC03_DISPOSABLE_BROWSER_ONLY'
    $env:ARONEXA_PILOT06_QA_ROOT=$qaPath
+   $env:ARONEXA_PILOT08_RC03_PREVIEW_PORT=[string]$PreviewPort
   }
   $testA=if($Rc03){
    'Pilot05SeparateJvmHttpTests#phaseARc03BrowserCreatesRegistrationBookingAndCheckIn'
@@ -195,6 +199,7 @@ VALUES ('$runId','$db','READY');
  )
  if($Rc03){
   $summary+=@(
+   ('Rc03PreviewPort='+$PreviewPort),
    'Rc03BrowserCreatedRegistration=true',
    'Rc03BrowserCreatedBookingAndCheckIn=true',
    'Rc03DuplicateRegistrationDenied=true',
@@ -215,7 +220,8 @@ VALUES ('$runId','$db','READY');
 } finally {
  foreach($key in @('ARONEXA_PILOT05_PORT','ARONEXA_PILOT05_RUN_ID',
                     'ARONEXA_PILOT05_CONFIRM','ARONEXA_PILOT05_PHASE',
-                    'ARONEXA_PILOT08_RC03_CONFIRM','ARONEXA_PILOT06_QA_ROOT')) {
+                    'ARONEXA_PILOT08_RC03_CONFIRM','ARONEXA_PILOT06_QA_ROOT',
+                    'ARONEXA_PILOT08_RC03_PREVIEW_PORT')) {
   [Environment]::SetEnvironmentVariable($key,$null,'Process')
  }
  if ($started -and $containerId -match '^[0-9a-f]{64}$') {
