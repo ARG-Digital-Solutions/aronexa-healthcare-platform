@@ -83,5 +83,18 @@ try {
     Assert-Condition ([Environment]::GetEnvironmentVariable('ARONEXA_MATRIX_CHILD_SCOPE','Process') -eq $parentBefore) 'child environment override leaked to parent'
 } finally { Remove-Item -LiteralPath $childTemp -Recurse -Force }
 
-Write-Output 'Win11p matrix reconciliation tests PASS: 12'
+$coordinator=Join-Path $PSScriptRoot 'Invoke-Win11p-MavenMatrix.ps1'
+$parseTokens=$null;$parseErrors=$null
+[void][System.Management.Automation.Language.Parser]::ParseFile($coordinator,[ref]$parseTokens,[ref]$parseErrors)
+Assert-Condition ($parseErrors.Count -eq 0) 'coordinator syntax failed'
+$repo=(Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+$sha=(& git -C $repo rev-parse HEAD).Trim()
+$priorPreference=$ErrorActionPreference
+$ErrorActionPreference='Continue'
+$guardOutput=& powershell.exe -NoProfile -File $coordinator -ExpectedCommit $sha -Mode All 2>&1
+$guardExit=$LASTEXITCODE
+$ErrorActionPreference=$priorPreference
+Assert-Condition ($guardExit -ne 0) 'unreviewed All mode incorrectly allowed execution'
+Assert-Condition (($guardOutput -join "`n") -match 'reviewed execution authorization|tracked source is dirty') 'All mode failed outside its expected authorization/clean-source guard'
+Write-Output 'Win11p matrix reconciliation tests PASS: 14'
 
