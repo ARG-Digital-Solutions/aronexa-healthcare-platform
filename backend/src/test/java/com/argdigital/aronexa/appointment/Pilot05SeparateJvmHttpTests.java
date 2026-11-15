@@ -624,7 +624,7 @@ class Pilot05SeparateJvmHttpTests {
             assertThat(admin.queryForObject("""
                 SELECT count(*) FROM patient
                  WHERE tenant_id=? AND id=?
-                  AND display_name='Fictional Rc03 Browser Registration'
+                  AND display_name='Fictional Reception Browser Registration'
                 """,Integer.class,f.tenant(),patient)).isOne();
             assertThat(admin.queryForObject("""
                 SELECT count(*) FROM patient WHERE tenant_id=?
@@ -701,7 +701,7 @@ class Pilot05SeparateJvmHttpTests {
         assertThat(admin.queryForObject("""
             SELECT count(*) FROM patient
              WHERE tenant_id=? AND id=?
-               AND display_name='Fictional Rc03 Browser Registration'
+               AND display_name='Fictional Reception Browser Registration'
             """,Integer.class,tenant,patient)).isOne();
         assertThat(admin.queryForObject("""
             SELECT count(*) FROM patient WHERE tenant_id=?

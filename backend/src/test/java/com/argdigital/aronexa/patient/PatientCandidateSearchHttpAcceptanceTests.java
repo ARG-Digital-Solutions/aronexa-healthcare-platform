@@ -305,6 +305,17 @@ class PatientCandidateSearchHttpAcceptanceTests {
     }
 
     @Test
+    void digitContainingNamePrefixesRejectBeforeSearch() throws Exception {
+        Fixture f=seed(true,true,true,false);
+        String token=login(f);
+        for(String prefix:new String[]{"Fictional Rc03","3Fictional","Fictional3","Fictional \u0663"}) {
+            assertThat(search(f.branch(),"NAME_PREFIX",prefix,token).statusCode())
+                    .as(prefix).isEqualTo(400);
+        }
+        assertThat(audits(f)).isZero();
+    }
+
+    @Test
     void patientRoleHasFunctionExecuteButNeverDirectIdentitySelect() {
         for(String table:new String[]{"patient","patient_identifier",
                 "patient_contact","patient_relationship","patient_identity_audit",

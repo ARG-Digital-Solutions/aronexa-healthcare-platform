@@ -42,7 +42,7 @@ try {
   const registrationUrl='/api/v1/branches/'+input.branchId+'/patient-registrations';
   const appointmentUrl='/api/v1/branches/'+input.branchId+'/appointments';
   const uuid=/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
-  const fictionalName='Fictional Rc03 Browser Registration';
+  const fictionalName='Fictional Reception Browser Registration';
   async function signIn() {
     await page.locator('#tenant').fill(input.tenantCode);
     await page.locator('#username').fill(input.receptionUser);
@@ -58,7 +58,7 @@ try {
   stage='empty-patient-search-before-registration';
   await page.getByRole('button',{name:'Find patient',exact:true}).click();
   await page.locator('#patient-search-mode').selectOption('NAME_PREFIX');
-  await page.locator('#patient-search-term').fill('Fictional Rc03');
+  await page.locator('#patient-search-term').fill('Fictional Reception');
   await page.getByRole('button',{name:'Search patients',exact:true}).click();
   await page.getByText('No authorized records found.',{exact:true}).waitFor();
   await page.getByRole('button',{name:'New fictional registration',exact:true}).click();
