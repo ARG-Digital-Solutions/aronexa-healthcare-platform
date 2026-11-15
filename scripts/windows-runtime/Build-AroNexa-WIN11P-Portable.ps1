@@ -4,7 +4,8 @@ param(
   [Parameter(Mandatory=$true)]
   [ValidatePattern('^[0-9a-fA-F]{40}$')]
   [string]$ExpectedCommit,
-  [string]$DestinationDirectory=(Join-Path $env:USERPROFILE 'Downloads')
+  [string]$DestinationDirectory=(Join-Path $env:USERPROFILE 'Downloads'),
+  [switch]$PackageOnlyUnverified
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -61,10 +62,14 @@ if (Test-Path -LiteralPath $target) {
 $staging = Join-Path $out ('.AroNexa-WIN11P-STAGING-' + [guid]::NewGuid().ToString('N'))
 [void][IO.Directory]::CreateDirectory($staging)
 try {
-  Write-Host 'WIN11P: compile backend and execute its configured Maven tests'
-  & $maven.Source -B -f (Join-Path $repo 'backend\pom.xml') clean verify
-  if ($LASTEXITCODE -ne 0) {
-    throw 'WIN11P FAIL: backend Maven verification'
+  if ($PackageOnlyUnverified) {
+    Write-Warning 'WIN11P PACKAGE-ONLY: Maven tests are skipped. Prior test failures remain unresolved. NOT ACCEPTED / NOT FOR RELEASE.'
+    & $maven.Source -B -f (Join-Path $repo 'backend\pom.xml') -DskipTests package
+    if ($LASTEXITCODE -ne 0) { throw 'WIN11P FAIL: package-only Maven compilation' }
+  } else {
+    Write-Host 'WIN11P: compile backend and execute its configured Maven tests'
+    & $maven.Source -B -f (Join-Path $repo 'backend\pom.xml') clean verify
+    if ($LASTEXITCODE -ne 0) { throw 'WIN11P FAIL: backend Maven verification' }
   }
 
   $jarFiles = @(Get-ChildItem -LiteralPath (Join-Path $repo 'backend\target') -File -Filter '*.jar' |
@@ -122,7 +127,8 @@ exit /b %ERRORLEVEL%
     ('GeneratedUTC=' + [DateTime]::UtcNow.ToString('o')),
     'Requires=Explicitly configured isolated PostgreSQL and authorized synthetic data',
     'No embedded PostgreSQL, migration rehearsal, full UI integration, licensing, or customer acceptance claimed',
-    'Classification=NOT_READY'
+    'Classification=NOT_READY',
+    ('MavenGate=' + $(if ($PackageOnlyUnverified) {'SKIPPED_FAILED_QA_UNVERIFIED'} else {'VERIFY_ATTEMPTED_PASS'}))
   )
   Set-Content -LiteralPath (Join-Path $staging 'NOT-FOR-RELEASE.txt') -Value $manifest -Encoding UTF8
   Get-FileHash -LiteralPath (Join-Path $staging 'app\aronexa-backend.jar') -Algorithm SHA256 |
@@ -131,6 +137,7 @@ exit /b %ERRORLEVEL%
 
   Move-Item -LiteralPath $staging -Destination $target
   Write-Host ('WIN11P BOOTSTRAP CREATED (NOT RELEASE READY): ' + $target) -ForegroundColor Yellow
+  if ($PackageOnlyUnverified) { Write-Warning 'NO TEST ACCEPTANCE: this output is a build-only diagnostic, not an approved pilot' }
   Write-Host ('SourceCommit=' + $sha)
 } finally {
   if (Test-Path -LiteralPath $staging) {
