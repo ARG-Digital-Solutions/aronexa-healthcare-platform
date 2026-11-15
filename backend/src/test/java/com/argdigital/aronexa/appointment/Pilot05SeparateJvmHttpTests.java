@@ -17,6 +17,7 @@ import java.util.UUID;
 import java.util.regex.Pattern;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -314,6 +315,7 @@ class Pilot05SeparateJvmHttpTests {
      * This is a held-open JUnit JVM, not an installed offline Windows service.
      */
     @Test
+    @Tag("win11p-pilot09-operator")
     void pilot09OperatorAssistedWindowsFictionalLab() throws Exception {
         requireRc03();
         assertThat(Pilot05DisposableDatabaseGuard.env("ARONEXA_PILOT05_PHASE"))
@@ -518,6 +520,7 @@ class Pilot05SeparateJvmHttpTests {
      * All processes share ONLY the previously verified disposable PG17.
      */
     @Test
+    @Tag("win11p-pilot05-rc03-phase-a")
     void phaseARc03BrowserCreatesRegistrationBookingAndCheckIn() throws Exception {
         requireRc03();
         String rawPreviewPort=System.getenv("ARONEXA_PILOT08_RC03_PREVIEW_PORT");
@@ -673,6 +676,7 @@ class Pilot05SeparateJvmHttpTests {
      * disposable database label. It must not seed or create any patient.
      */
     @Test
+    @Tag("win11p-pilot05-rc03-phase-b")
     void phaseBRc03RecoversBrowserCreatedPatientAndCheckedInQueue() throws Exception {
         requireRc03();
         assertThat(Pilot05DisposableDatabaseGuard.env("ARONEXA_PILOT05_PHASE"))
@@ -751,6 +755,7 @@ class Pilot05SeparateJvmHttpTests {
     }
 
     @Test
+    @Tag("win11p-pilot05-phase-a")
     void phaseAWritesCheckedInConsultationAndStopsJvm() throws Exception {
         assertThat(Pilot05DisposableDatabaseGuard.env("ARONEXA_PILOT05_PHASE"))
                 .isEqualTo("A");
@@ -815,6 +820,7 @@ class Pilot05SeparateJvmHttpTests {
     }
 
     @Test
+    @Tag("win11p-pilot05-phase-b")
     void phaseBReopensSameConsultationInDifferentJvm() throws Exception {
         assertThat(Pilot05DisposableDatabaseGuard.env("ARONEXA_PILOT05_PHASE"))
                 .isEqualTo("B");
