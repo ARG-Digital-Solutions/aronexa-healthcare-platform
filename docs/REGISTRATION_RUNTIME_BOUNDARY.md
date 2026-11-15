@@ -2,6 +2,8 @@
 
 Classification: **NOT_READY**. This is a default-off main-source adapter, not an operational production registration writer or completed Reception flow.
 
+Current review/operator personnel follow [GOV_SINGLE_DEV_01](SINGLE_DEVELOPER_DELIVERY_POLICY.md): owner review and genuine owner-operated internal acceptance are permitted. This supersedes blanket second-person prerequisites, without changing historical results or technical acceptance. Existing WIN11P automation remains inactive pending owner-mode adaptation.
+
 The owner authorized routine internal implementation and synthetic testing. No workflow, protected environment, module, production migration or clinical endpoint has been activated. Existing PRs remain drafts. AGENTS.md rule 27 and exact-source Central acceptance remain applicable.
 
 ## Implemented boundary
@@ -48,10 +50,10 @@ The existing 352 test-method identities are preserved. Seventeen new methods mak
 | --- | --- |
 | Approved engineering | Owner's standing authorization covers this disabled adapter, bounded admission correction and fictional testing. AI review is recorded as AI review. |
 | Held / not performed | Production writer factory, protected installation key storage, runtime activation, production V10 installation, original-database access, workflow activation, merge and deployment. |
-| Pending migration and security review | Qualified reviewer must assess immutable V10 checksum/approval, NOLOGIN writer privileges, transactional installer rehearsal, least-privilege runtime and proof-domain/key binding. Current read-only installer preflight needs privileged key-store access and is not a runtime startup gate. |
+| Pending migration and security review | Owner and AI review assess immutable V10 checksum/approval, NOLOGIN writer privileges, transactional installer rehearsal, least-privilege runtime and proof-domain/key binding. Identify any concrete unresolved risk requiring additional expertise. Current read-only installer preflight needs privileged key-store access and is not a runtime startup gate. |
 | Pending key/recovery engineering | Protected per-installation key loading, rotation, interruption/recovery, key escrow and genuine encrypted backup/restore; unencrypted restore is not substitute evidence. |
 | Pending Central acceptance | QA maintainer reviews a new exact-source scope/inventory proposal and applicable governance decision. No old allowlist is promoted and no stale PASS is reused. |
 | Pending administrator controls | Administrator verifies three protected WIN11P environments, ephemeral Windows runner and least-privilege credentials. Earlier API 403 responses remain unknown configuration state. |
-| Pending independent acceptance | No separate qualified human is identified: the two known GitHub usernames belong to the same owner. A genuine reviewer/operator must supply required exact-revision dispositions and Windows evidence. |
+| Pending owner acceptance and Windows evidence | No second person is required for routine internal acceptance under GOV_SINGLE_DEV_01. The same owner may perform actual manual checks and record exact-revision OWNER_OPERATOR/OWNER_ACCEPTANCE evidence. Adapt author-excluding automation first; missing technical evidence remains NOT_RUN. |
 
 All eight guarded methods remain **NOT_RUN**, overall acceptance **NOT_PASS**, and WIN-11B **NOT_READY**. A running browser test lab, local test success or owner/AI review cannot replace those gates.
