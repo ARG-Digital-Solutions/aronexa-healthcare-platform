@@ -45,7 +45,8 @@ foreach ($binary in @($java,$jlink)) {
     throw ('WIN11P STOP: missing JDK tool ' + $binary)
   }
 }
-$javaVersion = @(& $java -version 2>&1)
+# Use stdout-producing --version; Java -version writes stderr and can throw with ErrorActionPreference=Stop.
+$javaVersion = @(& $java --version)
 if ($LASTEXITCODE -ne 0 -or ([string]($javaVersion -join ' ')) -notmatch 'version "21\.|openjdk 21\.') {
   throw 'WIN11P STOP: JAVA_HOME must reference Java 21'
 }
@@ -77,7 +78,7 @@ try {
   if ($LASTEXITCODE -ne 0) {
     throw 'WIN11P FAIL: jlink bundled runtime'
   }
-  & (Join-Path $runtime 'bin\java.exe') -version
+  & (Join-Path $runtime 'bin\java.exe') --version
   if ($LASTEXITCODE -ne 0) {
     throw 'WIN11P FAIL: bundled Java runtime startup'
   }
